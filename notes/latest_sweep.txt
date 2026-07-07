@@ -1,0 +1,3 @@
+2026-07-07
+output/sweeps/20260707_161315
+Best mean power: opt_passive (3.206722e-02 W)
