@@ -1,0 +1,46 @@
+# vgoswec_45_opt_passive.yaml
+# Optimal passive damping at design frequency ω₀ = 2π/T₀.
+#
+# B_opt = |Z_intrinsic(ω₀)| where
+#   Z_intrinsic = B_rad(ω) + i·(ω·(I_flap + A₅₅(ω)) − K_hs,55/ω)
+#
+# τ_pto = -B_opt · θ̇
+#
+# NOTE: B_opt is computed from H5 data at startup by impedance.h;
+#       it is NOT specified here (it would override the computed value).
+
+simulation:
+  duration: 60.0
+  timestep: 0.005
+  wave_ramp: 10.0
+
+body:
+  flap:
+    mesh: geometry/vgm45.obj
+    mass: 7.60
+    cog: [0.0, 0.0, -0.2352]
+    inertia_yy: 0.15              # [kg·m²]  TODO: bifilar-pendulum measurement needed
+  base:
+    mesh: geometry/stl_files/center_beam_w_foundation_BEM.STL
+    mass: 1.0e6
+    cog: [0.0, 0.0, -0.7658]
+
+hinge:
+  position_z: -0.7658
+
+hydro:
+  h5_file: hydroData/vgoswec_45.h5
+  rho: 1025.0
+
+wave:
+  type: regular
+  height: 0.05
+  period: 1.5
+  direction: 0.0
+
+controller:
+  type: opt_passive
+  opt_passive:
+    # design_omega is derived from wave.period unless overridden here
+    # design_omega: 4.1888  # [rad/s] = 2π/1.5
+    clip_torque: 5.0    # [N·m]  TODO: tune with tank-test data

@@ -1,0 +1,44 @@
+# vgoswec_45_passive.yaml
+# Baseline: linear viscous damper on the hinge.
+#
+# τ_pto = -B_pto · θ̇
+# Absorbed power: P_abs = -τ_pto · θ̇ (positive = extracted from waves)
+
+simulation:
+  duration: 60.0      # [s]
+  timestep: 0.005     # [s]
+  wave_ramp: 10.0     # [s] linear ramp duration
+
+body:
+  flap:
+    mesh: geometry/vgm45.obj
+    mass: 7.60                    # [kg]  neutrally-buoyant assumption; ρ·V with ρ=1025
+    cog: [0.0, 0.0, -0.2352]     # [m]   from BEM
+    inertia_yy: 0.15             # [kg·m²]  TODO: replace with bifilar-pendulum or ID value
+  base:
+    mesh: geometry/stl_files/center_beam_w_foundation_BEM.STL
+    mass: 1.0e6                   # [kg]  dummy; base is constrained to ground
+    cog: [0.0, 0.0, -0.7658]     # [m]
+
+hinge:
+  position_z: -0.7658  # [m]  same as base CoG per user confirmation
+
+hydro:
+  h5_file: hydroData/vgoswec_45.h5
+  rho: 1025.0          # [kg/m³]  seawater
+
+wave:
+  type: regular         # regular | jonswap
+  height: 0.05          # [m]  H for regular, Hs for JONSWAP
+  period: 1.5           # [s]  T for regular, Tp for JONSWAP
+  direction: 0.0        # [rad]  wave direction (0 = +x)
+  # JONSWAP-only:
+  # gamma: 3.3
+  # n_components: 200
+  # seed: 42
+
+controller:
+  type: passive
+  passive:
+    B_pto: 0.5          # [N·m·s/rad]  TODO: tune with tank-test data
+    clip_torque: 5.0    # [N·m]  output saturation limit

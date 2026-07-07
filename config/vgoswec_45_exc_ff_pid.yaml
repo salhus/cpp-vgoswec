@@ -1,0 +1,59 @@
+# vgoswec_45_exc_ff_pid.yaml
+# Active control: Excitation-force feedforward + PID trajectory tracking.
+#
+# τ = α · F_exc,pitch(t)  +  PID( θ_ref(t) - θ(t) )
+#
+# The feedforward term uses the actual wave excitation torque (pitch DOF)
+# extracted from HydroForces::Evaluate per-component at each timestep.
+# This implements active WEC phase-anticipation.
+#
+# Default θ_ref = 0 (regulate flap to upright; feedforward does anticipation).
+
+simulation:
+  duration: 60.0
+  timestep: 0.005
+  wave_ramp: 10.0
+
+body:
+  flap:
+    mesh: geometry/vgm45.obj
+    mass: 7.60
+    cog: [0.0, 0.0, -0.2352]
+    inertia_yy: 0.15              # [kg·m²]  TODO: bifilar-pendulum measurement needed
+  base:
+    mesh: geometry/stl_files/center_beam_w_foundation_BEM.STL
+    mass: 1.0e6
+    cog: [0.0, 0.0, -0.7658]
+
+hinge:
+  position_z: -0.7658
+
+hydro:
+  h5_file: hydroData/vgoswec_45.h5
+  rho: 1025.0
+
+wave:
+  type: regular
+  height: 0.05
+  period: 1.5
+  direction: 0.0
+  # For irregular waves (JONSWAP):
+  # type: jonswap
+  # height: 0.05   # Hs [m]
+  # period: 1.5    # Tp [s]
+  # gamma: 3.3
+  # n_components: 200
+  # seed: 42
+
+controller:
+  type: exc_ff_pid
+  exc_ff_pid:
+    alpha: 1.0          # feedforward gain on F_exc  TODO: tune with tank-test data
+    theta_ref: 0.0      # [rad]  reference angle (upright equilibrium)
+    pid:
+      kp: 0.5           # [N·m/rad]     TODO: tune with tank-test data
+      ki: 0.05          # [N·m/(rad·s)] TODO: tune with tank-test data
+      kd: 0.05          # [N·m·s/rad]   TODO: tune with tank-test data
+      tau_d: 0.02       # [s]  derivative filter time constant (≈ 3× dt)
+      u_min: -5.0       # [N·m]  output clamp
+      u_max:  5.0       # [N·m]  output clamp

@@ -1,0 +1,49 @@
+# vgoswec_45_cc.yaml
+# Complex-conjugate (CC) reactive control at design frequency ω₀.
+#
+# τ = -K_r · θ  -  B_r · θ̇
+#
+# Gains computed from HydroData at startup (impedance.h):
+#   K_r = -ω₀² · (I_flap + A₅₅(ω₀)) + K_hs,55
+#   B_r =  B_rad,55(ω₀)
+#
+# WARNING: CC control requires bidirectional power flow (reactive);
+#   a physical PTO must support this (e.g., active hydraulic or electric).
+#   The sim does not model power electronics limits; add clip_torque conservatively.
+
+simulation:
+  duration: 60.0
+  timestep: 0.005
+  wave_ramp: 10.0
+
+body:
+  flap:
+    mesh: geometry/vgm45.obj
+    mass: 7.60
+    cog: [0.0, 0.0, -0.2352]
+    inertia_yy: 0.15              # [kg·m²]  TODO: bifilar-pendulum measurement needed
+  base:
+    mesh: geometry/stl_files/center_beam_w_foundation_BEM.STL
+    mass: 1.0e6
+    cog: [0.0, 0.0, -0.7658]
+
+hinge:
+  position_z: -0.7658
+
+hydro:
+  h5_file: hydroData/vgoswec_45.h5
+  rho: 1025.0
+
+wave:
+  type: regular
+  height: 0.05
+  period: 1.5
+  direction: 0.0
+
+controller:
+  type: cc
+  cc:
+    # K_r and B_r are computed automatically; override only if needed:
+    # K_r_override: 0.0  # [N·m/rad]
+    # B_r_override: 0.0  # [N·m·s/rad]
+    clip_torque: 5.0    # [N·m]  TODO: tune with tank-test data
