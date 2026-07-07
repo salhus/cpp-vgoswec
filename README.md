@@ -1,0 +1,104 @@
+# VGOSWEC-45 Standalone C++ SEA-Stack Application
+
+Standalone C++ downstream application simulating the model-scale **VGOSWEC-45**
+(Variable-Geometry OSWEC, 45° panel — bottom-hinged flap) using the
+[SEA-Stack](https://github.com/Project-SEA-Stack/SEA-Stack) framework and
+Project Chrono for multi-body dynamics.
+
+## Overview
+
+- **Model**: Wave-tank-scale VGOSWEC (~1:40 Froude), hinged flap + fixed base
+- **Default geometry**: `geometry/vgm45.obj` (flap), `geometry/stl_files/center_beam_w_foundation_BEM.STL` (base)
+- **Default hydro data**: `hydroData/vgoswec_45.h5`
+- **Wave default**: Regular waves, H = 0.05 m, T = 1.5 s
+- **Four pluggable PTO controllers**: passive, optimal-passive, complex-conjugate, excitation-FF+PID
+
+## Repository structure
+
+```
+cpp-vgoswec/
+├── CMakeLists.txt          # Top-level CMake
+├── README.md
+├── LICENSE                 # MIT
+├── .gitignore
+├── scripts/
+│   └── setup_env.sh        # Source to configure build environment
+├── config/
+│   ├── vgoswec_45_passive.yaml         # Linear viscous damper
+│   ├── vgoswec_45_opt_passive.yaml     # Optimal passive damping at ω₀
+│   ├── vgoswec_45_cc.yaml              # Complex-conjugate reactive control
+│   └── vgoswec_45_exc_ff_pid.yaml      # Excitation-FF + PID (active)
+├── src/
+│   ├── demo_vgoswec.cpp        # Main simulation entry point
+│   ├── active_pto.{h,cpp}      # Four IPTOModel implementations
+│   ├── excitation_force_provider.{h,cpp}  # Excitation-force broadcast helper
+│   ├── pid_controller.{h,cpp}  # Full PID with anti-windup
+│   ├── rsda_pto_functor.{h,cpp}  # Rotational ChLinkRSDA::TorqueFunctor adapter
+│   ├── impedance.{h,cpp}       # Impedance / CC-gain free functions
+│   ├── config_loader.{h,cpp}   # YAML config loading
+├── tests/
+│   └── smoke_test.cpp          # Unit smoke tests (BUILD_TESTING)
+└── docs/
+    ├── CONTROLLERS.md          # Controller mathematics and tuning guide
+    ├── HIL_MIGRATION.md        # How to drop in a ROS 2 / HIL controller
+    └── MPC_TODO.md             # Future MPC roadmap
+```
+
+## Physical properties (model scale, ~1:40 Froude)
+
+| Parameter | Value |
+|-----------|-------|
+| Flap mass | 7.60 kg (neutrally-buoyant assumption) |
+| Flap CoG | (0, 0, −0.2352) m |
+| Flap I_yy | 0.15 kg·m² *(TODO: bifilar pendulum or ID)* |
+| Hinge z | −0.7658 m |
+| Wave tank | H=0.05 m, T=1.5 s (regular default) |
+| Sim duration | 60 s, dt=0.005 s |
+
+## Prerequisites
+
+- **SEA-Stack** (installed, `SEAStack_DIR` set)
+- **Project Chrono** ≥ 10.0 with `CH_USE_SIMD=OFF`
+- **yaml-cpp** ≥ 0.7
+- **Eigen3** ≥ 3.4
+
+## Build
+
+```bash
+# 1. Source the environment (adapt paths as needed)
+source scripts/setup_env.sh
+
+# 2. Configure and build
+cmake -S . -B build \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}"
+cmake --build build -j$(nproc)
+
+# 3. Run (regular waves, passive damper)
+./build/demo_vgoswec --config config/vgoswec_45_passive.yaml
+
+# 4. Run with excitation-FF+PID controller
+./build/demo_vgoswec --config config/vgoswec_45_exc_ff_pid.yaml
+
+# 5. Run headless
+./build/demo_vgoswec --config config/vgoswec_45_passive.yaml --no-viz
+```
+
+## Controller selection
+
+Override the controller at runtime:
+```bash
+./build/demo_vgoswec --config config/vgoswec_45_passive.yaml --controller exc_ff_pid
+```
+
+Valid values: `passive`, `opt_passive`, `cc`, `exc_ff_pid`.
+
+## HIL / ROS 2 integration
+
+See [`docs/HIL_MIGRATION.md`](docs/HIL_MIGRATION.md). All four controllers implement
+`seastack::pto::IPTOModel`, so a future ROS 2 node can drop in a `RosPTOModel`
+without modifying the simulation.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
