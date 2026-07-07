@@ -17,7 +17,6 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 # ─── CMAKE_PREFIX_PATH: re-inject from env var ───────────────────────────────
-# Ensures paths from scripts/setup_env.sh are honored.
 if(DEFINED ENV{CMAKE_PREFIX_PATH})
   file(TO_CMAKE_PATH "$ENV{CMAKE_PREFIX_PATH}" _env_prefixes)
   list(PREPEND CMAKE_PREFIX_PATH ${_env_prefixes})
@@ -34,7 +33,7 @@ find_package(Chrono REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(Eigen3 REQUIRED NO_MODULE)
 
-# ─── Core library (non-Chrono-heavy logic) ───────────────────────────────────
+# ─── Core library ─────────────────────────────────────────────────────────────
 add_library(vgoswec_core STATIC
   src/config_loader.cpp
   src/pid_controller.cpp
@@ -109,13 +108,18 @@ target_compile_features(demo_vgoswec PRIVATE cxx_std_20)
 target_compile_options(demo_vgoswec PRIVATE -Wall -Wextra -Wpedantic)
 
 # TEMP FIX: SEA-Stack guihelper is in source tree, not installed SDK include.
-# If present, expose it for optional visualization path.
 set(SEASTACK_SOURCE_DIR_HINT "$ENV{HOME}/SEA-Stack")
 if(EXISTS "${SEASTACK_SOURCE_DIR_HINT}/apps/seastack/gui/guihelper.h")
   target_include_directories(demo_vgoswec PRIVATE
     "${SEASTACK_SOURCE_DIR_HINT}/apps/seastack"
   )
-  # target_compile_definitions(demo_vgoswec PRIVATE VGOSWEC_HAVE_SEASTACK_GUIHELPER=1)
+  target_compile_definitions(demo_vgoswec PRIVATE VGOSWEC_HAVE_SEASTACK_GUIHELPER=1)
+
+  # Optional: only if your guihelper implementation needs this imported target.
+  if(TARGET vsgImGui::vsgImGui)
+    target_link_libraries(demo_vgoswec PRIVATE vsgImGui::vsgImGui)
+  endif()
+
   message(STATUS "demo_vgoswec: using guihelper from SEA-Stack source tree (${SEASTACK_SOURCE_DIR_HINT})")
 else()
   message(STATUS "demo_vgoswec: guihelper not found in SEA-Stack source tree; forcing headless runtime path")

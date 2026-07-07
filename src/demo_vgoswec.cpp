@@ -157,6 +157,43 @@ static std::shared_ptr<seastack::pto::IPTOModel> BuildController(
   throw std::runtime_error("Unknown controller type: " + type);
 }
 
+struct Record {
+  double t, th, om, tau_pto, tau_exc, p;
+};
+
+static void RunHeadlessLoop(
+    ChSystemNSC& system,
+    seastack::chrono::HydroSystem& hydro_system,
+    const std::shared_ptr<ChBody>& flap_body,
+    const std::shared_ptr<ChLinkMotorRotationTorque>& motor,
+    const std::shared_ptr<seastack::pto::IPTOModel>& controller,
+    const std::shared_ptr<vgoswec::ExcitationForceProvider>& exc_provider,
+    double sim_duration,
+    double dt,
+    std::vector<Record>& records) {
+  while (system.GetChTime() <= sim_duration) {
+    const double t = system.GetChTime();
+
+    const auto rpy = flap_body->GetRot().GetCardanAnglesXYZ();
+    const double pitch_rad = rpy.y();
+    const double pitch_vel = flap_body->GetAngVelParent().y();
+
+    const double pto_tau = controller->ComputeForce(pitch_rad, pitch_vel, t);
+    motor->SetTorqueFunction(chrono_types::make_shared<ChFunctionConst>(pto_tau));
+
+    system.DoStepDynamics(dt);
+
+    const auto& per_comp = hydro_system.GetLastComponentForces();
+    if (!per_comp.empty()) {
+      exc_provider->Update(per_comp, system.GetChTime());
+    }
+    const double exc_tau = exc_provider->GetLatestExcitationTorque();
+
+    records.push_back(
+        {system.GetChTime(), pitch_rad, pitch_vel, pto_tau, exc_tau, -pto_tau * pitch_vel});
+  }
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -222,34 +259,22 @@ int main(int argc, char* argv[]) {
   auto exc_provider = std::make_shared<vgoswec::ExcitationForceProvider>(0, 4);
   auto controller = BuildController(cfg, args.controller_override, hydro_data, exc_provider);
 
-  struct Record {
-    double t, th, om, tau_pto, tau_exc, p;
-  };
   std::vector<Record> records;
   records.reserve(static_cast<size_t>(sim_duration / cfg.timestep) + 100);
 
-  while (system.GetChTime() <= sim_duration) {
-    const double t = system.GetChTime();
-
-    const auto rpy = flap_body->GetRot().GetCardanAnglesXYZ();
-    const double pitch_rad = rpy.y();
-    const double pitch_vel = flap_body->GetAngVelParent().y();
-
-    // Controller evaluated, but actuator torque not yet applied (safe checkpoint state).
-    const double pto_tau = controller->ComputeForce(pitch_rad, pitch_vel, t);
-    motor->SetTorqueFunction(chrono_types::make_shared<ChFunctionConst>(pto_tau));
-
-    system.DoStepDynamics(cfg.timestep);
-
-    const auto& per_comp = hydro_system.GetLastComponentForces();
-    if (!per_comp.empty()) {
-      exc_provider->Update(per_comp, system.GetChTime());
-    }
-    const double exc_tau = exc_provider->GetLatestExcitationTorque();
-
-    records.push_back(
-        {system.GetChTime(), pitch_rad, pitch_vel, pto_tau, exc_tau, -pto_tau * pitch_vel});
+  if (args.visualization_on) {
+#ifdef VGOSWEC_HAVE_SEASTACK_GUIHELPER
+    std::cout << "Visualization requested, but runtime GUI loop is not yet wired in this demo.\n"
+              << "Falling back to headless simulation.\n";
+#else
+    std::cerr << "ERROR: Visualization requested but GUI support is not available in this build.\n"
+              << "Rebuild with GUI support or use --no-viz.\n";
+    return 2;
+#endif
   }
+
+  RunHeadlessLoop(system, hydro_system, flap_body, motor, controller, exc_provider,
+                  sim_duration, cfg.timestep, records);
 
   std::filesystem::create_directories("output");
   std::ofstream csv("output/vgoswec_45_results.csv");
