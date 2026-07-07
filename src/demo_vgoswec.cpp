@@ -56,14 +56,25 @@ static CLIArgs ParseCLI(int argc, char* argv[]) {
   CLIArgs args;
   for (int i = 1; i < argc; ++i) {
     std::string a = argv[i];
-    if (a == "-h" || a == "--help") { PrintUsage(argv[0]); std::exit(0); }
-    else if (a == "--config" && i + 1 < argc) args.config_path = argv[++i];
-    else if (a == "--controller" && i + 1 < argc) args.controller_override = argv[++i];
-    else if (a == "--data-dir" && i + 1 < argc) args.data_dir = argv[++i];
-    else if (a == "--no-viz") args.visualization_on = false;
-    else if (a == "--duration" && i + 1 < argc) args.duration_override = std::stod(argv[++i]);
-    else { std::cerr << "Unknown arg: " << a << "\n"; std::exit(1); }
+    if (a == "-h" || a == "--help") {
+      PrintUsage(argv[0]);
+      std::exit(0);
+    } else if (a == "--config" && i + 1 < argc) {
+      args.config_path = argv[++i];
+    } else if (a == "--controller" && i + 1 < argc) {
+      args.controller_override = argv[++i];
+    } else if (a == "--data-dir" && i + 1 < argc) {
+      args.data_dir = argv[++i];
+    } else if (a == "--no-viz") {
+      args.visualization_on = false;
+    } else if (a == "--duration" && i + 1 < argc) {
+      args.duration_override = std::stod(argv[++i]);
+    } else {
+      std::cerr << "Unknown arg: " << a << "\n";
+      std::exit(1);
+    }
   }
+
   if (args.config_path.empty()) {
     std::cerr << "ERROR: --config required\n";
     std::exit(1);
@@ -88,6 +99,7 @@ static std::shared_ptr<LinearDirectionalWaveField> BuildWaveField(const vgoswec:
     part.spectrum.gamma = cfg.wave.gamma;
     sea_state.partitions.push_back(part);
   }
+
   auto components = ComponentSampler::Build(sea_state);
   auto waves = std::make_shared<LinearDirectionalWaveField>(std::move(components), 0.0);
   waves->SetRampDuration(cfg.wave_ramp);
@@ -99,14 +111,14 @@ static std::shared_ptr<seastack::pto::IPTOModel> BuildController(
     const std::string& override_type,
     const seastack::hydro::HydroData& hydro_data,
     const std::shared_ptr<vgoswec::ExcitationForceProvider>& exc_provider) {
-
   const std::string type = override_type.empty() ? cfg.controller.type : override_type;
   const double omega0 = (cfg.controller.opt_passive.design_omega > 0.0)
                             ? cfg.controller.opt_passive.design_omega
                             : 2.0 * M_PI / cfg.wave.period;
 
   if (type == "passive")
-    return std::make_shared<vgoswec::PassiveDamper>(cfg.controller.passive.B_pto, cfg.controller.passive.clip_torque);
+    return std::make_shared<vgoswec::PassiveDamper>(cfg.controller.passive.B_pto,
+                                                     cfg.controller.passive.clip_torque);
 
   if (type == "opt_passive") {
     const double B_opt = vgoswec::PitchImpedanceMagnitude(hydro_data, 0, omega0, cfg.flap.inertia_yy);
@@ -118,7 +130,8 @@ static std::shared_ptr<seastack::pto::IPTOModel> BuildController(
     double B_r = cfg.controller.cc.B_r_override;
     if (K_r == 0.0 && B_r == 0.0) {
       const auto gains = vgoswec::ComputeCCGains(hydro_data, 0, omega0, cfg.flap.inertia_yy);
-      K_r = gains.K_r; B_r = gains.B_r;
+      K_r = gains.K_r;
+      B_r = gains.B_r;
     }
     return std::make_shared<vgoswec::ComplexConjugateControl>(K_r, B_r, cfg.controller.cc.clip_torque);
   }
@@ -132,27 +145,30 @@ static std::shared_ptr<seastack::pto::IPTOModel> BuildController(
     p.u_min = cfg.controller.exc_ff_pid.pid.u_min;
     p.u_max = cfg.controller.exc_ff_pid.pid.u_max;
     p.dt_expected = cfg.timestep;
+
     auto pid = std::make_unique<vgoswec::PIDController>(p);
     return std::make_shared<vgoswec::ExcitationFeedforwardPID>(
-        exc_provider, cfg.controller.exc_ff_pid.alpha, std::move(pid), cfg.controller.exc_ff_pid.theta_ref);
+        exc_provider, cfg.controller.exc_ff_pid.alpha, std::move(pid),
+        cfg.controller.exc_ff_pid.theta_ref);
   }
 
   throw std::runtime_error("Unknown controller type: " + type);
 }
 
-} // namespace
+}  // namespace
 
 int main(int argc, char* argv[]) {
   const auto args = ParseCLI(argc, argv);
-  const auto cfg  = vgoswec::LoadConfig(args.config_path);
+  const auto cfg = vgoswec::LoadConfig(args.config_path);
   const double sim_duration = (args.duration_override > 0.0) ? args.duration_override : cfg.duration;
 
   const auto resolve = [&](const std::string& rel) {
-    if (std::filesystem::path(rel).is_absolute()) return rel;
+    if (std::filesystem::path(rel).is_absolute())
+      return rel;
     return (std::filesystem::path(args.data_dir) / rel).lexically_normal().generic_string();
   };
 
-  const std::string h5_file   = resolve(cfg.h5_file);
+  const std::string h5_file = resolve(cfg.h5_file);
   const std::string flap_mesh = resolve(cfg.flap.mesh);
   const std::string base_mesh = resolve(cfg.base.mesh);
 
@@ -199,39 +215,35 @@ int main(int argc, char* argv[]) {
   hydro_system.SetPerComponentCaptureEnabled(true);
 
   auto exc_provider = std::make_shared<vgoswec::ExcitationForceProvider>(0, 4);
-  auto controller   = BuildController(cfg, args.controller_override, hydro_data, exc_provider);
+  auto controller = BuildController(cfg, args.controller_override, hydro_data, exc_provider);
 
-  struct Record { double t, th, om, tau_pto, tau_exc, p; };
+  struct Record {
+    double t, th, om, tau_pto, tau_exc, p;
+  };
   std::vector<Record> records;
   records.reserve(static_cast<size_t>(sim_duration / cfg.timestep) + 100);
 
-while (system.GetChTime() <= sim_duration) {
-  const double t = system.GetChTime();
-  std::cout << "L0 t=" << system.GetChTime() << std::endl;
+  while (system.GetChTime() <= sim_duration) {
+    const double t = system.GetChTime();
 
-  const auto rpy = flap_body->GetRot().GetCardanAnglesXYZ();
-  const double pitch_rad = rpy.y();
-  const double pitch_vel = flap_body->GetAngVelParent().y();
-  std::cout << "L1 kinematics\n";
+    const auto rpy = flap_body->GetRot().GetCardanAnglesXYZ();
+    const double pitch_rad = rpy.y();
+    const double pitch_vel = flap_body->GetAngVelParent().y();
 
-  const double pto_tau = controller->ComputeForce(pitch_rad, pitch_vel, t);
+    // Controller evaluated, but actuator torque not yet applied (safe checkpoint state).
+    const double pto_tau = controller->ComputeForce(pitch_rad, pitch_vel, t);
 
-  std::cout << "L2 before step\n";
-  system.DoStepDynamics(cfg.timestep);
-  std::cout << "L3 after step\n";
+    system.DoStepDynamics(cfg.timestep);
 
-  const auto& per_comp = hydro_system.GetLastComponentForces();
-  std::cout << "L4 per_comp size=" << per_comp.size() << "\n";
+    const auto& per_comp = hydro_system.GetLastComponentForces();
+    if (!per_comp.empty()) {
+      exc_provider->Update(per_comp, system.GetChTime());
+    }
+    const double exc_tau = exc_provider->GetLatestExcitationTorque();
 
-  if (!per_comp.empty()) {
-    exc_provider->Update(per_comp, system.GetChTime());
+    records.push_back(
+        {system.GetChTime(), pitch_rad, pitch_vel, pto_tau, exc_tau, -pto_tau * pitch_vel});
   }
-  std::cout << "L5 exc updated\n";
-
-  const double exc_tau = exc_provider->GetLatestExcitationTorque();
-
-  records.push_back({system.GetChTime(), pitch_rad, pitch_vel, pto_tau, exc_tau, -pto_tau * pitch_vel});
-}
 
   std::filesystem::create_directories("output");
   std::ofstream csv("output/vgoswec_45_results.csv");
