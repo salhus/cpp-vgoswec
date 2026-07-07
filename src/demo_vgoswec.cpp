@@ -310,6 +310,8 @@ int main(int argc, char* argv[]) {
         double power_w;      ///< Instantaneous absorbed power: P = -τ_pto · ω
     };
     std::vector<Record> records;
+    // Pre-reserve: sim_duration/timestep records expected (≈12,000 for default 60 s @ 0.005 s).
+    // For very long simulations (> ~1 h) consider streaming directly to CSV instead.
     records.reserve(static_cast<size_t>(sim_duration / cfg.timestep) + 100);
 
     // ── 12. Time loop ─────────────────────────────────────────────────────────
