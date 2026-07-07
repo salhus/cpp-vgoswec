@@ -1,4 +1,4 @@
-// demo_vgoswec.cpp (headless-safe; optional GUI only when fully available)
+// demo_vgoswec.cpp (minimal, headless-safe)
 
 #include "active_pto.h"
 #include "config_loader.h"
@@ -160,7 +160,7 @@ int main(int argc, char* argv[]) {
 
   ChSystemNSC system;
   system.SetGravitationalAcceleration(ChVector3d(0, 0, -9.81));
-  system.SetSolverType(ChSolver::Type::GMRES); // no extra GMRES header needed
+  system.SetSolverType(ChSolver::Type::GMRES);
 
   auto flap_body = chrono_types::make_shared<ChBodyEasyMesh>(flap_mesh, 1000.0, false, true, false);
   system.Add(flap_body);
@@ -201,42 +201,37 @@ int main(int argc, char* argv[]) {
   auto exc_provider = std::make_shared<vgoswec::ExcitationForceProvider>(0, 4);
   auto controller   = BuildController(cfg, args.controller_override, hydro_data, exc_provider);
 
-  // NOTE: keep fully disabled until linking CreateUI is solved in your env.
-#if 0
-#ifdef VGOSWEC_HAVE_SEASTACK_GUIHELPER
-  auto pui = seastack::viz::CreateUI(args.visualization_on);
-  auto& ui = *pui;
-  ui.Init(&system, "VGOSWEC-45 SEA-Stack Demo");
-  ui.SetCamera(0, -3, 0, 0, 0, cfg.hinge_z);
-  if (args.visualization_on) ui.SetWaveModel(waves);
-#endif
-#endif
-
   struct Record { double t, th, om, tau_pto, tau_exc, p; };
   std::vector<Record> records;
   records.reserve(static_cast<size_t>(sim_duration / cfg.timestep) + 100);
 
-  while (system.GetChTime() <= sim_duration) {
-    const double t = system.GetChTime();
-    const auto rpy = flap_body->GetRot().GetCardanAnglesXYZ();
-    const double pitch_rad = rpy.y();
-    const double pitch_vel = flap_body->GetAngVelParent().y();
+while (system.GetChTime() <= sim_duration) {
+  const double t = system.GetChTime();
+  std::cout << "L0 t=" << system.GetChTime() << std::endl;
 
-    const double pto_tau = controller->ComputeForce(pitch_rad, pitch_vel, t);
+  const auto rpy = flap_body->GetRot().GetCardanAnglesXYZ();
+  const double pitch_rad = rpy.y();
+  const double pitch_vel = flap_body->GetAngVelParent().y();
+  std::cout << "L1 kinematics\n";
 
-    flap_body->AccumulateTorque(0, ChVector3d(0.0,  pto_tau, 0.0), false);
-    base_body->AccumulateTorque(0, ChVector3d(0.0, -pto_tau, 0.0), false);
+  const double pto_tau = controller->ComputeForce(pitch_rad, pitch_vel, t);
 
-    system.DoStepDynamics(cfg.timestep);
-    std::cout << "[loop] stepped t=" << system.GetChTime() << "\n";
-    const auto& per_comp = hydro_system.GetLastComponentForces();
-    if (!per_comp.empty()) {
-      exc_provider->Update(per_comp, system.GetChTime());
-    }
-    const double exc_tau = exc_provider->GetLatestExcitationTorque();
+  std::cout << "L2 before step\n";
+  system.DoStepDynamics(cfg.timestep);
+  std::cout << "L3 after step\n";
 
-    records.push_back({system.GetChTime(), pitch_rad, pitch_vel, pto_tau, exc_tau, -pto_tau * pitch_vel});
+  const auto& per_comp = hydro_system.GetLastComponentForces();
+  std::cout << "L4 per_comp size=" << per_comp.size() << "\n";
+
+  if (!per_comp.empty()) {
+    exc_provider->Update(per_comp, system.GetChTime());
   }
+  std::cout << "L5 exc updated\n";
+
+  const double exc_tau = exc_provider->GetLatestExcitationTorque();
+
+  records.push_back({system.GetChTime(), pitch_rad, pitch_vel, pto_tau, exc_tau, -pto_tau * pitch_vel});
+}
 
   std::filesystem::create_directories("output");
   std::ofstream csv("output/vgoswec_45_results.csv");
