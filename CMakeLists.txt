@@ -50,6 +50,7 @@ add_library(vgoswec_chrono STATIC
   src/active_pto.cpp
   src/excitation_force_provider.cpp
   src/impedance.cpp
+  src/rsda_pto_functor.cpp
 )
 target_include_directories(vgoswec_chrono PUBLIC src)
 target_link_libraries(vgoswec_chrono
