@@ -5,6 +5,7 @@
 #include "excitation_force_provider.h"
 #include "impedance.h"
 #include "pid_controller.h"
+#include "rsda_pto_functor.h"
 
 #include <seastack/adapters/chrono/helper.h>
 #include <seastack/adapters/chrono/hydro_system.h>
@@ -19,9 +20,8 @@
 #include <chrono/physics/ChBodyEasy.h>
 #include <chrono/physics/ChLinkLock.h>
 #include <chrono/physics/ChLinkMate.h>
+#include <chrono/physics/ChLinkRSDA.h>
 #include <chrono/physics/ChSystemNSC.h>
-#include <chrono/physics/ChLinkMotorRotationTorque.h>
-#include <chrono/functions/ChFunctionConst.h>
 
 #include <cmath>
 #include <filesystem>
@@ -161,39 +161,6 @@ struct Record {
   double t, th, om, tau_pto, tau_exc, p;
 };
 
-static void RunHeadlessLoop(
-    ChSystemNSC& system,
-    seastack::chrono::HydroSystem& hydro_system,
-    const std::shared_ptr<ChBody>& flap_body,
-    const std::shared_ptr<ChLinkMotorRotationTorque>& motor,
-    const std::shared_ptr<seastack::pto::IPTOModel>& controller,
-    const std::shared_ptr<vgoswec::ExcitationForceProvider>& exc_provider,
-    double sim_duration,
-    double dt,
-    std::vector<Record>& records) {
-  while (system.GetChTime() <= sim_duration) {
-    const double t = system.GetChTime();
-
-    const auto rpy = flap_body->GetRot().GetCardanAnglesXYZ();
-    const double pitch_rad = rpy.y();
-    const double pitch_vel = flap_body->GetAngVelParent().y();
-
-    const double pto_tau = controller->ComputeForce(pitch_rad, pitch_vel, t);
-    motor->SetTorqueFunction(chrono_types::make_shared<ChFunctionConst>(pto_tau));
-
-    system.DoStepDynamics(dt);
-
-    const auto& per_comp = hydro_system.GetLastComponentForces();
-    if (!per_comp.empty()) {
-      exc_provider->Update(per_comp, system.GetChTime());
-    }
-    const double exc_tau = exc_provider->GetLatestExcitationTorque();
-
-    records.push_back(
-        {system.GetChTime(), pitch_rad, pitch_vel, pto_tau, exc_tau, -pto_tau * pitch_vel});
-  }
-}
-
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -245,11 +212,10 @@ int main(int argc, char* argv[]) {
   const ChVector3d hinge_pos(0.0, 0.0, cfg.hinge_z);
   const ChQuaternion<> hinge_rot = QuatFromAngleX(CH_PI / 2.0);
 
-  auto motor = chrono_types::make_shared<ChLinkMotorRotationTorque>();
-  motor->Initialize(base_body, flap_body, ChFrame<>(hinge_pos, hinge_rot));
-  auto tau_fun = chrono_types::make_shared<ChFunctionConst>(0.0);
-  motor->SetTorqueFunction(tau_fun);
-  system.AddLink(motor);
+  // Revolute constraint: 5-DOF hinge, free rotation about world Y-axis
+  auto revolute = chrono_types::make_shared<ChLinkLockRevolute>();
+  revolute->Initialize(base_body, flap_body, ChFrame<>(hinge_pos, hinge_rot));
+  system.AddLink(revolute);
 
   auto waves = BuildWaveField(cfg);
   std::vector<std::shared_ptr<ChBody>> bodies{flap_body, base_body};
@@ -259,22 +225,72 @@ int main(int argc, char* argv[]) {
   auto exc_provider = std::make_shared<vgoswec::ExcitationForceProvider>(0, 4);
   auto controller = BuildController(cfg, args.controller_override, hydro_data, exc_provider);
 
+  // RSDA: applies PTO torque at every force-assembly sub-step via RsdaPtoFunctor.
+  // This replaces the per-outer-step ChLinkMotorRotationTorque + ChFunctionConst pattern.
+  auto rsda = chrono_types::make_shared<ChLinkRSDA>();
+  rsda->Initialize(base_body, flap_body, false,
+                   ChFramed(hinge_pos, hinge_rot), ChFramed(hinge_pos, hinge_rot));
+  rsda->RegisterTorqueFunctor(std::make_shared<vgoswec::RsdaPtoFunctor>(controller));
+  system.AddLink(rsda);
+
   std::vector<Record> records;
   records.reserve(static_cast<size_t>(sim_duration / cfg.timestep) + 100);
 
-  if (args.visualization_on) {
+  const double dt = cfg.timestep;
+
 #ifdef VGOSWEC_HAVE_SEASTACK_GUIHELPER
-    std::cout << "Visualization requested, but runtime GUI loop is not yet wired in this demo.\n"
-              << "Falling back to headless simulation.\n";
+  // GUI path: CreateUI(true) -> real VSG renderer; CreateUI(false) -> headless no-op.
+  // A single loop driven by ui.IsRunning() works for both visual and headless runs.
+  auto pui = seastack::viz::CreateUI(args.visualization_on);
+  seastack::viz::UI& ui = *pui;
+  ui.Init(&system, "VGOSWEC-45");
+  ui.SetCamera(0, -3.0, 0.5, 0, 0, -0.5);
+  ui.SetWaveModel(waves);
+
+  while (system.GetChTime() <= sim_duration) {
+    if (!ui.IsRunning(dt)) break;
+    if (ui.simulationStarted) {
+      const double pitch_rad = rsda->GetAngle();
+      const double pitch_vel = rsda->GetVelocity();
+
+      system.DoStepDynamics(dt);
+
+      const auto& per_comp = hydro_system.GetLastComponentForces();
+      if (!per_comp.empty()) {
+        exc_provider->Update(per_comp, system.GetChTime());
+      }
+      const double exc_tau = exc_provider->GetLatestExcitationTorque();
+      const double pto_tau = rsda->GetTorque();
+
+      records.push_back(
+          {system.GetChTime(), pitch_rad, pitch_vel, pto_tau, exc_tau, -pto_tau * pitch_vel});
+    }
+  }
 #else
+  if (args.visualization_on) {
     std::cerr << "ERROR: Visualization requested but GUI support is not available in this build.\n"
               << "Rebuild with GUI support or use --no-viz.\n";
     return 2;
-#endif
   }
 
-  RunHeadlessLoop(system, hydro_system, flap_body, motor, controller, exc_provider,
-                  sim_duration, cfg.timestep, records);
+  // Headless loop
+  while (system.GetChTime() <= sim_duration) {
+    const double pitch_rad = rsda->GetAngle();
+    const double pitch_vel = rsda->GetVelocity();
+
+    system.DoStepDynamics(dt);
+
+    const auto& per_comp = hydro_system.GetLastComponentForces();
+    if (!per_comp.empty()) {
+      exc_provider->Update(per_comp, system.GetChTime());
+    }
+    const double exc_tau = exc_provider->GetLatestExcitationTorque();
+    const double pto_tau = rsda->GetTorque();
+
+    records.push_back(
+        {system.GetChTime(), pitch_rad, pitch_vel, pto_tau, exc_tau, -pto_tau * pitch_vel});
+  }
+#endif
 
   std::filesystem::create_directories("output");
   std::ofstream csv("output/vgoswec_45_results.csv");

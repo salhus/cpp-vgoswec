@@ -61,10 +61,17 @@ cpp-vgoswec/
 - **Project Chrono** ≥ 10.0 with `CH_USE_SIMD=OFF`
 - **yaml-cpp** ≥ 0.7
 - **Eigen3** ≥ 3.4
-- **For SEA-Stack/HIL visualization parity**: `libseastack_app_lib.a` available in one of:
-  - `$HOME/SEA-Stack/build/lib/Release/`
-  - `$HOME/SEA-Stack/build/lib/`
-  - `$HOME/SEA-Stack/install/lib/`
+- **For GUI/visualization** (optional — headless builds work without these):
+  - **VulkanSceneGraph (VSG)** ≥ 1.1 (`vsg::vsg` CMake target)
+  - **vsgXchange** ≥ 1.0 (asset loading for VSG; `vsgXchange::vsgXchange`)
+  - **vsgImGui** ≥ 0.3 (in-scene UI overlay; `vsgImGui::vsgImGui`)
+  - **Chrono VSG module** built alongside Chrono (`Chrono::Chrono_vsg`)
+  - **SEA-Stack GUI helper header** present at `$HOME/SEA-Stack/apps/seastack/gui/guihelper.h` (from the SEA-Stack source tree)
+  - **`libseastack_app_lib`** available in one of:
+    - `$HOME/SEA-Stack/build/lib/Release/`
+    - `$HOME/SEA-Stack/build/lib/`
+    - `$HOME/SEA-Stack/install/lib/`
+  When any of the above GUI components are absent CMake automatically falls back to a headless-only build that still compiles and produces CSV output.
 
 ## Build
 
