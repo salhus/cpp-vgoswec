@@ -20,6 +20,8 @@
 #include <chrono/physics/ChLinkLock.h>
 #include <chrono/physics/ChLinkMate.h>
 #include <chrono/physics/ChSystemNSC.h>
+#include <chrono/physics/ChLinkMotorRotationTorque.h>
+#include <chrono/functions/ChFunctionConst.h>
 
 #include <cmath>
 #include <filesystem>
@@ -205,9 +207,12 @@ int main(int argc, char* argv[]) {
 
   const ChVector3d hinge_pos(0.0, 0.0, cfg.hinge_z);
   const ChQuaternion<> hinge_rot = QuatFromAngleX(CH_PI / 2.0);
-  auto revolute = chrono_types::make_shared<ChLinkLockRevolute>();
-  revolute->Initialize(base_body, flap_body, ChFramed(hinge_pos, hinge_rot));
-  system.AddLink(revolute);
+
+  auto motor = chrono_types::make_shared<ChLinkMotorRotationTorque>();
+  motor->Initialize(base_body, flap_body, ChFrame<>(hinge_pos, hinge_rot));
+  auto tau_fun = chrono_types::make_shared<ChFunctionConst>(0.0);
+  motor->SetTorqueFunction(tau_fun);
+  system.AddLink(motor);
 
   auto waves = BuildWaveField(cfg);
   std::vector<std::shared_ptr<ChBody>> bodies{flap_body, base_body};
@@ -232,6 +237,7 @@ int main(int argc, char* argv[]) {
 
     // Controller evaluated, but actuator torque not yet applied (safe checkpoint state).
     const double pto_tau = controller->ComputeForce(pitch_rad, pitch_vel, t);
+    motor->SetTorqueFunction(chrono_types::make_shared<ChFunctionConst>(pto_tau));
 
     system.DoStepDynamics(cfg.timestep);
 
