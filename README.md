@@ -61,6 +61,10 @@ cpp-vgoswec/
 - **Project Chrono** ≥ 10.0 with `CH_USE_SIMD=OFF`
 - **yaml-cpp** ≥ 0.7
 - **Eigen3** ≥ 3.4
+- **For SEA-Stack/HIL visualization parity**: `libseastack_app_lib.a` available in one of:
+  - `$HOME/SEA-Stack/build/lib/Release/`
+  - `$HOME/SEA-Stack/build/lib/`
+  - `$HOME/SEA-Stack/install/lib/`
 
 ## Build
 

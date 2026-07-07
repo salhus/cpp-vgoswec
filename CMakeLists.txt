@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.21)
 project(demo_vgoswec LANGUAGES CXX)
 
 # ─── C++ standard ─────────────────────────────────────────────────────────────
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # GCC 13 workaround: broken std::format in C++20 mode
@@ -59,6 +59,7 @@ target_link_libraries(vgoswec_chrono
          SEAStack::HydroIO
          Chrono::Chrono_core
 )
+target_compile_features(vgoswec_chrono PUBLIC cxx_std_17)
 target_compile_options(vgoswec_chrono PRIVATE -Wall -Wextra -Wpedantic)
 
 # ─── Optional VSG / Chrono_vsg ───────────────────────────────────────────────
@@ -70,31 +71,6 @@ else()
   message(STATUS "demo_vgoswec: VSG not available — building headless-compatible demo")
 endif()
 
-# Optional explicit vsg libs (fallback hints)
-if(TARGET Chrono::Chrono_vsg)
-  set(_vsg_search_prefixes ${CMAKE_PREFIX_PATH})
-  if(DEFINED ENV{CMAKE_PREFIX_PATH})
-    file(TO_CMAKE_PATH "$ENV{CMAKE_PREFIX_PATH}" _env_pfx)
-    list(APPEND _vsg_search_prefixes ${_env_pfx})
-  endif()
-  list(APPEND _vsg_search_prefixes /usr/local /usr)
-
-  set(_vsg_lib_hints "")
-  foreach(_p IN LISTS _vsg_search_prefixes)
-    list(APPEND _vsg_lib_hints "${_p}/lib")
-  endforeach()
-
-  find_library(_VSG_LIB vsg HINTS ${_vsg_lib_hints})
-  find_library(_VSGXCHANGE_LIB vsgXchange HINTS ${_vsg_lib_hints})
-
-  if(_VSG_LIB)
-    list(APPEND _demo_extra_libs ${_VSG_LIB})
-  endif()
-  if(_VSGXCHANGE_LIB)
-    list(APPEND _demo_extra_libs ${_VSGXCHANGE_LIB})
-  endif()
-endif()
-
 # ─── Main executable ──────────────────────────────────────────────────────────
 add_executable(demo_vgoswec src/demo_vgoswec.cpp)
 
@@ -104,23 +80,65 @@ target_link_libraries(demo_vgoswec
           SEAStack::HydroIO
           ${_demo_extra_libs}
 )
-target_compile_features(demo_vgoswec PRIVATE cxx_std_20)
+target_compile_features(demo_vgoswec PRIVATE cxx_std_17)
 target_compile_options(demo_vgoswec PRIVATE -Wall -Wextra -Wpedantic)
 
-# TEMP FIX: SEA-Stack guihelper is in source tree, not installed SDK include.
+# Prefer imported VSG targets when available (avoid manual low-level find_library).
+if(TARGET vsg::vsg)
+  target_link_libraries(demo_vgoswec PRIVATE vsg::vsg)
+endif()
+if(TARGET vsgXchange::vsgXchange)
+  target_link_libraries(demo_vgoswec PRIVATE vsgXchange::vsgXchange)
+endif()
+if(TARGET vsgImGui::vsgImGui)
+  target_link_libraries(demo_vgoswec PRIVATE vsgImGui::vsgImGui)
+endif()
+
+# SEA-Stack app library import (parity with working SEA-Stack/HIL integration path).
 set(SEASTACK_SOURCE_DIR_HINT "$ENV{HOME}/SEA-Stack")
+set(_seastack_app_lib_candidates
+  "$ENV{HOME}/SEA-Stack/build/lib/Release/libseastack_app_lib.a"
+  "$ENV{HOME}/SEA-Stack/build/lib/libseastack_app_lib.a"
+  "$ENV{HOME}/SEA-Stack/install/lib/libseastack_app_lib.a"
+)
+
+set(_SEASTACK_APP_LIB_PATH "")
+foreach(_candidate IN LISTS _seastack_app_lib_candidates)
+  if(EXISTS "${_candidate}")
+    set(_SEASTACK_APP_LIB_PATH "${_candidate}")
+    break()
+  endif()
+endforeach()
+
+if(NOT _SEASTACK_APP_LIB_PATH)
+  find_library(_SEASTACK_APP_LIB_PATH
+    NAMES seastack_app_lib
+    HINTS
+      "$ENV{HOME}/SEA-Stack/build/lib/Release"
+      "$ENV{HOME}/SEA-Stack/build/lib"
+      "$ENV{HOME}/SEA-Stack/install/lib"
+  )
+endif()
+
+if(_SEASTACK_APP_LIB_PATH)
+  if(NOT TARGET SEAStack::app_lib)
+    add_library(SEAStack::app_lib STATIC IMPORTED)
+  endif()
+  set_target_properties(SEAStack::app_lib PROPERTIES
+    IMPORTED_LOCATION "${_SEASTACK_APP_LIB_PATH}"
+  )
+  target_link_libraries(demo_vgoswec PRIVATE SEAStack::app_lib)
+  message(STATUS "demo_vgoswec: found and linked seastack_app_lib at ${_SEASTACK_APP_LIB_PATH}")
+else()
+  message(WARNING "demo_vgoswec: seastack_app_lib not found; continuing with headless-safe build path")
+endif()
+
 if(EXISTS "${SEASTACK_SOURCE_DIR_HINT}/apps/seastack/gui/guihelper.h")
   target_include_directories(demo_vgoswec PRIVATE
     "${SEASTACK_SOURCE_DIR_HINT}/apps/seastack"
   )
   target_compile_definitions(demo_vgoswec PRIVATE VGOSWEC_HAVE_SEASTACK_GUIHELPER=1)
-
-  # Optional: only if your guihelper implementation needs this imported target.
-  if(TARGET vsgImGui::vsgImGui)
-    target_link_libraries(demo_vgoswec PRIVATE vsgImGui::vsgImGui)
-  endif()
-
-  message(STATUS "demo_vgoswec: using guihelper from SEA-Stack source tree (${SEASTACK_SOURCE_DIR_HINT})")
+  message(STATUS "demo_vgoswec: guihelper headers available from SEA-Stack source tree (${SEASTACK_SOURCE_DIR_HINT})")
 else()
   message(STATUS "demo_vgoswec: guihelper not found in SEA-Stack source tree; forcing headless runtime path")
 endif()
