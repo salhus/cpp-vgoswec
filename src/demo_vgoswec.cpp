@@ -250,17 +250,27 @@ int main(int argc, char* argv[]) {
   while (system.GetChTime() <= sim_duration) {
     if (!ui.IsRunning(dt)) break;
     if (ui.simulationStarted) {
-      const double pitch_rad = rsda->GetAngle();
-      const double pitch_vel = rsda->GetVelocity();
-
       system.DoStepDynamics(dt);
 
       const auto& per_comp = hydro_system.GetLastComponentForces();
       if (!per_comp.empty()) {
         exc_provider->Update(per_comp, system.GetChTime());
       }
-      const double exc_tau = exc_provider->GetLatestExcitationTorque();
-      const double pto_tau = rsda->GetTorque();
+
+      // Read all logged quantities AFTER the step so every CSV column is consistent
+      // at this record's timestamp (system.GetChTime()). Reading angle/velocity
+      // before the step previously introduced a one-timestep skew vs. torque/time.
+      const double pitch_rad = rsda->GetAngle();
+      const double pitch_vel = rsda->GetVelocity();
+      const double exc_tau   = exc_provider->GetLatestExcitationTorque();
+      // GetTorque() is expected to return the applied PTO actuator torque about the
+      // hinge Y-axis, matching the sign of RsdaPtoFunctor/IPTOModel::ComputeForce
+      // and the docs/CONTROLLERS.md convention (positive torque opposes positive theta;
+      // P_abs = -tau*omega).  Quick validation: in a `passive` run, pto_torque_nm
+      // should have the OPPOSITE sign to flap_pitch_vel_rads, yielding net-positive
+      // power_w.  If it does not, negate pto_tau here (logging-only) to restore the
+      // documented convention.
+      const double pto_tau   = rsda->GetTorque();
 
       records.push_back(
           {system.GetChTime(), pitch_rad, pitch_vel, pto_tau, exc_tau, -pto_tau * pitch_vel});
@@ -275,17 +285,27 @@ int main(int argc, char* argv[]) {
 
   // Headless loop
   while (system.GetChTime() <= sim_duration) {
-    const double pitch_rad = rsda->GetAngle();
-    const double pitch_vel = rsda->GetVelocity();
-
     system.DoStepDynamics(dt);
 
     const auto& per_comp = hydro_system.GetLastComponentForces();
     if (!per_comp.empty()) {
       exc_provider->Update(per_comp, system.GetChTime());
     }
-    const double exc_tau = exc_provider->GetLatestExcitationTorque();
-    const double pto_tau = rsda->GetTorque();
+
+    // Read all logged quantities AFTER the step so every CSV column is consistent
+    // at this record's timestamp (system.GetChTime()). Reading angle/velocity
+    // before the step previously introduced a one-timestep skew vs. torque/time.
+    const double pitch_rad = rsda->GetAngle();
+    const double pitch_vel = rsda->GetVelocity();
+    const double exc_tau   = exc_provider->GetLatestExcitationTorque();
+    // GetTorque() is expected to return the applied PTO actuator torque about the
+    // hinge Y-axis, matching the sign of RsdaPtoFunctor/IPTOModel::ComputeForce
+    // and the docs/CONTROLLERS.md convention (positive torque opposes positive theta;
+    // P_abs = -tau*omega).  Quick validation: in a `passive` run, pto_torque_nm
+    // should have the OPPOSITE sign to flap_pitch_vel_rads, yielding net-positive
+    // power_w.  If it does not, negate pto_tau here (logging-only) to restore the
+    // documented convention.
+    const double pto_tau   = rsda->GetTorque();
 
     records.push_back(
         {system.GetChTime(), pitch_rad, pitch_vel, pto_tau, exc_tau, -pto_tau * pitch_vel});
