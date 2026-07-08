@@ -1,15 +1,9 @@
-# vgoswec_45_exc_ff_pid.yaml
-# Source: Ogden et al., ASME JOMAE 145(3):030905 (VGOSWEC-45 / VGM-45).
-# VGM-45 free-decay reference: ωn = 1.84 rad/s, Ts = 3.42 s.
+# vgoswec_0_exc_ff_pid.yaml
+# Source: Ogden et al., ASME JOMAE 145(3):030905 (VGOSWEC-0 / VGM-0).
+# VGM-0 free-decay reference: ωn = 1.07 rad/s, Ts = 5.86 s.
 # Active control: Excitation-force feedforward + PID trajectory tracking.
 #
 # τ = α · F_exc,pitch(t)  +  PID( θ_ref(t) - θ(t) )
-#
-# The feedforward term uses the actual wave excitation torque (pitch DOF)
-# extracted from HydroForces::Evaluate per-component at each timestep.
-# This implements active WEC phase-anticipation.
-#
-# Default θ_ref = 0 (regulate flap to upright; feedforward does anticipation).
 
 simulation:
   duration: 60.0
@@ -24,7 +18,6 @@ body:
     inertia_xx: 0.32              # [kg·m²] CG roll inertia  (owner-provided, about CG)
     inertia_yy: 0.21              # [kg·m²] CG pitch inertia (owner-provided, about CG = hinge Y)
     inertia_zz: 0.12              # [kg·m²] CG yaw inertia   (owner-provided, about CG)
-    # Geometry/properties from Table 1: w=0.40 m, H_p=0.50 m, t=0.076 m, V=7395 cm^3, r_b=0.293 m.
   base:
     mesh: geometry/stl_files/center_beam_w_foundation_BEM.STL
     mass: 1.0e6
@@ -35,21 +28,14 @@ hinge:
   external_stiffness: 6.57  # [N·m/rad] experimental hinge spring (Table 1), applied at all times
 
 hydro:
-  h5_file: hydroData/vgoswec_45.h5
+  h5_file: hydroData/vgoswec_0.h5
   rho: 1025.0
 
 wave:
   type: regular
   height: 0.05
-  period: 1.5
+  period: 5.86          # [s]  VGM-0 resonance period (Table 2)
   direction: 0.0
-  # For irregular waves (JONSWAP):
-  # type: jonswap
-  # height: 0.05   # Hs [m]
-  # period: 1.5    # Tp [s]
-  # gamma: 3.3
-  # n_components: 200
-  # seed: 42
 
 controller:
   type: exc_ff_pid

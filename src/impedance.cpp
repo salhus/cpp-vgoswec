@@ -219,6 +219,7 @@ PitchHydroCoefficients GetPitchHydroCoefficientsAtOmega(
 
     const auto& tables = LoadPitchBEMTables(h5_file, flap_body_idx);
 
+    // ── Legacy RIRF-derived rho (diagnostic only) ────────────────────────────
     bool added_mass_clamped_match = false;
     const double mu55_match = InterpolateClamped(
         tables.added_mass_55, rho_match_omega, &added_mass_clamped_match);
@@ -227,7 +228,12 @@ PitchHydroCoefficients GetPitchHydroCoefficientsAtOmega(
     }
 
     const auto legacy = ComputeRadCoeffsFromRIRF(data, flap_body_idx, kPitchDOF, rho_match_omega);
-    const double rho_eff = legacy.A / mu55_match;
+    const double rho_eff_match = legacy.A / mu55_match;  // legacy: for diagnostics only
+
+    // ── Active rho: use stored H5 rho as single source of truth ─────────────
+    // This pins de-normalization to the known physical density (1000 kg/m³ for
+    // VGM BEM runs) and makes VGM-45 and VGM-0 comparable on the same basis.
+    const double rho_eff = std::isnan(tables.h5_rho) ? rho_eff_match : tables.h5_rho;
 
     bool added_mass_clamped = false;
     bool damping_clamped    = false;
@@ -251,18 +257,17 @@ PitchHydroCoefficients GetPitchHydroCoefficientsAtOmega(
     coeffs.B55          = std::max(0.0, lambda55 * rho_eff * omega0);
     coeffs.Fexc55       = ex55 * rho_eff * tables.g;
     coeffs.rho_eff      = rho_eff;
+    coeffs.rho_eff_match = rho_eff_match;
     coeffs.h5_rho       = tables.h5_rho;
     coeffs.g            = tables.g;
     coeffs.A55_existing = legacy.A;
     coeffs.omega_clamped = omega_clamped;
 
-    const double ref_a55_from_h5 = mu55_match * rho_eff;
-    const double match_tolerance = std::max(1e-9, 1e-6 * std::abs(legacy.A));
-    if (std::abs(ref_a55_from_h5 - legacy.A) > match_tolerance) {
-        std::cerr << "[impedance] WARNING: H5-derived A55(" << rho_match_omega
-                  << ")=" << ref_a55_from_h5
-                  << " kg*m^2 does not match legacy A55=" << legacy.A
-                  << " kg*m^2; check rho_eff derivation / H5 indexing\n";
+    // ── Diagnostic: warn if legacy-match rho differs significantly from H5 rho
+    if (!std::isnan(tables.h5_rho) && std::abs(rho_eff_match - tables.h5_rho) > 1.0) {
+        std::cerr << "[impedance] INFO: legacy A55-match rho=" << rho_eff_match
+                  << " kg/m^3 differs from stored H5 rho=" << tables.h5_rho
+                  << " kg/m^3; using stored H5 rho for de-normalization\n";
     }
 
     return coeffs;
@@ -283,16 +288,18 @@ double PitchImpedanceMagnitude(const seastack::hydro::HydroData& data,
                                 const std::string& h5_file,
                                 int flap_body_idx,
                                 double omega0,
-                                double I_flap_kgm2) {
+                                double I_flap_kgm2,
+                                double C_ext_cg) {
     constexpr int kPitchDOF = 4;  // DOF index 4 = pitch about Y (BEMIO convention)
 
     const auto coeffs =
         GetPitchHydroCoefficientsAtOmega(data, h5_file, flap_body_idx, omega0, omega0);
     const double K_hs55   = data.GetHydrostaticStiffnessVal(flap_body_idx, kPitchDOF, kPitchDOF);
+    const double K_hs_eff = K_hs55 + C_ext_cg;
 
-    // Z_intrinsic = B_rad + i·(ω·(I + A(ω)) − K_hs/ω)
+    // Z_intrinsic = B_rad + i·(ω·(I + A(ω)) − K_hs_eff/ω)
     const double Z_real = coeffs.B55;
-    const double Z_imag = omega0 * (I_flap_kgm2 + coeffs.A55) - K_hs55 / omega0;
+    const double Z_imag = omega0 * (I_flap_kgm2 + coeffs.A55) - K_hs_eff / omega0;
     return std::sqrt(Z_real * Z_real + Z_imag * Z_imag);
 }
 
@@ -300,17 +307,22 @@ CCGains ComputeCCGains(const seastack::hydro::HydroData& data,
                         const std::string& h5_file,
                         int flap_body_idx,
                         double omega0,
-                        double I_flap_kgm2) {
+                        double I_flap_kgm2,
+                        double C_ext_cg) {
     constexpr int kPitchDOF = 4;
 
     const auto coeffs =
         GetPitchHydroCoefficientsAtOmega(data, h5_file, flap_body_idx, omega0, omega0);
     const double K_hs55   = data.GetHydrostaticStiffnessVal(flap_body_idx, kPitchDOF, kPitchDOF);
+    const double K_hs_eff = K_hs55 + C_ext_cg;
 
     CCGains gains;
-    // K_r is the intrinsic pitch reactance X·ω = ω²(I+A) − K_hs to be cancelled;
-    // the control law applies the conjugate sign: τ_react = −K_r·θ.
-    gains.K_r = omega0 * omega0 * (I_flap_kgm2 + coeffs.A55) - K_hs55;
+    // K_r is the intrinsic pitch reactance to be cancelled by CC.
+    // With the external spring already in the physical dynamics, the effective
+    // restoring stiffness is K_hs_eff = K_hs55 + C_ext_cg, and CC must cancel
+    // the remaining reactive term: K_r = ω0²(I+A55) − K_hs_eff.
+    // At resonance (ω0 = ωn), K_r = 0 and the controller is purely absorbing.
+    gains.K_r = omega0 * omega0 * (I_flap_kgm2 + coeffs.A55) - K_hs_eff;
     gains.B_r = coeffs.B55;
     return gains;
 }

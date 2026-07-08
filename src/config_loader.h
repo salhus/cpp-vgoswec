@@ -94,6 +94,15 @@ struct SimConfig {
 
     // Hinge
     double hinge_z{-0.7658};        ///< [m]
+    /// External torsional spring stiffness at the hinge [N·m/rad].
+    /// This is a PHYSICAL spring present in the experimental apparatus for ALL
+    /// configurations.  C_ext = 6.57 N·m/rad for both VGM-45 and VGM-0
+    /// (Ogden et al., ASME JOMAE 145(3):030905, Table 1).
+    /// Because it is a pure torsional (couple) spring, its CG-referred value
+    /// equals the hinge value exactly — no parallel-axis shift needed.
+    /// Default 0.0 (disabled) so existing behaviour is opt-in; set to 6.57 in
+    /// all VGM config files.
+    double hinge_external_stiffness{0.0};
 
     // Hydro
     std::string h5_file;

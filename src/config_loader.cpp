@@ -108,8 +108,10 @@ SimConfig LoadConfig(const std::string& yaml_path) {
         if (root["body"]["base"]) cfg.base = ParseBody(root["body"]["base"]);
     }
 
-    if (root["hinge"])
+    if (root["hinge"]) {
         cfg.hinge_z = ReadOpt<double>(root["hinge"], "position_z", -0.7658);
+        cfg.hinge_external_stiffness = ReadOpt<double>(root["hinge"], "external_stiffness", 0.0);
+    }
 
     if (root["hydro"]) {
         cfg.h5_file = ReadOpt<std::string>(root["hydro"], "h5_file", "");
