@@ -94,7 +94,9 @@ CCGains ComputeCCGains(const seastack::hydro::HydroData& data,
     const double K_hs55   = data.GetHydrostaticStiffnessVal(flap_body_idx, kPitchDOF, kPitchDOF);
 
     CCGains gains;
-    gains.K_r = -omega0 * omega0 * (I_flap_kgm2 + A55) + K_hs55;
+    // K_r is the intrinsic pitch reactance X·ω = ω²(I+A) − K_hs to be cancelled;
+    // the control law applies the conjugate sign: τ_react = −K_r·θ.
+    gains.K_r = omega0 * omega0 * (I_flap_kgm2 + A55) - K_hs55;
     gains.B_r = B55;
     return gains;
 }

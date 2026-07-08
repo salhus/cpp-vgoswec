@@ -65,7 +65,7 @@ Frequency-domain coefficients A(ω₀), B(ω₀) are computed from the stored RI
 
 ### Gain derivation (from impedance.cpp)
 ```
-K_r = −ω₀² · (I_flap + A₅₅(ω₀)) + K_hs,55
+K_r =  ω₀² · (I_flap + A₅₅(ω₀)) − K_hs,55   (intrinsic pitch reactance to be cancelled)
 B_r =  B_rad,55(ω₀)
 ```
 
