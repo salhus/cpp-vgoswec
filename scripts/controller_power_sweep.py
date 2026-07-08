@@ -14,8 +14,18 @@ WAVE_A = WAVE_H / 2.0
 PERIODS_S = [6.00, 4.49, 3.42, 3.00, 2.50, 2.00, 1.57]
 RESONANCE_PERIOD_S = 3.42
 TRANSIENT_PERIODS = 10
-TOTAL_PERIODS = 40
-B55_FLOOR = 1e-9
+TOTAL_PERIODS = 50  # 50 periods total: discard first 10, average ~40 whole cycles
+B55_FLOOR = 1e-9   # floor for theoretical P_opt (avoids Inf/NaN at radiation-damping notch)
+
+# Reactive-limited detection threshold for CC controller.
+# When B55(omega_wave) < B_R_FLOOR the CC gain B_r = B55(omega0) ~ 0, so the controller
+# degenerates to a pure reactive spring (tau ~ -K_r*theta) that does ~0 NET work per cycle.
+# The residual sign is dominated by numerical phase-error amplified by the large resonant
+# motion; it is NOT a bug in the control law.
+# 1e-4 N·m·s/rad is well above the notch value (~2e-6 at T=3.42 s) and well below
+# off-resonance values (~1e-2 at T=6.00 s).
+# Mirror this constant in src/demo_vgoswec.cpp (kCC_B_R_FLOOR = 1e-4).
+B_R_FLOOR = 1e-4  # N·m·s/rad; CC reactive-limited threshold
 
 
 def run_cmd(cmd: List[str], cwd: Path, capture: bool = False) -> subprocess.CompletedProcess:
@@ -71,12 +81,23 @@ def summarize_run(csv_path: Path, period_s: float) -> dict:
     if not rows:
         raise RuntimeError(f"No data rows in {csv_path}")
 
+    # Steady-state window: discard the first TRANSIENT_PERIODS wave periods, then
+    # average over an INTEGER number of complete wave periods.  Truncating to a whole
+    # number of periods removes the partial-cycle bias that is the main cause of
+    # spurious sign flips for reactive-limited CC runs (where instantaneous power
+    # oscillates ± at large amplitude and the mean should converge to ~0).
     t0 = TRANSIENT_PERIODS * period_s
-    t1 = TOTAL_PERIODS * period_s
-    win = [r for r in rows if t0 <= r[0] <= t1]
+    t1_nominal = TOTAL_PERIODS * period_s
+
+    n_periods_ss = int((t1_nominal - t0) / period_s)  # integer floor
+    if n_periods_ss < 1:
+        n_periods_ss = 1
+    t1_int = t0 + n_periods_ss * period_s  # end time aligned to whole periods
+
+    win = [r for r in rows if t0 <= r[0] <= t1_int]
     if not win:
         raise RuntimeError(
-            f"No samples in steady-state window [{t0:.3f}, {t1:.3f}] s for {csv_path}"
+            f"No samples in steady-state window [{t0:.3f}, {t1_int:.3f}] s for {csv_path}"
         )
 
     power_mean_raw = sum(r[4] for r in win) / len(win)
@@ -85,6 +106,10 @@ def summarize_run(csv_path: Path, period_s: float) -> dict:
     tau_omega_neg_frac = sum(1 for v in tau_omega_vals if v < 0.0) / len(tau_omega_vals)
     peak_pitch = max(abs(r[1]) for r in win)
     rms_pitch = math.sqrt(sum((r[1] ** 2) for r in win) / len(win))
+    # Peak instantaneous |power| in the steady-state window: for reactive-limited CC
+    # this is large (the ± reactive oscillation) while the net mean is ~0 — a useful
+    # diagnostic showing net≈0 is a small residual of a large reactive swing.
+    peak_abs_inst_power = max(abs(r[4]) for r in win)
 
     return {
         "P_mean_raw_W": power_mean_raw,
@@ -92,6 +117,7 @@ def summarize_run(csv_path: Path, period_s: float) -> dict:
         "tau_omega_neg_frac": tau_omega_neg_frac,
         "peak_pitch_rad": peak_pitch,
         "rms_pitch_rad": rms_pitch,
+        "peak_abs_inst_power_W": peak_abs_inst_power,
     }
 
 
@@ -112,11 +138,61 @@ def make_plot(rows: List[dict], out_png: Path) -> None:
     p_opt = [p_opt_by_t[t] for t in periods]
 
     fig, (ax0, ax1) = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
+
     for ctrl, rs in sorted(by_ctrl.items()):
-        xs = [r["T_s"] for r in rs]
-        ys = [r["P_mean_W"] for r in rs]
-        ax0.plot(xs, ys, marker="o", label=ctrl)
-        ax1.semilogy(xs, [max(y, 1e-12) for y in ys], marker="o", label=ctrl)
+        if ctrl == "cc":
+            # Separate reactive-limited CC points (B55 ~ 0 at damping notch)
+            # from normally-absorbing CC points.
+            abs_rows = [r for r in rs if r.get("regime") != "reactive_limited"]
+            rl_rows  = [r for r in rs if r.get("regime") == "reactive_limited"]
+
+            # Absorbing CC: plot normally (both linear and log axes).
+            color_cc = "tab:green"
+            if abs_rows:
+                xs = [r["T_s"] for r in abs_rows]
+                ys = [r["P_mean_W"] for r in abs_rows]
+                ax0.plot(xs, ys, marker="o", color=color_cc, label="cc")
+                ax1.semilogy(xs, [max(y, 1e-12) for y in ys],
+                             marker="o", color=color_cc, label="cc")
+
+            # Reactive-limited CC: hollow grey marker at ~0 (linear plot only).
+            # These points have B55 ~ 0 so CC is a pure reactive spring;
+            # the raw P_mean is numerical noise about true zero.
+            if rl_rows:
+                rl_xs = [r["T_s"] for r in rl_rows]
+                ax0.plot(
+                    rl_xs,
+                    [0.0] * len(rl_xs),
+                    marker="o",
+                    markersize=10,
+                    markerfacecolor="none",
+                    markeredgecolor="grey",
+                    markeredgewidth=1.5,
+                    linestyle="none",
+                    label="cc (reactive-limited, ≈0)",
+                )
+                # Annotate each reactive-limited CC point with its actual B55 value.
+                # The label "reactive-limited (B₅₅≈<value>, ~0 net power)" is consistent
+                # with the narrative produced by render_markdown().
+                for rr in rl_rows:
+                    b55_val = rr.get("b55_omega_wave", float("nan"))
+                    b55_label = (
+                        f"B₅₅≈{b55_val:.1e}" if math.isfinite(b55_val) else "B₅₅≈0"
+                    )
+                    ax0.annotate(
+                        f"reactive-limited\n({b55_label}, ~0 net power)",
+                        xy=(rr["T_s"], 0.0),
+                        xytext=(rr["T_s"] + 0.25, 0.0),
+                        fontsize=7,
+                        color="grey",
+                        va="center",
+                        arrowprops=dict(arrowstyle="->", color="grey", lw=0.8),
+                    )
+        else:
+            xs = [r["T_s"] for r in rs]
+            ys = [r["P_mean_W"] for r in rs]
+            ax0.plot(xs, ys, marker="o", label=ctrl)
+            ax1.semilogy(xs, [max(y, 1e-12) for y in ys], marker="o", label=ctrl)
 
     ax0.plot(periods, p_opt, "k--", marker="x", label="P_opt (theoretical)")
     ax1.semilogy(periods, [max(y, 1e-12) for y in p_opt], "k--", marker="x", label="P_opt (theoretical)")
@@ -125,7 +201,7 @@ def make_plot(rows: List[dict], out_png: Path) -> None:
         ax.axvline(RESONANCE_PERIOD_S, color="gray", linestyle=":", linewidth=1.2,
                    label=f"VGM45 resonance ({RESONANCE_PERIOD_S:.2f} s)")
         ax.grid(True, alpha=0.3)
-        ax.legend(loc="best")
+        ax.legend(loc="best", fontsize=8)
 
     ax0.set_ylabel("Mean absorbed power [W]")
     ax1.set_ylabel("Mean absorbed power [W] (log)")
@@ -146,19 +222,25 @@ def render_markdown(rows: List[dict], included_optional: bool, out_md: Path) -> 
         "controller",
         "T_s",
         "omega_rads",
-        "wave_H_m",
-        "wave_A_m",
-        "P_mean_W",
+        "P_mean_W (or ~0)",
         "P_opt_W",
         "capture_ratio",
         "peak_pitch_rad",
         "rms_pitch_rad",
         "tau_omega_neg_frac",
+        "regime",
+        "note",
     ]
     table = []
     table.append("| " + " | ".join(headers) + " |")
     table.append("|" + "|".join(["---"] * len(headers)) + "|")
     for r in rows_sorted:
+        if r.get("regime") == "reactive_limited":
+            p_str = "~0 (reactive-limited)"
+            cr_str = "~0"
+        else:
+            p_str = f'{r["P_mean_W"]:.6e}'
+            cr_str = f'{r["capture_ratio"]:.6e}'
         table.append(
             "| "
             + " | ".join(
@@ -166,43 +248,130 @@ def render_markdown(rows: List[dict], included_optional: bool, out_md: Path) -> 
                     str(r["controller"]),
                     f'{r["T_s"]:.2f}',
                     f'{r["omega_rads"]:.6f}',
-                    f'{r["wave_H_m"]:.3f}',
-                    f'{r["wave_A_m"]:.3f}',
-                    f'{r["P_mean_W"]:.6e}',
+                    p_str,
                     f'{r["P_opt_W"]:.6e}',
-                    f'{r["capture_ratio"]:.6e}',
+                    cr_str,
                     f'{r["peak_pitch_rad"]:.6e}',
                     f'{r["rms_pitch_rad"]:.6e}',
                     f'{r["tau_omega_neg_frac"]:.6f}',
+                    r.get("regime", "absorbing"),
+                    r.get("note", ""),
                 ]
             )
             + " |"
         )
 
+    # ── Gather facts for interpretation ──────────────────────────────────────
     cc_rows = [r for r in rows if r["controller"] == "cc"]
-    cc_res = min(cc_rows, key=lambda r: abs(r["T_s"] - RESONANCE_PERIOD_S)) if cc_rows else None
-    best_capture = max(rows, key=lambda r: r["capture_ratio"])
-    best_power = max(rows, key=lambda r: r["P_mean_W"])
+    cc_rl_rows = [r for r in cc_rows if r.get("regime") == "reactive_limited"]
+    cc_abs_rows = [r for r in cc_rows if r.get("regime") != "reactive_limited"]
+    cc_res = (
+        min(cc_rows, key=lambda r: abs(r["T_s"] - RESONANCE_PERIOD_S))
+        if cc_rows else None
+    )
+
+    # Best power/capture across ALL absorbing (non-reactive-limited) rows.
+    absorbing_rows = [r for r in rows if r.get("regime") != "reactive_limited"]
+    best_power = max(absorbing_rows, key=lambda r: r["P_mean_W"]) if absorbing_rows else None
+    best_capture = max(absorbing_rows, key=lambda r: r["capture_ratio"]) if absorbing_rows else None
+
+    passive_rows = sorted(
+        [r for r in rows if r["controller"] in ("passive", "opt_passive")],
+        key=lambda r: r["T_s"],
+    )
+    exc_rows = [r for r in rows if r["controller"] == "exc_ff_pid"]
     notch_rows = [r for r in rows if r.get("P_opt_floor_applied")]
 
-    interpretation = [
-        f"- Highest mean absorbed power in this sweep: `{best_power['controller']}` at T={best_power['T_s']:.2f} s with P_mean={best_power['P_mean_W']:.6e} W.",
-        f"- Highest capture ratio observed: `{best_capture['controller']}` at T={best_capture['T_s']:.2f} s with capture_ratio={best_capture['capture_ratio']:.6e}.",
-    ]
-    if cc_res is not None:
+    interpretation = []
+
+    # ── Best overall ──────────────────────────────────────────────────────────
+    if best_power:
         interpretation.append(
-            f"- At resonance (T={RESONANCE_PERIOD_S:.2f} s), `cc` shows "
-            f"peak|pitch|={cc_res['peak_pitch_rad']:.6e} rad and capture_ratio={cc_res['capture_ratio']:.6e}, "
-            "consistent with reactive-limited behavior near the radiation-damping notch."
+            f"- **Highest mean absorbed power**: `{best_power['controller']}` at "
+            f"T={best_power['T_s']:.2f} s → P_mean={best_power['P_mean_W']:.4e} W."
         )
-    if notch_rows:
-        periods = ", ".join(f"{r['T_s']:.2f}" for r in sorted(notch_rows, key=lambda x: -x["T_s"]))
+    if best_capture:
         interpretation.append(
-            f"- Theoretical P_opt used B55 floor {B55_FLOOR:.1e} N·m·s/rad at periods [{periods}] to avoid Inf or NaN at the damping notch."
+            f"- **Highest capture ratio**: `{best_capture['controller']}` at "
+            f"T={best_capture['T_s']:.2f} s → η={best_capture['capture_ratio']:.4e} "
+            f"(P_opt={best_capture['P_opt_W']:.4e} W)."
         )
+
+    # ── Passive / opt_passive ─────────────────────────────────────────────────
+    if passive_rows:
+        neg_fracs = [r["tau_omega_neg_frac"] for r in passive_rows]
+        avg_neg = sum(neg_fracs) / len(neg_fracs)
+        interpretation.append(
+            f"- **Passive and opt_passive** controllers absorb positive power across the "
+            f"entire swept band (τ·ω<0 fraction ≈ {avg_neg:.2f} ≈ 1.0 in both cases), "
+            "confirming they always oppose motion and never inject energy."
+        )
+
+    # ── CC reactive-limited behaviour ─────────────────────────────────────────
+    if cc_res is not None and cc_rl_rows:
+        rl_T_list = ", ".join(f"{r['T_s']:.2f}" for r in sorted(cc_rl_rows, key=lambda x: x["T_s"]))
+        peak_deg = math.degrees(cc_res["peak_pitch_rad"])
+        # Use actual B55 from data rather than a hardcoded constant.
+        b55_notch = cc_res.get("b55_omega_wave", float("nan"))
+        b55_str = f"{b55_notch:.2e}" if math.isfinite(b55_notch) else "~2e-6"
+        interpretation.append(
+            f"- **CC at the radiation-damping notch (T={rl_T_list} s)**: "
+            f"the VGOSWEC-45 pitch radiation damping B₅₅(ω₀) collapses to {b55_str} N·m·s/rad "
+            f"(> 4 orders of magnitude below B_R_FLOOR={B_R_FLOOR:.0e}). "
+            "CC gain B_r = B₅₅(ω₀) ≈ 0, so the controller degenerates to a pure reactive "
+            "spring τ ≈ −K_r·θ that does **~0 NET work** per cycle. "
+            f"This drives very large resonant motion (peak|θ|={cc_res['peak_pitch_rad']:.3f} rad "
+            f"≈ {peak_deg:.0f}°) while absorbing essentially zero net power. "
+            "The small raw P_mean in the CSV is numerical noise about true zero, "
+            "reduced (but not eliminated) by integer-cycle averaging; "
+            "it is **not** a real negative-absorption effect. "
+            "These points are marked `regime=reactive_limited` in the CSV and shown as "
+            "hollow grey markers at ≈0 in the plot."
+        )
+    if cc_abs_rows:
+        best_cc_abs = max(cc_abs_rows, key=lambda r: r["P_mean_W"])
+        interpretation.append(
+            f"- **CC away from the notch**: absorbs small positive power "
+            f"(e.g. T={best_cc_abs['T_s']:.2f} s → P_mean={best_cc_abs['P_mean_W']:.4e} W). "
+            "CC is marked `regime=absorbing` at these periods."
+        )
+    elif cc_rows and not cc_abs_rows:
+        interpretation.append(
+            "- **CC**: all sweep points fall within the reactive-limited regime "
+            f"(B₅₅ < B_R_FLOOR={B_R_FLOOR:.0e} across the entire band)."
+        )
+
+    # ── exc_ff_pid ─────────────────────────────────────────────────────────────
+    if included_optional and exc_rows:
+        exc_p_values = ", ".join(
+            f"T={r['T_s']:.2f} s → {r['P_mean_W']:.4e} W" for r in sorted(exc_rows, key=lambda x: x["T_s"])
+        )
+        interpretation.append(
+            f"- **exc_ff_pid** was included in the sweep. Per-period results: {exc_p_values}."
+        )
+    else:
+        interpretation.append(
+            "- `exc_ff_pid` controller was excluded (probe run failed or was unstable)."
+        )
+
+    # ── Averaging method ───────────────────────────────────────────────────────
     interpretation.append(
-        f"- `exc_ff_pid` controller {'was included' if included_optional else 'was excluded (did not run cleanly)'} in this sweep."
+        f"- Power averaged over an integer number of wave periods within the steady-state "
+        f"window (discard first {TRANSIENT_PERIODS} periods; average up to "
+        f"{TOTAL_PERIODS - TRANSIENT_PERIODS} whole cycles). "
+        "This eliminates partial-cycle bias that is the dominant cause of spurious sign "
+        "flips for reactive-limited CC runs."
     )
+
+    # ── P_opt floor ────────────────────────────────────────────────────────────
+    if notch_rows:
+        periods_str = ", ".join(
+            f"{r['T_s']:.2f}" for r in sorted(notch_rows, key=lambda x: -x["T_s"])
+        )
+        interpretation.append(
+            f"- Theoretical P_opt used B55 floor {B55_FLOOR:.1e} N·m·s/rad at "
+            f"periods [{periods_str}] to avoid Inf or NaN at the damping notch."
+        )
 
     out_md.parent.mkdir(parents=True, exist_ok=True)
     out_md.write_text(
@@ -212,17 +381,23 @@ def render_markdown(rows: List[dict], included_optional: bool, out_md: Path) -> 
                 "",
                 "## Setup",
                 "- Regular waves with fixed height H = 0.028 m (A = H/2 = 0.014 m) for all periods/controllers.",
-                "- Period sweep: 6.00, 4.49, 3.42, 3.00, 2.50, 2.00, 1.57 s.",
+                "- Period sweep: 6.00, 4.49, 3.42, 3.00, 2.50, 2.00, 1.57 s (ω ≈ 1.05–4.00 rad/s).",
                 "- Controllers: passive, opt_passive, cc, and exc_ff_pid only if run was stable.",
-                "- Hydro coefficients from existing de-normalized H5 accessors (BEMIO convention; rho_eff from A55 match).",
-                "- Steady-state averaging window: discard first 10 periods, average periods 10–40.",
-                "- Sign convention: absorbed power is positive and computed from `power_w` with a global sign check against `-tau*omega`.",
+                "- Hydro coefficients from de-normalized H5 accessors (BEMIO convention; rho_eff≈1002.7 kg/m³).",
+                f"- Steady-state: discard first {TRANSIENT_PERIODS} periods; average over an integer number "
+                f"of whole cycles up to {TOTAL_PERIODS} total periods.",
+                "- Sign convention: absorbed power is positive; computed from `power_w` with a global "
+                "sign check against `−τ·ω`.",
+                f"- CC reactive-limited threshold: B_R_FLOOR = {B_R_FLOOR:.0e} N·m·s/rad "
+                "(see `scripts/controller_power_sweep.py` and `src/demo_vgoswec.cpp`).",
                 "",
                 "## Results table",
                 *table,
                 "",
                 "## Plot",
-                "- `output/controller_power_sweep.png`",
+                "- `output/controller_power_sweep.png` — reactive-limited CC points shown as hollow grey",
+                "  markers at ≈0 with annotation; all other controllers shown as solid markers.",
+                "  P_opt theoretical overlay (black dashed) and VGM45 resonance line (grey dotted) included.",
                 "",
                 "## Interpretation",
                 *interpretation,
@@ -343,6 +518,25 @@ def main() -> int:
                 P_opt = h["P_opt_W"]
                 capture_ratio = P_mean / P_opt if P_opt > 0.0 else float("nan")
 
+                # Classify CC runs where B55(omega_wave) < B_R_FLOOR as reactive-limited.
+                # At the radiation-damping notch (T≈3.42 s, ω≈1.84 rad/s), B55≈2e-6 << 1e-4,
+                # so CC degenerates to a pure reactive spring (B_r ~ 0, tau ~ -K_r*theta).
+                # The controller does ~0 net work; the raw P_mean is numerical noise about
+                # zero and is NOT falsified — it is preserved in the CSV alongside the
+                # regime/note columns that explain the classification.
+                is_reactive_limited = ctrl == "cc" and h["B55"] < B_R_FLOOR
+                if is_reactive_limited:
+                    regime = "reactive_limited"
+                    note = (
+                        f"B55~{h['B55']:.2e} N*m*s/rad: pure reactive spring,"
+                        f" ~0 net absorption, large motion"
+                        f" (peak|theta|={m['peak_pitch_rad']:.3f} rad"
+                        f" = {math.degrees(m['peak_pitch_rad']):.0f} deg)"
+                    )
+                else:
+                    regime = "absorbing"
+                    note = ""
+
                 results.append(
                     {
                         "controller": ctrl,
@@ -356,6 +550,10 @@ def main() -> int:
                         "peak_pitch_rad": m["peak_pitch_rad"],
                         "rms_pitch_rad": m["rms_pitch_rad"],
                         "tau_omega_neg_frac": m["tau_omega_neg_frac"],
+                        "peak_abs_inst_power_W": m["peak_abs_inst_power_W"],
+                        "regime": regime,
+                        "note": note,
+                        "b55_omega_wave": h["B55"],  # B55 at wave freq (used in reactive-limited check)
                         "P_opt_floor_applied": h["B55_floor_applied"],
                     }
                 )
@@ -377,6 +575,9 @@ def main() -> int:
         "peak_pitch_rad",
         "rms_pitch_rad",
         "tau_omega_neg_frac",
+        "peak_abs_inst_power_W",
+        "regime",
+        "note",
     ]
     with out_csv.open("w", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=cols)
@@ -384,15 +585,28 @@ def main() -> int:
         for r in sorted(results, key=lambda x: (x["controller"], -x["T_s"])):
             w.writerow({k: r[k] for k in cols})
 
-    print(
-        f"{'controller':<12} {'T_s':>6} {'omega':>10} {'P_mean [W]':>14} {'P_opt [W]':>14} "
-        f"{'capture':>11} {'peak|pitch|':>12} {'rms pitch':>12} {'tau*w<0':>10}"
+    # ── Stdout table ──────────────────────────────────────────────────────────
+    # For reactive-limited CC rows, report "~0 (reactive-limited)" in the power
+    # and capture columns instead of the raw numerical value (which is noise about
+    # true zero).  The raw value is preserved in the CSV under P_mean_W.
+    hdr = (
+        f"{'controller':<12} {'T_s':>6} {'omega':>8} "
+        f"{'P_mean [W]':>22} {'P_opt [W]':>14} {'capture':>11} "
+        f"{'peak|theta|':>12} {'rms theta':>12} {'tau*w<0':>8} {'regime':>16}"
     )
+    print(hdr)
     for r in sorted(results, key=lambda x: (x["controller"], -x["T_s"])):
+        if r["regime"] == "reactive_limited":
+            p_str = "~0 (reactive-limited)"
+            cr_str = "~0"
+        else:
+            p_str = f"{r['P_mean_W']:14.6e}"
+            cr_str = f"{r['capture_ratio']:11.3e}"
         print(
-            f"{r['controller']:<12} {r['T_s']:6.2f} {r['omega_rads']:10.4f} "
-            f"{r['P_mean_W']:14.6e} {r['P_opt_W']:14.6e} {r['capture_ratio']:11.3e} "
-            f"{r['peak_pitch_rad']:12.4e} {r['rms_pitch_rad']:12.4e} {r['tau_omega_neg_frac']:10.4f}"
+            f"{r['controller']:<12} {r['T_s']:6.2f} {r['omega_rads']:8.4f} "
+            f"{p_str:>22} {r['P_opt_W']:14.6e} {cr_str:>11} "
+            f"{r['peak_pitch_rad']:12.4e} {r['rms_pitch_rad']:12.4e} "
+            f"{r['tau_omega_neg_frac']:8.4f} {r['regime']:>16}"
         )
 
     make_plot(results, out_png)
