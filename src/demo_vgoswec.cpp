@@ -409,6 +409,17 @@ int main(int argc, char* argv[]) {
       }
       std::cout << "  K_r (CC)     = " << diag_K_r << " N*m/rad\n"
                 << "  B_r (CC)     = " << diag_B_r << " N*m*s/rad\n";
+      // Degeneracy diagnostic: when B55(omega0) is far below the radiation-damping floor
+      // (B_R_FLOOR = 1e-4 N*m*s/rad), CC degenerates to a pure reactive spring (B_r ~ 0).
+      // The controller does ~0 net work per cycle; residual sign is numerical noise.
+      // Mirror threshold in scripts/controller_power_sweep.py (B_R_FLOOR = 1e-4).
+      constexpr double kCC_B_R_FLOOR = 1.0e-4;  // N*m*s/rad
+      if (diag_B_r < kCC_B_R_FLOOR) {
+        std::cout << "  \u26a0 CC degenerate at this omega0: B55(omega0)=" << diag_B_r
+                  << " < " << kCC_B_R_FLOOR << " N*m*s/rad"
+                  << " => reactive-limited (pure reactive spring)."
+                  << " Expect ~0 net absorbed power and large motion.\n";
+      }
     }
     std::cout << "================================================\n";
   }
