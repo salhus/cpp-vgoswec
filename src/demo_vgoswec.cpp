@@ -37,6 +37,7 @@ using namespace chrono::vsg3d;
 #include <iostream>
 #include <memory>
 #include <limits>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -56,6 +57,7 @@ struct CLIArgs {
   double duration_override{-1.0};
   double wave_period_override{-1.0};
   double wave_height_override{-1.0};
+  std::vector<double> hydro_periods;  ///< override period list for --hydro-report
 };
 
 static void PrintUsage(const char* argv0) {
@@ -67,7 +69,8 @@ static void PrintUsage(const char* argv0) {
             << "  --duration <s>\n"
             << "  --wave-period <s>\n"
             << "  --wave-height <m>\n"
-            << "  --hydro-report       Print de-normalized hydro coefficients and P_opt at fixed periods, then exit\n";
+            << "  --hydro-report       Print de-normalized hydro coefficients and P_opt at fixed periods, then exit\n"
+            << "  --hydro-periods <csv>  Comma-separated period list for --hydro-report (e.g. 6.0,4.49,3.42)\n";
 }
 
 static CLIArgs ParseCLI(int argc, char* argv[]) {
@@ -95,6 +98,13 @@ static CLIArgs ParseCLI(int argc, char* argv[]) {
       args.wave_height_override = std::stod(argv[++i]);
     } else if (a == "--hydro-report") {
       args.hydro_report = true;
+    } else if (a == "--hydro-periods" && i + 1 < argc) {
+      std::string csv = argv[++i];
+      std::istringstream ss(csv);
+      std::string tok;
+      while (std::getline(ss, tok, ',')) {
+        if (!tok.empty()) args.hydro_periods.push_back(std::stod(tok));
+      }
     } else {
       std::cerr << "Unknown arg: " << a << "\n";
       std::exit(1);
@@ -146,6 +156,9 @@ static std::shared_ptr<seastack::pto::IPTOModel> BuildController(
   const double omega0 = (cfg.controller.opt_passive.design_omega > 0.0)
                             ? cfg.controller.opt_passive.design_omega
                             : 2.0 * M_PI / cfg.wave.period;
+  // External spring C_ext (hinge-referenced) equals its CG-referred value for a
+  // pure torsional spring, so pass directly to impedance functions.
+  const double C_ext_cg = cfg.hinge_external_stiffness;
 
   if (type == "passive")
     return std::make_shared<vgoswec::PassiveDamper>(cfg.controller.passive.B_pto,
@@ -153,7 +166,7 @@ static std::shared_ptr<seastack::pto::IPTOModel> BuildController(
 
   if (type == "opt_passive") {
     const double B_opt = vgoswec::PitchImpedanceMagnitude(
-        hydro_data, h5_file, 0, omega0, cfg.flap.inertia_yy);
+        hydro_data, h5_file, 0, omega0, cfg.flap.inertia_yy, C_ext_cg);
     return std::make_shared<vgoswec::OptimalPassive>(B_opt, cfg.controller.opt_passive.clip_torque);
   }
 
@@ -162,7 +175,7 @@ static std::shared_ptr<seastack::pto::IPTOModel> BuildController(
     double B_r = cfg.controller.cc.B_r_override;
     if (K_r == 0.0 && B_r == 0.0) {
       const auto gains = vgoswec::ComputeCCGains(
-          hydro_data, h5_file, 0, omega0, cfg.flap.inertia_yy);
+          hydro_data, h5_file, 0, omega0, cfg.flap.inertia_yy, C_ext_cg);
       K_r = gains.K_r;
       B_r = gains.B_r;
     }
@@ -234,7 +247,12 @@ int main(int argc, char* argv[]) {
   if (args.hydro_report) {
     constexpr int kBody = 0;
     constexpr double kB55Floor = 1e-9;
-    const std::vector<double> periods_s{6.00, 4.49, 3.42, 3.00, 2.50, 2.00, 1.57};
+    // Use CLI-specified periods if given; otherwise fall back to the VGM-45
+    // default sweep band (6.00–1.57 s).  Pass device-specific periods via
+    // --hydro-periods to cover VGM-0 resonance (T ≈ 5.86 s).
+    const std::vector<double> periods_s = args.hydro_periods.empty()
+        ? std::vector<double>{6.00, 4.49, 3.42, 3.00, 2.50, 2.00, 1.57}
+        : args.hydro_periods;
     const double rho_match_omega = (cfg.controller.opt_passive.design_omega > 0.0)
                                        ? cfg.controller.opt_passive.design_omega
                                        : 2.0 * M_PI / cfg.wave.period;
@@ -326,6 +344,22 @@ int main(int argc, char* argv[]) {
   rsda->RegisterTorqueFunctor(std::make_shared<vgoswec::RsdaPtoFunctor>(controller));
   system.AddLink(rsda);
 
+  // External hinge spring: physical restoring spring at the hinge, present in
+  // the experimental apparatus for ALL configurations (passive, opt_passive, cc,
+  // exc_ff_pid, freedecay).  C_ext = 6.57 N·m/rad (Table 1) for VGM-45 and VGM-0.
+  // Applied as a separate RSDA with SetSpringCoefficient so the spring torque
+  // τ = -C_ext · θ is added to the flap body independently of the PTO torque.
+  // NOTE: for CC, the computed K_r already accounts for this spring via K_hs_eff
+  // in ComputeCCGains (K_r = ω0²(I+A55) − K_hs_eff), so there is NO double-counting.
+  std::shared_ptr<ChLinkRSDA> spring_rsda;
+  if (cfg.hinge_external_stiffness > 0.0) {
+    spring_rsda = chrono_types::make_shared<ChLinkRSDA>();
+    spring_rsda->Initialize(base_body, flap_body, false,
+                            ChFramed(hinge_pos, hinge_rot), ChFramed(hinge_pos, hinge_rot));
+    spring_rsda->SetSpringCoefficient(cfg.hinge_external_stiffness);
+    system.AddLink(spring_rsda);
+  }
+
   // Apply initial pitch AFTER all joints are initialized.
   // The revolute and RSDA capture theta=0 as their reference when the flap is at its
   // nominal (upright) position.  Rotating the flap here means rsda->GetAngle() will
@@ -357,22 +391,21 @@ int main(int argc, char* argv[]) {
         hydro_data, h5_file, kBody, omega0, omega0);
     const auto [A55, B55] = std::pair<double, double>{coeffs_h5.A55, coeffs_h5.B55};
     const double I_cg   = cfg.flap.inertia_yy;
-    // C_ext: external spring stiffness for free-decay (cc with override and no damping).
-    const double C_ext = (ctrl_type == "cc"
-                           && cfg.controller.cc.K_r_override != 0.0
-                           && cfg.controller.cc.B_r_override == 0.0)
-                          ? cfg.controller.cc.K_r_override
-                          : 0.0;
+    // C_ext: external hinge spring from config (all controllers, all times).
+    const double C_ext = cfg.hinge_external_stiffness;
+    // K_hs_eff: combined hydrostatic + external spring restoring stiffness (CG-referenced).
+    // C_ext is a pure torsional spring so its CG-referred value equals the hinge value.
+    const double K_hs_eff = K_hs55 + C_ext;
     // Guarded natural-frequency prediction (two estimates: A55_inf and A55(omega0))
-    const double num_pred     = K_hs55 + C_ext;
+    const double num_pred     = K_hs_eff;
     const double den_pred_inf = I_cg + A55_inf;
     const double den_pred_lf  = I_cg + A55;    // A55 = A55(omega0) already computed above
 
     std::cout << "=== HYDRO DIAGNOSTIC (flap pitch, about CG) ===\n"
               << "  omega0       = " << omega0   << " rad/s\n"
               << "  K_hs55       = " << K_hs55  << " N*m/rad\n"
-              << "  rho_eff      = " << coeffs_h5.rho_eff << " kg/m^3 (A55 match)\n"
-              << "  H5 rho       = " << coeffs_h5.h5_rho << " kg/m^3\n"
+              << "  rho_used     = " << coeffs_h5.rho_eff << " kg/m^3 (H5 rho)\n"
+              << "  rho_legacy   = " << coeffs_h5.rho_eff_match << " kg/m^3 (A55 match, diagnostic only)\n"
               << "  H5 g         = " << coeffs_h5.g << " m/s^2\n"
               << "  A55(omega0) [H5]     = " << A55      << " kg*m^2\n"
               << "  A55(omega0) [legacy] = " << coeffs_h5.A55_existing << " kg*m^2\n"
@@ -380,9 +413,10 @@ int main(int argc, char* argv[]) {
               << "  Fexc55(omega0) [H5]  = " << coeffs_h5.Fexc55 << " N*m per unit wave amplitude\n"
               << "  A55_inf      = " << A55_inf  << " kg*m^2\n"
               << "  I_cg         = " << I_cg     << " kg*m^2\n"
-              << "  C_ext        = " << C_ext    << " N*m/rad\n";
+              << "  C_ext (hinge)= " << C_ext    << " N*m/rad  [torsional spring, CG-referred = same]\n"
+              << "  K_hs_eff     = " << K_hs_eff << " N*m/rad  (K_hs55 + C_ext)\n";
     if (num_pred <= 0.0) {
-      std::cout << "  omega_n_pred = N/A (K_hs+C_ext <= 0: hydrostatically unstable without spring)\n"
+      std::cout << "  omega_n_pred = N/A (K_hs_eff <= 0: hydrostatically unstable)\n"
                 << "  Ts_pred      = N/A\n";
     } else {
       if (den_pred_inf > 0.0) {
@@ -394,16 +428,15 @@ int main(int argc, char* argv[]) {
       if (den_pred_lf > 0.0) {
         const double wn_lf = std::sqrt(num_pred / den_pred_lf);
         std::cout << "  omega_n_pred (A55(w0)) = " << wn_lf
-                  << " rad/s  [better predictor, A55(w0)=" << A55 << " kg*m^2]\n"
-                  << "  Ts_pred      (A55(w0)) = " << 2.0 * M_PI / wn_lf << " s\n"
-                  << "  Note: measured free-decay ~1.83 rad/s => eff. added mass ~1.4 kg*m^2 (low-freq > A55_inf)\n";
+                  << " rad/s  [best predictor, A55(w0)=" << A55 << " kg*m^2]\n"
+                  << "  Ts_pred      (A55(w0)) = " << 2.0 * M_PI / wn_lf << " s\n";
       }
     }
     if (ctrl_type == "cc") {
       double diag_K_r = cfg.controller.cc.K_r_override;
       double diag_B_r = cfg.controller.cc.B_r_override;
       if (diag_K_r == 0.0 && diag_B_r == 0.0) {
-        const auto gains = vgoswec::ComputeCCGains(hydro_data, h5_file, kBody, omega0, I_cg);
+        const auto gains = vgoswec::ComputeCCGains(hydro_data, h5_file, kBody, omega0, I_cg, C_ext);
         diag_K_r = gains.K_r;
         diag_B_r = gains.B_r;
       }
@@ -428,6 +461,8 @@ int main(int argc, char* argv[]) {
   {
     constexpr int kBodySw  = 0;
     const double K_hs55_sw = hydro_data.GetHydrostaticStiffnessVal(kBodySw, 4, 4);
+    // Effective restoring stiffness includes the external hinge spring.
+    const double K_hs_eff_sw = K_hs55_sw + cfg.hinge_external_stiffness;
     const double I_cg_sw   = cfg.flap.inertia_yy;
     const double rho_match_omega = (cfg.controller.opt_passive.design_omega > 0.0)
                                        ? cfg.controller.opt_passive.design_omega
@@ -436,14 +471,14 @@ int main(int argc, char* argv[]) {
     // Sweep ω = 1.0–4.0 rad/s (operating band containing VGM 45 resonance at 1.84 rad/s).
     // Δω = 0.1 rad/s (31 rows).  B55 is clamped ≥ 0 in GetPitchRadCoeffsAtOmega
     // (radiation damping is physically non-negative; paper Eq. (1), λ₅,₅ ≥ 0).
-    // rho_eff is derived at the controller design ω₀; an extra row is inserted at
-    // ω = 1.84 rad/s to mark the VGM 45 natural frequency.
+    // K_r uses K_hs_eff (includes external spring) so CC gains are correctly tuned.
+    // An extra row is inserted at ω = 1.84 rad/s to mark the VGM 45 natural frequency.
     constexpr double kOmegaVGM45Resonance = 1.84;  // VGM 45 ωₙ ≈ 1.84 rad/s (paper Table 2)
     auto PrintSweepRow = [&](double w_sw, const char* note = nullptr) {
       const double T_sw = 2.0 * M_PI / w_sw;
       const auto [A55_sw, B55_sw] = vgoswec::GetPitchRadCoeffsAtOmega(
           hydro_data, h5_file, kBodySw, w_sw, rho_match_omega);
-      const double K_r_sw = w_sw * w_sw * (I_cg_sw + A55_sw) - K_hs55_sw;
+      const double K_r_sw = w_sw * w_sw * (I_cg_sw + A55_sw) - K_hs_eff_sw;
       const double B_r_sw = B55_sw;
       std::cout << std::setw(8)  << T_sw
                 << std::setw(10) << w_sw
@@ -657,7 +692,13 @@ int main(int argc, char* argv[]) {
   }
 
   std::filesystem::create_directories("output");
-  std::ofstream csv("output/vgoswec_45_results.csv");
+  // Derive output filename from config stem so each config writes its own file.
+  // e.g. config/vgoswec_45_cc.yaml  →  output/vgoswec_45_cc_results.csv
+  //      config/vgoswec_0_passive.yaml → output/vgoswec_0_passive_results.csv
+  const std::string config_stem =
+      std::filesystem::path(args.config_path).stem().string();
+  const std::string out_csv_path = "output/" + config_stem + "_results.csv";
+  std::ofstream csv(out_csv_path);
   csv << "time_s,flap_pitch_rad,flap_pitch_vel_rads,pto_torque_nm,exc_torque_nm,power_w\n";
   for (const auto& r : records) {
     csv << std::fixed << std::setprecision(6) << r.t << ","
@@ -665,6 +706,6 @@ int main(int argc, char* argv[]) {
         << r.om << "," << r.tau_pto << "," << r.tau_exc << "," << r.p << "\n";
   }
 
-  std::cout << "Results saved to output/vgoswec_45_results.csv\n";
+  std::cout << "Results saved to " << out_csv_path << "\n";
   return 0;
 }

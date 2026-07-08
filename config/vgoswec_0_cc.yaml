@@ -1,17 +1,21 @@
-# vgoswec_45_cc.yaml
-# Source: Ogden et al., ASME JOMAE 145(3):030905 (VGOSWEC-45 / VGM-45).
-# VGM-45 free-decay reference: ωn = 1.84 rad/s, Ts = 3.42 s.
-# Complex-conjugate (CC) reactive control at design frequency ω₀ = 1.84 rad/s.
+# vgoswec_0_cc.yaml
+# Source: Ogden et al., ASME JOMAE 145(3):030905 (VGOSWEC-0 / VGM-0).
+# VGM-0 free-decay reference: ωn = 1.07 rad/s, Ts = 5.86 s.
+# Complex-conjugate (CC) reactive control at design frequency ω₀ = 1.07 rad/s.
 #
 # τ = -K_r · θ  -  B_r · θ̇
 #
 # Gains computed from HydroData at startup (impedance.h):
-#   K_r = ω₀² · (I_flap + A₅₅(ω₀)) - K_hs,55
+#   K_r = ω₀² · (I_flap + A₅₅(ω₀)) - K_hs_eff  (K_hs_eff = K_hs55 + C_ext)
 #   B_r =  B_rad,55(ω₀)
+#
+# NOTE: VGM-0 has meaningful radiation damping B55(1.07) ≈ 0.055 N·m·s/rad
+# (healthy, not notch-limited), so CC is expected to absorb positive net power
+# at its design frequency — unlike VGM-45 where the B55 notch renders CC
+# reactive-limited at ω = 1.84 rad/s.
 #
 # WARNING: CC control requires bidirectional power flow (reactive);
 #   a physical PTO must support this (e.g., active hydraulic or electric).
-#   The sim does not model power electronics limits; add clip_torque conservatively.
 
 simulation:
   duration: 60.0
@@ -26,7 +30,6 @@ body:
     inertia_xx: 0.32              # [kg·m²] CG roll inertia  (owner-provided, about CG)
     inertia_yy: 0.21              # [kg·m²] CG pitch inertia (owner-provided, about CG = hinge Y)
     inertia_zz: 0.12              # [kg·m²] CG yaw inertia   (owner-provided, about CG)
-    # Geometry/properties from Table 1: w=0.40 m, H_p=0.50 m, t=0.076 m, V=7395 cm^3, r_b=0.293 m.
   base:
     mesh: geometry/stl_files/center_beam_w_foundation_BEM.STL
     mass: 1.0e6
@@ -37,13 +40,13 @@ hinge:
   external_stiffness: 6.57  # [N·m/rad] experimental hinge spring (Table 1), applied at all times
 
 hydro:
-  h5_file: hydroData/vgoswec_45.h5
+  h5_file: hydroData/vgoswec_0.h5
   rho: 1025.0
 
 wave:
   type: regular
   height: 0.05
-  period: 1.5
+  period: 5.86          # [s]  VGM-0 resonance period (Table 2)
   direction: 0.0
 
 controller:
@@ -51,7 +54,7 @@ controller:
   # BuildController uses opt_passive.design_omega as the shared tuning frequency for
   # opt_passive/cc impedance-based gain calculations.
   opt_passive:
-    design_omega: 1.84   # [rad/s] VGM-45 resonance from Table 2 (equiv. T = 3.42 s)
+    design_omega: 1.07   # [rad/s] VGM-0 resonance from Table 2 (equiv. T = 5.86 s)
   cc:
     # K_r and B_r are computed automatically; override only if needed:
     # K_r_override: 0.0  # [N·m/rad]
