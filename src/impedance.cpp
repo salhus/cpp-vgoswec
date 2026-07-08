@@ -233,7 +233,13 @@ PitchHydroCoefficients GetPitchHydroCoefficientsAtOmega(
     // ── Active rho: use stored H5 rho as single source of truth ─────────────
     // This pins de-normalization to the known physical density (1000 kg/m³ for
     // VGM BEM runs) and makes VGM-45 and VGM-0 comparable on the same basis.
-    const double rho_eff = std::isnan(tables.h5_rho) ? rho_eff_match : tables.h5_rho;
+    double rho_eff = tables.h5_rho;
+    if (std::isnan(tables.h5_rho)) {
+        std::cerr << "[impedance] WARNING: H5 file does not contain simulation_parameters/rho;"
+                     " falling back to legacy A55-match rho = " << rho_eff_match
+                  << " kg/m^3.  Provide rho in the H5 file for consistent de-normalization.\n";
+        rho_eff = rho_eff_match;
+    }
 
     bool added_mass_clamped = false;
     bool damping_clamped    = false;

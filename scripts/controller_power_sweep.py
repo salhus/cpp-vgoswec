@@ -23,7 +23,14 @@ from pathlib import Path
 WAVE_H = 0.028
 WAVE_A = WAVE_H / 2.0
 
-# Per-device sweep configuration
+# Per-device sweep configuration.
+#
+# IMPORTANT — keep resonance_omega and resonance_period consistent with the
+# opt_passive/cc design_omega fields in the corresponding YAML configs:
+#   VGM-45: config/vgoswec_45_{opt_passive,cc}.yaml → opt_passive.design_omega: 1.84
+#   VGM-0:  config/vgoswec_0_{opt_passive,cc}.yaml  → opt_passive.design_omega: 1.07
+# resonance_omega is used here for impedance-based commentary and Falnes check only;
+# the actual controller gains are computed by the binary from the H5 + design_omega.
 DEVICES = {
     "VGM-45": {
         "label": "VGM-45 (45° flap angle)",
@@ -35,8 +42,8 @@ DEVICES = {
             "exc_ff_pid":  "config/vgoswec_45_exc_ff_pid.yaml",
         },
         "periods": [6.00, 4.49, 3.42, 3.00, 2.50, 2.00, 1.57],
-        "resonance_period": 3.42,
-        "resonance_omega":  1.84,
+        "resonance_period": 3.42,   # must match opt_passive.design_omega in YAML
+        "resonance_omega":  1.84,   # must match opt_passive.design_omega in YAML
     },
     "VGM-0": {
         "label": "VGM-0 (0° flap angle)",
@@ -48,8 +55,8 @@ DEVICES = {
             "exc_ff_pid":  "config/vgoswec_0_exc_ff_pid.yaml",
         },
         "periods": [8.00, 6.50, 5.86, 5.00, 4.00, 3.00, 2.00],
-        "resonance_period": 5.86,
-        "resonance_omega":  1.07,
+        "resonance_period": 5.86,   # must match opt_passive.design_omega in YAML
+        "resonance_omega":  1.07,   # must match opt_passive.design_omega in YAML
     },
 }
 
@@ -260,8 +267,12 @@ def render_markdown(all_results: List[dict], device_meta: dict,
         " restoring stiffness K_hs_eff = K_hs55 + C_ext ≈ +5.37 N·m/rad — stable and matching"
         " Table 2 resonances (VGM-45: ≈1.84 rad/s; VGM-0: ≈1.07 rad/s).",
         "- **De-normalization** uses the stored H5 rho (1000 kg/m³) for both devices — consistent basis.",
-        "- **VGM-45** sweep: 6.00, 4.49, 3.42, 3.00, 2.50, 2.00, 1.57 s (ω ≈ 1.05–4.00 rad/s).",
-        "- **VGM-0** sweep: 8.00, 6.50, 5.86, 5.00, 4.00, 3.00, 2.00 s (ω ≈ 0.79–3.14 rad/s).",
+] + [
+        f"- **{dev_name}** sweep: "
+        + ", ".join(f"{p:.2f}" for p in dev["periods"])
+        + f" s (ω ≈ {2*math.pi/max(dev['periods']):.2f}–{2*math.pi/min(dev['periods']):.2f} rad/s)."
+        for dev_name, dev in device_meta.items()
+] + [
         "- Controllers: passive, opt_passive, cc, and exc_ff_pid only if run was stable.",
         f"- Steady-state: discard first {TRANSIENT_PERIODS} periods; average over an integer number "
         f"of whole cycles up to {TOTAL_PERIODS} total periods.",
