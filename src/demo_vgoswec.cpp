@@ -347,7 +347,7 @@ int main(int argc, char* argv[]) {
     // Δω = 0.1 rad/s (31 rows).  B55 is clamped ≥ 0 in GetPitchRadCoeffsAtOmega
     // (radiation damping is physically non-negative; paper Eq. (1), λ₅,₅ ≥ 0).
     // An extra row is inserted at ω = 1.84 rad/s to mark the VGM 45 natural frequency.
-    constexpr double kOmegaResonance = 1.84;  // VGM 45 ωₙ ≈ 1.84 rad/s (paper Table 2)
+    constexpr double kOmegaVGM45Resonance = 1.84;  // VGM 45 ωₙ ≈ 1.84 rad/s (paper Table 2)
     auto PrintSweepRow = [&](double w_sw, const char* note = nullptr) {
       const double T_sw = 2.0 * M_PI / w_sw;
       const auto [A55_sw, B55_sw] = vgoswec::GetPitchRadCoeffsAtOmega(hydro_data, kBodySw, w_sw);
@@ -378,14 +378,14 @@ int main(int argc, char* argv[]) {
       const double w_sw = 1.0 + step * 0.1;
       // Insert the VGM 45 resonance row (1.84 rad/s) before the first grid point
       // above it, so it always appears in the table regardless of grid alignment.
-      if (!resonance_printed && w_sw > kOmegaResonance) {
-        PrintSweepRow(kOmegaResonance, "<-- VGM45 resonance");
+      if (!resonance_printed && w_sw > kOmegaVGM45Resonance) {
+        PrintSweepRow(kOmegaVGM45Resonance, "<-- VGM45 resonance");
         resonance_printed = true;
       }
       PrintSweepRow(w_sw);
     }
     if (!resonance_printed) {
-      PrintSweepRow(kOmegaResonance, "<-- VGM45 resonance");
+      PrintSweepRow(kOmegaVGM45Resonance, "<-- VGM45 resonance");
     }
     std::cout << std::defaultfloat
               << "====================================================\n";
