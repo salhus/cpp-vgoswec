@@ -12,6 +12,7 @@ from pathlib import Path
 WAVE_H = 0.028
 WAVE_A = WAVE_H / 2.0
 PERIODS_S = [6.00, 4.49, 3.42, 3.00, 2.50, 2.00, 1.57]
+RESONANCE_PERIOD_S = 3.42
 TRANSIENT_PERIODS = 10
 TOTAL_PERIODS = 40
 B55_FLOOR = 1e-9
@@ -121,7 +122,8 @@ def make_plot(rows: List[dict], out_png: Path) -> None:
     ax1.semilogy(periods, [max(y, 1e-12) for y in p_opt], "k--", marker="x", label="P_opt (theoretical)")
 
     for ax in (ax0, ax1):
-        ax.axvline(3.42, color="gray", linestyle=":", linewidth=1.2, label="VGM45 resonance (3.42 s)")
+        ax.axvline(RESONANCE_PERIOD_S, color="gray", linestyle=":", linewidth=1.2,
+                   label=f"VGM45 resonance ({RESONANCE_PERIOD_S:.2f} s)")
         ax.grid(True, alpha=0.3)
         ax.legend(loc="best")
 
@@ -178,7 +180,7 @@ def render_markdown(rows: List[dict], included_optional: bool, out_md: Path) -> 
         )
 
     cc_rows = [r for r in rows if r["controller"] == "cc"]
-    cc_res = min(cc_rows, key=lambda r: abs(r["T_s"] - 3.42)) if cc_rows else None
+    cc_res = min(cc_rows, key=lambda r: abs(r["T_s"] - RESONANCE_PERIOD_S)) if cc_rows else None
     best_capture = max(rows, key=lambda r: r["capture_ratio"])
     best_power = max(rows, key=lambda r: r["P_mean_W"])
     notch_rows = [r for r in rows if r.get("P_opt_floor_applied")]
@@ -189,7 +191,7 @@ def render_markdown(rows: List[dict], included_optional: bool, out_md: Path) -> 
     ]
     if cc_res is not None:
         interpretation.append(
-            "- At resonance (T=3.42 s), `cc` shows "
+            f"- At resonance (T={RESONANCE_PERIOD_S:.2f} s), `cc` shows "
             f"peak|pitch|={cc_res['peak_pitch_rad']:.6e} rad and capture_ratio={cc_res['capture_ratio']:.6e}, "
             "consistent with reactive-limited behavior near the radiation-damping notch."
         )
@@ -266,7 +268,7 @@ def main() -> int:
 
     controllers = ["passive", "opt_passive", "cc"]
     include_exc = True
-    probe_T = 3.42
+    probe_T = RESONANCE_PERIOD_S
     probe_cmd = [
         str(demo),
         "--config",
@@ -290,73 +292,73 @@ def main() -> int:
     if include_exc:
         controllers.append("exc_ff_pid")
 
-    tmpdir = Path(tempfile.mkdtemp(prefix="cpp-vgoswec-controller-sweep-", dir="/tmp"))
     results = []
     power_sign = None
+    with tempfile.TemporaryDirectory(prefix="cpp-vgoswec-controller-sweep-", dir="/tmp") as tmp:
+        tmpdir = Path(tmp)
+        for ctrl in controllers:
+            for T_s in PERIODS_S:
+                dur_s = TOTAL_PERIODS * T_s
+                cmd = [
+                    str(demo),
+                    "--config",
+                    controller_configs[ctrl],
+                    "--controller",
+                    ctrl,
+                    "--data-dir",
+                    str(repo),
+                    "--no-viz",
+                    "--wave-period",
+                    f"{T_s}",
+                    "--wave-height",
+                    f"{WAVE_H}",
+                    "--duration",
+                    f"{dur_s}",
+                ]
+                run = run_cmd(cmd, repo, capture=True)
+                if run.returncode != 0:
+                    raise RuntimeError(
+                        f"Run failed for {ctrl} at T={T_s:.2f}s\nSTDOUT:\n{run.stdout}\nSTDERR:\n{run.stderr}"
+                    )
+                src_csv = repo / "output" / "vgoswec_45_results.csv"
+                dst_csv = tmpdir / f"{ctrl}_T{T_s:.2f}.csv"
+                shutil.copyfile(src_csv, dst_csv)
+                m = summarize_run(dst_csv, T_s)
 
-    for ctrl in controllers:
-        for T_s in PERIODS_S:
-            dur_s = TOTAL_PERIODS * T_s
-            cmd = [
-                str(demo),
-                "--config",
-                controller_configs[ctrl],
-                "--controller",
-                ctrl,
-                "--data-dir",
-                str(repo),
-                "--no-viz",
-                "--wave-period",
-                f"{T_s}",
-                "--wave-height",
-                f"{WAVE_H}",
-                "--duration",
-                f"{dur_s}",
-            ]
-            run = run_cmd(cmd, repo, capture=True)
-            if run.returncode != 0:
-                raise RuntimeError(
-                    f"Run failed for {ctrl} at T={T_s:.2f}s\nSTDOUT:\n{run.stdout}\nSTDERR:\n{run.stderr}"
+                if power_sign is None and ctrl == "passive":
+                    expected_abs = -m["tau_omega_mean"]
+                    d1 = abs(m["P_mean_raw_W"] - expected_abs)
+                    d2 = abs((-m["P_mean_raw_W"]) - expected_abs)
+                    power_sign = 1.0 if d1 <= d2 else -1.0
+                    print(
+                        f"Power sign check (passive): using {'power_w' if power_sign > 0 else '-power_w'} "
+                        "as absorbed power convention."
+                    )
+
+                if power_sign is None:
+                    power_sign = 1.0
+                P_mean = power_sign * m["P_mean_raw_W"]
+                key = round(T_s, 2)
+                h = hydro[key]
+                P_opt = h["P_opt_W"]
+                capture_ratio = P_mean / P_opt if P_opt > 0.0 else float("nan")
+
+                results.append(
+                    {
+                        "controller": ctrl,
+                        "T_s": T_s,
+                        "omega_rads": (2.0 * math.pi / T_s),
+                        "wave_H_m": WAVE_H,
+                        "wave_A_m": WAVE_A,
+                        "P_mean_W": P_mean,
+                        "P_opt_W": P_opt,
+                        "capture_ratio": capture_ratio,
+                        "peak_pitch_rad": m["peak_pitch_rad"],
+                        "rms_pitch_rad": m["rms_pitch_rad"],
+                        "tau_omega_neg_frac": m["tau_omega_neg_frac"],
+                        "P_opt_floor_applied": h["B55_floor_applied"],
+                    }
                 )
-            src_csv = repo / "output" / "vgoswec_45_results.csv"
-            dst_csv = tmpdir / f"{ctrl}_T{T_s:.2f}.csv"
-            shutil.copyfile(src_csv, dst_csv)
-            m = summarize_run(dst_csv, T_s)
-
-            if power_sign is None and ctrl == "passive":
-                expected_abs = -m["tau_omega_mean"]
-                d1 = abs(m["P_mean_raw_W"] - expected_abs)
-                d2 = abs((-m["P_mean_raw_W"]) - expected_abs)
-                power_sign = 1.0 if d1 <= d2 else -1.0
-                print(
-                    f"Power sign check (passive): using {'power_w' if power_sign > 0 else '-power_w'} "
-                    "as absorbed power convention."
-                )
-
-            if power_sign is None:
-                power_sign = 1.0
-            P_mean = power_sign * m["P_mean_raw_W"]
-            key = round(T_s, 2)
-            h = hydro[key]
-            P_opt = h["P_opt_W"]
-            capture_ratio = P_mean / P_opt if P_opt > 0.0 else float("nan")
-
-            results.append(
-                {
-                    "controller": ctrl,
-                    "T_s": T_s,
-                    "omega_rads": (2.0 * math.pi / T_s),
-                    "wave_H_m": WAVE_H,
-                    "wave_A_m": WAVE_A,
-                    "P_mean_W": P_mean,
-                    "P_opt_W": P_opt,
-                    "capture_ratio": capture_ratio,
-                    "peak_pitch_rad": m["peak_pitch_rad"],
-                    "rms_pitch_rad": m["rms_pitch_rad"],
-                    "tau_omega_neg_frac": m["tau_omega_neg_frac"],
-                    "P_opt_floor_applied": h["B55_floor_applied"],
-                }
-            )
 
     out_csv = repo / "output" / "controller_power_sweep.csv"
     out_png = repo / "output" / "controller_power_sweep.png"
@@ -399,7 +401,7 @@ def main() -> int:
     print(f"\nWrote: {out_csv}")
     print(f"Wrote: {out_png}")
     print(f"Wrote: {out_md}")
-    print(f"Per-run raw CSVs kept in: {tmpdir}")
+    print("Per-run raw CSVs were stored in a temporary /tmp directory and cleaned up.")
     return 0
 
 
