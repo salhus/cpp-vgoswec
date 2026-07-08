@@ -11,6 +11,7 @@
 #include <seastack/adapters/chrono/hydro_system.h>
 #include <seastack/hydro/waves/component_sampler.h>
 #include <seastack/hydro/waves/linear_directional_wave_field.h>
+#include <seastack/hydro/waves/wave_base.h>
 #include <seastack/hydro_io/h5_reader.h>
 
 #ifdef VGOSWEC_HAVE_SEASTACK_GUIHELPER
@@ -95,7 +96,11 @@ static CLIArgs ParseCLI(int argc, char* argv[]) {
   return args;
 }
 
-static std::shared_ptr<LinearDirectionalWaveField> BuildWaveField(const vgoswec::SimConfig& cfg) {
+static std::shared_ptr<WaveBase> BuildWaveField(const vgoswec::SimConfig& cfg) {
+  if (cfg.wave.type == "none") {
+    return std::make_shared<NoWave>();
+  }
+
   SeaStateDefinition sea_state;
   if (cfg.wave.type == "regular") {
     sea_state.type = "regular";

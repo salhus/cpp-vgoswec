@@ -14,7 +14,7 @@ namespace vgoswec {
 // ─── Wave params ─────────────────────────────────────────────────────────────
 
 struct WaveConfig {
-    std::string type{"regular"};    ///< "regular" | "jonswap"
+    std::string type{"regular"};    ///< "regular" | "jonswap" | "none" (free-decay / no incident wave)
     double height{0.05};            ///< [m]  H (regular) or Hs (JONSWAP)
     double period{1.5};             ///< [s]  T (regular) or Tp (JONSWAP)
     double direction{0.0};          ///< [rad]

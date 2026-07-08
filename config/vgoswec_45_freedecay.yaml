@@ -31,10 +31,7 @@ hydro:
   rho: 1025.0
 
 wave:
-  type: regular
-  height: 0.0           # [m] disable incident-wave forcing for free-decay validation
-  period: 3.42          # [s] documented VGM-45 resonance period (unused when H=0)
-  direction: 0.0
+  type: none          # NoWave: zero excitation; hydrostatics and radiation still act
 
 controller:
   type: cc
