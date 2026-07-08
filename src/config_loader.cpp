@@ -31,7 +31,10 @@ BodyConfig ParseBody(const YAML::Node& n) {
     BodyConfig b;
     b.mesh       = ReadOpt<std::string>(n, "mesh", "");
     b.mass       = ReadOpt<double>(n, "mass", 1.0);
-    b.inertia_yy = ReadOpt<double>(n, "inertia_yy", 0.15);
+    b.inertia_yy = ReadOpt<double>(n, "inertia_yy", 0.21);
+    // inertia_xx and inertia_zz default to inertia_yy when not specified (isotropic fallback)
+    b.inertia_xx = ReadOpt<double>(n, "inertia_xx", b.inertia_yy);
+    b.inertia_zz = ReadOpt<double>(n, "inertia_zz", b.inertia_yy);
     b.initial_pitch = ReadOpt<double>(n, "initial_pitch", 0.0);
     if (n["cog"] && n["cog"].IsSequence()) {
         b.cog[0] = n["cog"][0].as<double>();

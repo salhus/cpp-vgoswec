@@ -205,18 +205,15 @@ int main(int argc, char* argv[]) {
   flap_body->SetName("body1");
   flap_body->SetPos(ChVector3d(cfg.flap.cog[0], cfg.flap.cog[1], cfg.flap.cog[2]));
   flap_body->SetMass(cfg.flap.mass);
-  flap_body->SetInertiaXX(ChVector3d(cfg.flap.inertia_yy, cfg.flap.inertia_yy, cfg.flap.inertia_yy));
-  if (std::abs(cfg.flap.initial_pitch) > std::numeric_limits<double>::epsilon()) {
-    const double cos_pitch = std::cos(cfg.flap.initial_pitch);
-    const double sin_pitch = std::sin(cfg.flap.initial_pitch);
-    const double cog_x = cfg.flap.cog[0];
-    const double cog_y = cfg.flap.cog[1];
-    const double cog_z_relative = cfg.flap.cog[2] - cfg.hinge_z;
-    flap_body->SetPos(ChVector3d(cos_pitch * cog_x + sin_pitch * cog_z_relative,
-                                 cog_y,
-                                 cfg.hinge_z - sin_pitch * cog_x + cos_pitch * cog_z_relative));
-    flap_body->SetRot(QuatFromAngleY(cfg.flap.initial_pitch));
-  }
+  // Inertia about CG (SEA-Stack's native reference frame).
+  // Body frame = world frame when the flap is upright; the revolute is initialized with
+  // QuatFromAngleX(PI/2) so its free-rotation Z-axis aligns with world Y (the hinge axis).
+  // Pitch about the hinge Y-axis therefore corresponds to body Iyy.
+  // I_flap (= inertia_yy = 0.21 kg·m²) used by the impedance/CC gain path must be the
+  // same CG-referenced value to be consistent with SEA-Stack's CG-referenced A₅₅ / K_hs,55.
+  flap_body->SetInertiaXX(ChVector3d(cfg.flap.inertia_xx, cfg.flap.inertia_yy, cfg.flap.inertia_zz));
+  // NOTE: initial_pitch is applied AFTER all joints are initialized (see below) so that
+  // the revolute/RSDA zero-reference is set at theta=0 and the IC is correctly reported.
 
   auto base_body = chrono_types::make_shared<ChBodyEasyMesh>(base_mesh, 1000.0, false, true, false);
   system.Add(base_body);
@@ -259,6 +256,68 @@ int main(int argc, char* argv[]) {
                    ChFramed(hinge_pos, hinge_rot), ChFramed(hinge_pos, hinge_rot));
   rsda->RegisterTorqueFunctor(std::make_shared<vgoswec::RsdaPtoFunctor>(controller));
   system.AddLink(rsda);
+
+  // Apply initial pitch AFTER all joints are initialized.
+  // The revolute and RSDA capture theta=0 as their reference when the flap is at its
+  // nominal (upright) position.  Rotating the flap here means rsda->GetAngle() will
+  // correctly return initial_pitch (≈theta0) at the first simulation step instead of 0.
+  if (std::abs(cfg.flap.initial_pitch) > std::numeric_limits<double>::epsilon()) {
+    const double cos_pitch = std::cos(cfg.flap.initial_pitch);
+    const double sin_pitch = std::sin(cfg.flap.initial_pitch);
+    const double cog_x = cfg.flap.cog[0];
+    const double cog_y = cfg.flap.cog[1];
+    const double cog_z_relative = cfg.flap.cog[2] - cfg.hinge_z;
+    flap_body->SetPos(ChVector3d(cos_pitch * cog_x + sin_pitch * cog_z_relative,
+                                 cog_y,
+                                 cfg.hinge_z - sin_pitch * cog_x + cos_pitch * cog_z_relative));
+    flap_body->SetRot(QuatFromAngleY(cfg.flap.initial_pitch));
+  }
+
+  // ── HYDRO DIAGNOSTIC (printed once at startup, side-effect free) ─────────────
+  {
+    const std::string ctrl_type = args.controller_override.empty()
+                                    ? cfg.controller.type
+                                    : args.controller_override;
+    const double omega0 = (cfg.controller.opt_passive.design_omega > 0.0)
+                              ? cfg.controller.opt_passive.design_omega
+                              : 2.0 * M_PI / cfg.wave.period;
+    constexpr int kBody = 0;
+    const double K_hs55  = hydro_data.GetHydrostaticStiffnessVal(kBody, 4, 4);
+    const double A55_inf = hydro_data.GetInfAddedMassMatrix(kBody)(4, 4);
+    const auto [A55, B55] = vgoswec::GetPitchRadCoeffsAtOmega(hydro_data, kBody, omega0);
+    const double I_cg   = cfg.flap.inertia_yy;
+    // C_ext: external spring stiffness for free-decay (cc with override and no damping).
+    const double C_ext = (ctrl_type == "cc"
+                           && cfg.controller.cc.K_r_override != 0.0
+                           && cfg.controller.cc.B_r_override == 0.0)
+                          ? cfg.controller.cc.K_r_override
+                          : 0.0;
+    const double omega_n_pred = std::sqrt((K_hs55 + C_ext) / (I_cg + A55_inf));
+    const double Ts_pred      = 2.0 * M_PI / omega_n_pred;
+
+    std::cout << "=== HYDRO DIAGNOSTIC (flap pitch, about CG) ===\n"
+              << "  omega0       = " << omega0    << " rad/s\n"
+              << "  K_hs55       = " << K_hs55   << " N*m/rad\n"
+              << "  A55(omega0)  = " << A55       << " kg*m^2\n"
+              << "  B55(omega0)  = " << B55       << " N*m*s/rad\n"
+              << "  A55_inf      = " << A55_inf   << " kg*m^2\n"
+              << "  I_cg         = " << I_cg      << " kg*m^2\n"
+              << "  C_ext        = " << C_ext     << " N*m/rad\n"
+              << "  omega_n_pred = " << omega_n_pred << " rad/s\n"
+              << "  Ts_pred      = " << Ts_pred   << " s\n";
+    if (ctrl_type == "cc") {
+      double diag_K_r = cfg.controller.cc.K_r_override;
+      double diag_B_r = cfg.controller.cc.B_r_override;
+      if (diag_K_r == 0.0 && diag_B_r == 0.0) {
+        const auto gains = vgoswec::ComputeCCGains(hydro_data, kBody, omega0, I_cg);
+        diag_K_r = gains.K_r;
+        diag_B_r = gains.B_r;
+      }
+      std::cout << "  K_r (CC)     = " << diag_K_r << " N*m/rad\n"
+                << "  B_r (CC)     = " << diag_B_r << " N*m*s/rad\n";
+    }
+    std::cout << "================================================\n";
+  }
 
   // Determine which visualization path to use.
   // use_simple_viz is true when:
