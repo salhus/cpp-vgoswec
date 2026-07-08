@@ -79,20 +79,24 @@ target_link_libraries(demo_vgoswec
   PRIVATE vgoswec_chrono
           SEAStack::ChronoAdapter
           SEAStack::HydroIO
-          ${_demo_extra_libs}
 )
 target_compile_features(demo_vgoswec PRIVATE cxx_std_17)
 target_compile_options(demo_vgoswec PRIVATE -Wall -Wextra -Wpedantic)
 
 # Prefer imported VSG targets when available (avoid manual low-level find_library).
+set(_demo_gui_libs "")
 if(TARGET vsg::vsg)
-  target_link_libraries(demo_vgoswec PRIVATE vsg::vsg)
+  list(APPEND _demo_gui_libs vsg::vsg)
 endif()
 if(TARGET vsgXchange::vsgXchange)
-  target_link_libraries(demo_vgoswec PRIVATE vsgXchange::vsgXchange)
+  list(APPEND _demo_gui_libs vsgXchange::vsgXchange)
+elseif(TARGET vsgXchange)
+  list(APPEND _demo_gui_libs vsgXchange)
 endif()
 if(TARGET vsgImGui::vsgImGui)
-  target_link_libraries(demo_vgoswec PRIVATE vsgImGui::vsgImGui)
+  list(APPEND _demo_gui_libs vsgImGui::vsgImGui)
+elseif(TARGET vsgImGui)
+  list(APPEND _demo_gui_libs vsgImGui)
 endif()
 
 # SEA-Stack app library import (parity with working SEA-Stack/HIL integration path).
@@ -132,6 +136,12 @@ if(_SEASTACK_APP_LIB_PATH)
   message(STATUS "demo_vgoswec: found and linked seastack_app_lib at ${_SEASTACK_APP_LIB_PATH}")
 else()
   message(WARNING "demo_vgoswec: seastack_app_lib not found; continuing with headless-safe build path")
+endif()
+
+# Link GUI/VSG dependencies after SEAStack::app_lib so static-library consumers
+# resolve Chrono VSG and ImGui symbols in left-to-right link order.
+if(_demo_extra_libs OR _demo_gui_libs)
+  target_link_libraries(demo_vgoswec PRIVATE ${_demo_extra_libs} ${_demo_gui_libs})
 endif()
 
 if(EXISTS "${SEASTACK_SOURCE_DIR_HINT}/apps/seastack/gui/guihelper.h")
