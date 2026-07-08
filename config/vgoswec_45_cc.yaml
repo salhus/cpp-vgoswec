@@ -6,7 +6,7 @@
 # τ = -K_r · θ  -  B_r · θ̇
 #
 # Gains computed from HydroData at startup (impedance.h):
-#   K_r =  ω₀² · (I_flap + A₅₅(ω₀)) - K_hs,55
+#   K_r = ω₀² · (I_flap + A₅₅(ω₀)) - K_hs,55
 #   B_r =  B_rad,55(ω₀)
 #
 # WARNING: CC control requires bidirectional power flow (reactive);

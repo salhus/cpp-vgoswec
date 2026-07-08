@@ -202,14 +202,14 @@ int main(int argc, char* argv[]) {
   flap_body->SetMass(cfg.flap.mass);
   flap_body->SetInertiaXX(ChVector3d(cfg.flap.inertia_yy, cfg.flap.inertia_yy, cfg.flap.inertia_yy));
   if (std::abs(cfg.flap.initial_pitch) > std::numeric_limits<double>::epsilon()) {
-    const double c = std::cos(cfg.flap.initial_pitch);
-    const double s = std::sin(cfg.flap.initial_pitch);
-    const double rel_x = cfg.flap.cog[0];
-    const double rel_y = cfg.flap.cog[1];
-    const double rel_z = cfg.flap.cog[2] - cfg.hinge_z;
-    flap_body->SetPos(ChVector3d(c * rel_x + s * rel_z,
-                                 rel_y,
-                                 cfg.hinge_z - s * rel_x + c * rel_z));
+    const double cos_pitch = std::cos(cfg.flap.initial_pitch);
+    const double sin_pitch = std::sin(cfg.flap.initial_pitch);
+    const double cog_x = cfg.flap.cog[0];
+    const double cog_y = cfg.flap.cog[1];
+    const double cog_z_relative = cfg.flap.cog[2] - cfg.hinge_z;
+    flap_body->SetPos(ChVector3d(cos_pitch * cog_x + sin_pitch * cog_z_relative,
+                                 cog_y,
+                                 cfg.hinge_z - sin_pitch * cog_x + cos_pitch * cog_z_relative));
     flap_body->SetRot(QuatFromAngleY(cfg.flap.initial_pitch));
   }
 
