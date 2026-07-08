@@ -1,4 +1,6 @@
 # vgoswec_45_exc_ff_pid.yaml
+# Source: Ogden et al., ASME JOMAE 145(3):030905 (VGOSWEC-45 / VGM-45).
+# VGM-45 free-decay reference: ωn = 1.84 rad/s, Ts = 3.42 s.
 # Active control: Excitation-force feedforward + PID trajectory tracking.
 #
 # τ = α · F_exc,pitch(t)  +  PID( θ_ref(t) - θ(t) )
@@ -17,16 +19,17 @@ simulation:
 body:
   flap:
     mesh: geometry/vgm45.obj
-    mass: 7.60
-    cog: [0.0, 0.0, -0.2352]
-    inertia_yy: 0.15              # [kg·m²]  TODO: bifilar-pendulum measurement needed
+    mass: 6.30
+    cog: [0.0, 0.0, -0.226]       # [m] hinge_z + r_g = -0.5 + 0.274
+    inertia_yy: 0.962             # [kg·m²] Table 1 I55 about hinge
+    # Geometry/properties from Table 1: w=0.40 m, H_p=0.50 m, t=0.076 m, V=7395 cm^3, r_b=0.293 m.
   base:
     mesh: geometry/stl_files/center_beam_w_foundation_BEM.STL
     mass: 1.0e6
     cog: [0.0, 0.0, -0.7658]
 
 hinge:
-  position_z: -0.7658
+  position_z: -0.5      # [m] hinge/foundation reference (Table 1); foundation radius r_f = 0.05 m
 
 hydro:
   h5_file: hydroData/vgoswec_45.h5

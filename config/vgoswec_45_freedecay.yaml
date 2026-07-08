@@ -1,0 +1,44 @@
+# vgoswec_45_freedecay.yaml
+# Source: Ogden et al., ASME JOMAE 145(3):030905 (VGOSWEC-45 / VGM-45).
+# Purpose: spring-only free-decay validation (no waves) to recover VGM-45 resonance:
+#   ωn ≈ 1.84 rad/s, Ts ≈ 3.42 s, ζ ≈ 3.5e-4.
+# PTO mapping: CC law τ = -K_r·θ - B_r·ω with K_r=+C_ext and B_r=0 gives pure restoring spring
+#   τ = -C_ext·θ, where C_ext = 6.57 N·m/rad (Table 1).
+
+simulation:
+  duration: 40.0       # [s] >= 30 s to observe several free-decay cycles
+  timestep: 0.005      # [s]
+  wave_ramp: 0.0       # [s] no incident-wave forcing
+
+body:
+  flap:
+    mesh: geometry/vgm45.obj
+    mass: 6.30
+    cog: [0.0, 0.0, -0.226]       # [m] hinge_z + r_g = -0.5 + 0.274
+    inertia_yy: 0.962             # [kg·m²] Table 1 I55 about hinge
+    initial_pitch: 0.15           # [rad] nonzero initial displacement for free decay
+    # Geometry/properties from Table 1: w=0.40 m, H_p=0.50 m, t=0.076 m, V=7395 cm^3, r_b=0.293 m.
+  base:
+    mesh: geometry/stl_files/center_beam_w_foundation_BEM.STL
+    mass: 1.0e6
+    cog: [0.0, 0.0, -0.7658]
+
+hinge:
+  position_z: -0.5      # [m] hinge/foundation reference (Table 1); foundation radius r_f = 0.05 m
+
+hydro:
+  h5_file: hydroData/vgoswec_45.h5
+  rho: 1025.0
+
+wave:
+  type: regular
+  height: 0.0           # [m] disable incident-wave forcing for free-decay validation
+  period: 3.42          # [s] documented VGM-45 resonance period (unused when H=0)
+  direction: 0.0
+
+controller:
+  type: cc
+  cc:
+    K_r_override: 6.57   # [N·m/rad] external spring C_ext (Table 1)
+    B_r_override: 0.0    # [N·m·s/rad] spring-only (no PTO damping)
+    clip_torque: 20.0    # [N·m] keep unclipped over small-angle free-decay response

@@ -35,6 +35,7 @@ using namespace chrono::vsg3d;
 #include <iomanip>
 #include <iostream>
 #include <memory>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -200,6 +201,17 @@ int main(int argc, char* argv[]) {
   flap_body->SetPos(ChVector3d(cfg.flap.cog[0], cfg.flap.cog[1], cfg.flap.cog[2]));
   flap_body->SetMass(cfg.flap.mass);
   flap_body->SetInertiaXX(ChVector3d(cfg.flap.inertia_yy, cfg.flap.inertia_yy, cfg.flap.inertia_yy));
+  if (std::abs(cfg.flap.initial_pitch) > std::numeric_limits<double>::epsilon()) {
+    const double cos_pitch = std::cos(cfg.flap.initial_pitch);
+    const double sin_pitch = std::sin(cfg.flap.initial_pitch);
+    const double cog_x = cfg.flap.cog[0];
+    const double cog_y = cfg.flap.cog[1];
+    const double cog_z_relative = cfg.flap.cog[2] - cfg.hinge_z;
+    flap_body->SetPos(ChVector3d(cos_pitch * cog_x + sin_pitch * cog_z_relative,
+                                 cog_y,
+                                 cfg.hinge_z - sin_pitch * cog_x + cos_pitch * cog_z_relative));
+    flap_body->SetRot(QuatFromAngleY(cfg.flap.initial_pitch));
+  }
 
   auto base_body = chrono_types::make_shared<ChBodyEasyMesh>(base_mesh, 1000.0, false, true, false);
   system.Add(base_body);
