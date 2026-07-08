@@ -143,6 +143,9 @@ endif()
 if(_demo_extra_libs OR _demo_gui_libs)
   target_link_libraries(demo_vgoswec PRIVATE ${_demo_extra_libs} ${_demo_gui_libs})
 endif()
+if(Chrono_VSG_AVAILABLE AND TARGET Chrono::Chrono_vsg)
+  target_compile_definitions(demo_vgoswec PRIVATE VGOSWEC_HAVE_CHRONO_VSG=1)
+endif()
 
 if(EXISTS "${SEASTACK_SOURCE_DIR_HINT}/apps/seastack/gui/guihelper.h")
   target_include_directories(demo_vgoswec PRIVATE

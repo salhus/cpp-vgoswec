@@ -17,11 +17,17 @@
 #include <gui/guihelper.h>
 #endif
 
+#include <chrono/assets/ChVisualShapeBox.h>
 #include <chrono/physics/ChBodyEasy.h>
 #include <chrono/physics/ChLinkLock.h>
 #include <chrono/physics/ChLinkMate.h>
 #include <chrono/physics/ChLinkRSDA.h>
 #include <chrono/physics/ChSystemNSC.h>
+
+#ifdef VGOSWEC_HAVE_CHRONO_VSG
+#include <chrono_vsg/ChVisualSystemVSG.h>
+using namespace chrono::vsg3d;
+#endif
 
 #include <cmath>
 #include <filesystem>
@@ -43,6 +49,7 @@ struct CLIArgs {
   std::string controller_override;
   std::string data_dir{"."};
   bool visualization_on{true};
+  bool simple_viz{false};
   double duration_override{-1.0};
 };
 
@@ -50,7 +57,8 @@ static void PrintUsage(const char* argv0) {
   std::cout << "Usage: " << argv0 << " --config <path.yaml> [OPTIONS]\n"
             << "  --controller <name>  passive|opt_passive|cc|exc_ff_pid\n"
             << "  --data-dir <path>\n"
-            << "  --no-viz\n"
+            << "  --no-viz             Headless (no window); takes precedence over --simple-viz\n"
+            << "  --simple-viz         Render flap as a box via plain Chrono VSG (no SEA-Stack water surface)\n"
             << "  --duration <s>\n";
 }
 
@@ -69,6 +77,8 @@ static CLIArgs ParseCLI(int argc, char* argv[]) {
       args.data_dir = argv[++i];
     } else if (a == "--no-viz") {
       args.visualization_on = false;
+    } else if (a == "--simple-viz") {
+      args.simple_viz = true;
     } else if (a == "--duration" && i + 1 < argc) {
       args.duration_override = std::stod(argv[++i]);
     } else {
@@ -233,23 +243,43 @@ int main(int argc, char* argv[]) {
   rsda->RegisterTorqueFunctor(std::make_shared<vgoswec::RsdaPtoFunctor>(controller));
   system.AddLink(rsda);
 
+  // Determine which visualization path to use.
+  // use_simple_viz is true when:
+  //   - the user explicitly requested --simple-viz, OR
+  //   - visualization is on but the SEA-Stack guihelper is not available (automatic fallback).
+#ifdef VGOSWEC_HAVE_SEASTACK_GUIHELPER
+  constexpr bool have_guihelper = true;
+#else
+  constexpr bool have_guihelper = false;
+#endif
+  const bool use_simple_viz =
+      args.simple_viz ||
+      (args.visualization_on && !have_guihelper);
+
+  // Attach box visual shapes for the plain-VSG renderer.  These are visual-only:
+  // no mass, inertia, or collision geometry is added.  Only added when the
+  // simple-viz path will be used to avoid changing the guihelper path's appearance.
+  if (use_simple_viz) {
+    // Flap: thin plate (~0.02 m × 0.30 m × 0.30 m). Thin along local X so the
+    // plate face is visible as the flap swings about the hinge (world Y).
+    auto flap_box = chrono_types::make_shared<ChVisualShapeBox>(0.02, 0.30, 0.30);
+    flap_box->SetColor(ChColor(0.2f, 0.5f, 0.8f));
+    flap_body->AddVisualShape(flap_box);
+
+    // Base/hinge marker: small cube at the base body CoG to help orient the view.
+    auto base_box = chrono_types::make_shared<ChVisualShapeBox>(0.05, 0.05, 0.05);
+    base_box->SetColor(ChColor(0.6f, 0.6f, 0.6f));
+    base_body->AddVisualShape(base_box);
+  }
+
   std::vector<Record> records;
   records.reserve(static_cast<size_t>(sim_duration / cfg.timestep) + 100);
 
   const double dt = cfg.timestep;
 
-#ifdef VGOSWEC_HAVE_SEASTACK_GUIHELPER
-  // GUI path: CreateUI(true) -> real VSG renderer; CreateUI(false) -> headless no-op.
-  // A single loop driven by ui.IsRunning() works for both visual and headless runs.
-  auto pui = seastack::viz::CreateUI(args.visualization_on);
-  seastack::viz::UI& ui = *pui;
-  ui.Init(&system, "VGOSWEC-45");
-  ui.SetCamera(0, -3.0, 0.5, 0, 0, -0.5);
-  ui.SetWaveModel(waves);
-
-  while (system.GetChTime() <= sim_duration) {
-    if (!ui.IsRunning(dt)) break;
-    if (ui.simulationStarted) {
+  if (!args.visualization_on) {
+    // ── Headless loop ────────────────────────────────────────────────────────
+    while (system.GetChTime() <= sim_duration) {
       system.DoStepDynamics(dt);
 
       const auto& per_comp = hydro_system.GetLastComponentForces();
@@ -275,42 +305,102 @@ int main(int argc, char* argv[]) {
       records.push_back(
           {system.GetChTime(), pitch_rad, pitch_vel, pto_tau, exc_tau, -pto_tau * pitch_vel});
     }
-  }
+  } else if (use_simple_viz) {
+    // ── Simple plain-VSG box renderer (no SEA-Stack water surface) ───────────
+    // Uses ChVisualSystemVSG directly, mirroring Chrono's demo_VSG_shapes and the
+    // HIL chrono_flap_node init_visualization()/run() pattern. Avoids the
+    // VertexIndexDraw::record() segfault that occurs when the animated water
+    // surface mesh is added after Initialize() (unfixed upstream SEA-Stack bug).
+#ifdef VGOSWEC_HAVE_CHRONO_VSG
+    auto vis = chrono_types::make_shared<ChVisualSystemVSG>();
+    vis->AttachSystem(&system);
+    vis->SetWindowTitle("VGOSWEC-45 (simple VSG)");
+    vis->SetWindowSize(1000, 700);
+    vis->AddCamera(ChVector3d(0.0, -3.0, 0.5), ChVector3d(0.0, 0.0, cfg.hinge_z + 0.3));
+    vis->Initialize();
+
+    while (vis->Run() && system.GetChTime() <= sim_duration) {
+      vis->BeginScene();
+      vis->Render();
+      vis->EndScene();
+
+      system.DoStepDynamics(dt);
+
+      const auto& per_comp = hydro_system.GetLastComponentForces();
+      if (!per_comp.empty()) {
+        exc_provider->Update(per_comp, system.GetChTime());
+      }
+
+      // Read all logged quantities AFTER the step so every CSV column is consistent
+      // at this record's timestamp (system.GetChTime()). Reading angle/velocity
+      // before the step previously introduced a one-timestep skew vs. torque/time.
+      const double pitch_rad = rsda->GetAngle();
+      const double pitch_vel = rsda->GetVelocity();
+      const double exc_tau   = exc_provider->GetLatestExcitationTorque();
+      // GetTorque() is expected to return the applied PTO actuator torque about the
+      // hinge Y-axis, matching the sign of RsdaPtoFunctor/IPTOModel::ComputeForce
+      // and the docs/CONTROLLERS.md convention (positive torque opposes positive theta;
+      // P_abs = -tau*omega).  Quick validation: in a `passive` run, pto_torque_nm
+      // should have the OPPOSITE sign to flap_pitch_vel_rads, yielding net-positive
+      // power_w.  If it does not, negate pto_tau here (logging-only) to restore the
+      // documented convention.
+      const double pto_tau   = rsda->GetTorque();
+
+      records.push_back(
+          {system.GetChTime(), pitch_rad, pitch_vel, pto_tau, exc_tau, -pto_tau * pitch_vel});
+    }
 #else
-  if (args.visualization_on) {
+    std::cerr << "ERROR: --simple-viz requested but this build does not include Chrono VSG.\n"
+              << "Rebuild with Chrono VSG support or use --no-viz.\n";
+    return 2;
+#endif
+  } else {
+    // ── SEA-Stack guihelper path (unchanged) ─────────────────────────────────
+#ifdef VGOSWEC_HAVE_SEASTACK_GUIHELPER
+    // GUI path: CreateUI(true) -> real VSG renderer; CreateUI(false) -> headless no-op.
+    // A single loop driven by ui.IsRunning() works for both visual and headless runs.
+    auto pui = seastack::viz::CreateUI(args.visualization_on);
+    seastack::viz::UI& ui = *pui;
+    ui.Init(&system, "VGOSWEC-45");
+    ui.SetCamera(0, -3.0, 0.5, 0, 0, -0.5);
+    ui.SetWaveModel(waves);
+
+    while (system.GetChTime() <= sim_duration) {
+      if (!ui.IsRunning(dt)) break;
+      if (ui.simulationStarted) {
+        system.DoStepDynamics(dt);
+
+        const auto& per_comp = hydro_system.GetLastComponentForces();
+        if (!per_comp.empty()) {
+          exc_provider->Update(per_comp, system.GetChTime());
+        }
+
+        // Read all logged quantities AFTER the step so every CSV column is consistent
+        // at this record's timestamp (system.GetChTime()). Reading angle/velocity
+        // before the step previously introduced a one-timestep skew vs. torque/time.
+        const double pitch_rad = rsda->GetAngle();
+        const double pitch_vel = rsda->GetVelocity();
+        const double exc_tau   = exc_provider->GetLatestExcitationTorque();
+        // GetTorque() is expected to return the applied PTO actuator torque about the
+        // hinge Y-axis, matching the sign of RsdaPtoFunctor/IPTOModel::ComputeForce
+        // and the docs/CONTROLLERS.md convention (positive torque opposes positive theta;
+        // P_abs = -tau*omega).  Quick validation: in a `passive` run, pto_torque_nm
+        // should have the OPPOSITE sign to flap_pitch_vel_rads, yielding net-positive
+        // power_w.  If it does not, negate pto_tau here (logging-only) to restore the
+        // documented convention.
+        const double pto_tau   = rsda->GetTorque();
+
+        records.push_back(
+            {system.GetChTime(), pitch_rad, pitch_vel, pto_tau, exc_tau, -pto_tau * pitch_vel});
+      }
+    }
+#else
+    // Should not reach here: use_simple_viz would be true when guihelper is absent.
     std::cerr << "ERROR: Visualization requested but GUI support is not available in this build.\n"
               << "Rebuild with GUI support or use --no-viz.\n";
     return 2;
-  }
-
-  // Headless loop
-  while (system.GetChTime() <= sim_duration) {
-    system.DoStepDynamics(dt);
-
-    const auto& per_comp = hydro_system.GetLastComponentForces();
-    if (!per_comp.empty()) {
-      exc_provider->Update(per_comp, system.GetChTime());
-    }
-
-    // Read all logged quantities AFTER the step so every CSV column is consistent
-    // at this record's timestamp (system.GetChTime()). Reading angle/velocity
-    // before the step previously introduced a one-timestep skew vs. torque/time.
-    const double pitch_rad = rsda->GetAngle();
-    const double pitch_vel = rsda->GetVelocity();
-    const double exc_tau   = exc_provider->GetLatestExcitationTorque();
-    // GetTorque() is expected to return the applied PTO actuator torque about the
-    // hinge Y-axis, matching the sign of RsdaPtoFunctor/IPTOModel::ComputeForce
-    // and the docs/CONTROLLERS.md convention (positive torque opposes positive theta;
-    // P_abs = -tau*omega).  Quick validation: in a `passive` run, pto_torque_nm
-    // should have the OPPOSITE sign to flap_pitch_vel_rads, yielding net-positive
-    // power_w.  If it does not, negate pto_tau here (logging-only) to restore the
-    // documented convention.
-    const double pto_tau   = rsda->GetTorque();
-
-    records.push_back(
-        {system.GetChTime(), pitch_rad, pitch_vel, pto_tau, exc_tau, -pto_tau * pitch_vel});
-  }
 #endif
+  }
 
   std::filesystem::create_directories("output");
   std::ofstream csv("output/vgoswec_45_results.csv");
