@@ -223,9 +223,6 @@ int main(int argc, char* argv[]) {
     if (!(wave_h > 0.0)) {
       throw std::runtime_error("Regular-wave height must be > 0");
     }
-    if (!(wave_a > 0.0)) {
-      throw std::runtime_error("Wave amplitude/height consistency check failed");
-    }
     std::cout << "=== WAVE INPUT (regular) ===\n"
               << "  period T   = " << cfg.wave.period << " s\n"
               << "  omega      = " << (2.0 * M_PI / cfg.wave.period) << " rad/s\n"

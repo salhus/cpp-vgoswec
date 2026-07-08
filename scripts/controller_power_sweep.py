@@ -198,7 +198,7 @@ def render_markdown(rows: List[dict], included_optional: bool, out_md: Path) -> 
     if notch_rows:
         periods = ", ".join(f"{r['T_s']:.2f}" for r in sorted(notch_rows, key=lambda x: -x["T_s"]))
         interpretation.append(
-            f"- Theoretical P_opt used B55 floor {B55_FLOOR:.1e} N·m·s/rad at periods [{periods}] to avoid Inf/NaN at the damping notch."
+            f"- Theoretical P_opt used B55 floor {B55_FLOOR:.1e} N·m·s/rad at periods [{periods}] to avoid Inf or NaN at the damping notch."
         )
     interpretation.append(
         f"- `exc_ff_pid` controller {'was included' if included_optional else 'was excluded (did not run cleanly)'} in this sweep."
@@ -336,7 +336,7 @@ def main() -> int:
                     )
 
                 if power_sign is None:
-                    power_sign = 1.0
+                    raise RuntimeError("Power sign could not be established from passive controller data")
                 P_mean = power_sign * m["P_mean_raw_W"]
                 key = round(T_s, 2)
                 h = hydro[key]
@@ -386,7 +386,7 @@ def main() -> int:
 
     print(
         f"{'controller':<12} {'T_s':>6} {'omega':>10} {'P_mean [W]':>14} {'P_opt [W]':>14} "
-        f"{'capture':>11} {'peak|th|':>12} {'rms th':>12} {'tau*w<0':>10}"
+        f"{'capture':>11} {'peak|pitch|':>12} {'rms pitch':>12} {'tau*w<0':>10}"
     )
     for r in sorted(results, key=lambda x: (x["controller"], -x["T_s"])):
         print(
