@@ -127,6 +127,7 @@ static std::shared_ptr<WaveBase> BuildWaveField(const vgoswec::SimConfig& cfg) {
 static std::shared_ptr<seastack::pto::IPTOModel> BuildController(
     const vgoswec::SimConfig& cfg,
     const std::string& override_type,
+    const std::string& h5_file,
     const seastack::hydro::HydroData& hydro_data,
     const std::shared_ptr<vgoswec::ExcitationForceProvider>& exc_provider) {
   const std::string type = override_type.empty() ? cfg.controller.type : override_type;
@@ -139,7 +140,8 @@ static std::shared_ptr<seastack::pto::IPTOModel> BuildController(
                                                      cfg.controller.passive.clip_torque);
 
   if (type == "opt_passive") {
-    const double B_opt = vgoswec::PitchImpedanceMagnitude(hydro_data, 0, omega0, cfg.flap.inertia_yy);
+    const double B_opt = vgoswec::PitchImpedanceMagnitude(
+        hydro_data, h5_file, 0, omega0, cfg.flap.inertia_yy);
     return std::make_shared<vgoswec::OptimalPassive>(B_opt, cfg.controller.opt_passive.clip_torque);
   }
 
@@ -147,7 +149,8 @@ static std::shared_ptr<seastack::pto::IPTOModel> BuildController(
     double K_r = cfg.controller.cc.K_r_override;
     double B_r = cfg.controller.cc.B_r_override;
     if (K_r == 0.0 && B_r == 0.0) {
-      const auto gains = vgoswec::ComputeCCGains(hydro_data, 0, omega0, cfg.flap.inertia_yy);
+      const auto gains = vgoswec::ComputeCCGains(
+          hydro_data, h5_file, 0, omega0, cfg.flap.inertia_yy);
       K_r = gains.K_r;
       B_r = gains.B_r;
     }
@@ -247,7 +250,7 @@ int main(int argc, char* argv[]) {
   hydro_system.SetPerComponentCaptureEnabled(true);
 
   auto exc_provider = std::make_shared<vgoswec::ExcitationForceProvider>(0, 4);
-  auto controller = BuildController(cfg, args.controller_override, hydro_data, exc_provider);
+  auto controller = BuildController(cfg, args.controller_override, h5_file, hydro_data, exc_provider);
 
   // RSDA: applies PTO torque at every force-assembly sub-step via RsdaPtoFunctor.
   // This replaces the per-outer-step ChLinkMotorRotationTorque + ChFunctionConst pattern.
@@ -282,9 +285,11 @@ int main(int argc, char* argv[]) {
                               ? cfg.controller.opt_passive.design_omega
                               : 2.0 * M_PI / cfg.wave.period;
     constexpr int kBody = 0;
-    const double K_hs55  = hydro_data.GetHydrostaticStiffnessVal(kBody, 4, 4);
-    const double A55_inf = hydro_data.GetInfAddedMassMatrix(kBody)(4, 4);
-    const auto [A55, B55] = vgoswec::GetPitchRadCoeffsAtOmega(hydro_data, kBody, omega0);
+    const double K_hs55   = hydro_data.GetHydrostaticStiffnessVal(kBody, 4, 4);
+    const double A55_inf  = hydro_data.GetInfAddedMassMatrix(kBody)(4, 4);
+    const auto coeffs_h5  = vgoswec::GetPitchHydroCoefficientsAtOmega(
+        hydro_data, h5_file, kBody, omega0, omega0);
+    const auto [A55, B55] = std::pair<double, double>{coeffs_h5.A55, coeffs_h5.B55};
     const double I_cg   = cfg.flap.inertia_yy;
     // C_ext: external spring stiffness for free-decay (cc with override and no damping).
     const double C_ext = (ctrl_type == "cc"
@@ -300,8 +305,13 @@ int main(int argc, char* argv[]) {
     std::cout << "=== HYDRO DIAGNOSTIC (flap pitch, about CG) ===\n"
               << "  omega0       = " << omega0   << " rad/s\n"
               << "  K_hs55       = " << K_hs55  << " N*m/rad\n"
-              << "  A55(omega0)  = " << A55      << " kg*m^2\n"
-              << "  B55(omega0)  = " << B55      << " N*m*s/rad\n"
+              << "  rho_eff      = " << coeffs_h5.rho_eff << " kg/m^3 (A55 match)\n"
+              << "  H5 rho       = " << coeffs_h5.h5_rho << " kg/m^3\n"
+              << "  H5 g         = " << coeffs_h5.g << " m/s^2\n"
+              << "  A55(omega0) [H5]     = " << A55      << " kg*m^2\n"
+              << "  A55(omega0) [legacy] = " << coeffs_h5.A55_existing << " kg*m^2\n"
+              << "  B55(omega0) [H5]     = " << B55      << " N*m*s/rad\n"
+              << "  Fexc55(omega0) [H5]  = " << coeffs_h5.Fexc55 << " N*m per unit wave amplitude\n"
               << "  A55_inf      = " << A55_inf  << " kg*m^2\n"
               << "  I_cg         = " << I_cg     << " kg*m^2\n"
               << "  C_ext        = " << C_ext    << " N*m/rad\n";
@@ -327,7 +337,7 @@ int main(int argc, char* argv[]) {
       double diag_K_r = cfg.controller.cc.K_r_override;
       double diag_B_r = cfg.controller.cc.B_r_override;
       if (diag_K_r == 0.0 && diag_B_r == 0.0) {
-        const auto gains = vgoswec::ComputeCCGains(hydro_data, kBody, omega0, I_cg);
+        const auto gains = vgoswec::ComputeCCGains(hydro_data, h5_file, kBody, omega0, I_cg);
         diag_K_r = gains.K_r;
         diag_B_r = gains.B_r;
       }
@@ -342,15 +352,20 @@ int main(int argc, char* argv[]) {
     constexpr int kBodySw  = 0;
     const double K_hs55_sw = hydro_data.GetHydrostaticStiffnessVal(kBodySw, 4, 4);
     const double I_cg_sw   = cfg.flap.inertia_yy;
+    const double rho_match_omega = (cfg.controller.opt_passive.design_omega > 0.0)
+                                       ? cfg.controller.opt_passive.design_omega
+                                       : 2.0 * M_PI / cfg.wave.period;
 
     // Sweep ω = 1.0–4.0 rad/s (operating band containing VGM 45 resonance at 1.84 rad/s).
     // Δω = 0.1 rad/s (31 rows).  B55 is clamped ≥ 0 in GetPitchRadCoeffsAtOmega
     // (radiation damping is physically non-negative; paper Eq. (1), λ₅,₅ ≥ 0).
-    // An extra row is inserted at ω = 1.84 rad/s to mark the VGM 45 natural frequency.
+    // rho_eff is derived at the controller design ω₀; an extra row is inserted at
+    // ω = 1.84 rad/s to mark the VGM 45 natural frequency.
     constexpr double kOmegaVGM45Resonance = 1.84;  // VGM 45 ωₙ ≈ 1.84 rad/s (paper Table 2)
     auto PrintSweepRow = [&](double w_sw, const char* note = nullptr) {
       const double T_sw = 2.0 * M_PI / w_sw;
-      const auto [A55_sw, B55_sw] = vgoswec::GetPitchRadCoeffsAtOmega(hydro_data, kBodySw, w_sw);
+      const auto [A55_sw, B55_sw] = vgoswec::GetPitchRadCoeffsAtOmega(
+          hydro_data, h5_file, kBodySw, w_sw, rho_match_omega);
       const double K_r_sw = w_sw * w_sw * (I_cg_sw + A55_sw) - K_hs55_sw;
       const double B_r_sw = B55_sw;
       std::cout << std::setw(8)  << T_sw

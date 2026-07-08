@@ -1,10 +1,17 @@
 // impedance.cpp
 #include "impedance.h"
 
+#include <H5Cpp.h>
+#include <hdf5.h>
+
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <limits>
+#include <map>
 #include <stdexcept>
+#include <string>
+#include <vector>
 
 namespace vgoswec {
 
@@ -19,6 +26,19 @@ namespace {
 // We approximate the semi-infinite integral with the finite RIRF grid using
 // the trapezoidal rule over the available time samples.
 struct RadCoeffs { double A; double B; };
+
+struct FrequencyTable {
+    std::vector<double> omega;
+    std::vector<double> value;
+};
+
+struct PitchBEMTables {
+    FrequencyTable added_mass_55;
+    FrequencyTable radiation_damping_55;
+    FrequencyTable excitation_mag_51;
+    double h5_rho = std::numeric_limits<double>::quiet_NaN();
+    double g      = 9.81;
+};
 
 RadCoeffs ComputeRadCoeffsFromRIRF(const seastack::hydro::HydroData& data,
                                     int body_idx, int dof, double omega0) {
@@ -65,55 +85,233 @@ RadCoeffs ComputeRadCoeffsFromRIRF(const seastack::hydro::HydroData& data,
 
     const double B_rad = sum_cos;
     const double A     = A_inf - sum_sin / omega0;
-    // Clamp radiation damping to ≥ 0: B_rad is physically required to be non-negative
-    // (it represents energy radiated as waves; paper Eq. (1), λ₅,₅ ≥ 0).  The RIRF
-    // cosine-transform can produce small negative jitter (~±3×10⁻⁴) where λ₅₅ is
-    // genuinely tiny (long-period tail); the clamp removes that noise-floor artefact.
-    // NOTE: The H5 file stores frequency-domain radiation damping tables directly
-    // (body1/hydro_coeffs/radiation_damping/components/5_5), but no direct
-    // per-frequency accessor was found in the HydroData API; the RIRF transform
-    // path is therefore retained, with this ≥ 0 clamp as the safety net.
     return {A, std::max(0.0, B_rad)};
+}
+
+double ReadScalarDatasetOrDefault(H5::H5File& file,
+                                  const std::string& dataset_path,
+                                  double default_value) {
+    try {
+        H5::DataSet dataset     = file.openDataSet(dataset_path);
+        H5::DataSpace filespace = dataset.getSpace();
+        hsize_t dims[2]         = {1, 1};
+        const int rank          = filespace.getSimpleExtentDims(dims);
+        hsize_t n_elem          = 1;
+        for (int d = 0; d < rank; ++d) {
+            n_elem *= dims[d];
+        }
+        std::vector<double> buffer(static_cast<size_t>(n_elem), default_value);
+        dataset.read(buffer.data(), H5::PredType::NATIVE_DOUBLE);
+        return buffer.empty() ? default_value : buffer.front();
+    } catch (const H5::Exception&) {
+        H5Eclear2(H5E_DEFAULT);
+        return default_value;
+    }
+}
+
+FrequencyTable ReadTwoColumnDataset(H5::H5File& file, const std::string& dataset_path) {
+    H5::DataSet dataset     = file.openDataSet(dataset_path);
+    H5::DataSpace filespace = dataset.getSpace();
+    hsize_t dims[2]         = {0, 0};
+    const int rank          = filespace.getSimpleExtentDims(dims);
+    if (rank != 2 || dims[1] < 2) {
+        throw std::runtime_error("[impedance] Dataset '" + dataset_path +
+                                 "' must be an Nx2 numeric table");
+    }
+
+    const hsize_t rows = dims[0];
+    const hsize_t cols = dims[1];
+    std::vector<double> buffer(static_cast<size_t>(rows * cols), 0.0);
+    dataset.read(buffer.data(), H5::PredType::NATIVE_DOUBLE);
+
+    std::vector<std::pair<double, double>> pairs;
+    pairs.reserve(static_cast<size_t>(rows));
+    for (hsize_t row = 0; row < rows; ++row) {
+        pairs.emplace_back(buffer[static_cast<size_t>(row * cols)],
+                           buffer[static_cast<size_t>(row * cols + 1)]);
+    }
+    std::sort(pairs.begin(), pairs.end(),
+              [](const auto& lhs, const auto& rhs) { return lhs.first < rhs.first; });
+
+    FrequencyTable table;
+    table.omega.reserve(pairs.size());
+    table.value.reserve(pairs.size());
+    for (const auto& [omega, value] : pairs) {
+        table.omega.push_back(omega);
+        table.value.push_back(value);
+    }
+    return table;
+}
+
+const PitchBEMTables& LoadPitchBEMTables(const std::string& h5_file, int flap_body_idx) {
+    static std::map<std::string, PitchBEMTables> cache;
+
+    const std::string body_name = "body" + std::to_string(flap_body_idx + 1);
+    const std::string cache_key = h5_file + "#" + body_name;
+    const auto found            = cache.find(cache_key);
+    if (found != cache.end()) {
+        return found->second;
+    }
+
+    H5::H5File file(h5_file, H5F_ACC_RDONLY);
+    PitchBEMTables tables;
+    tables.added_mass_55 = ReadTwoColumnDataset(
+        file, body_name + "/hydro_coeffs/added_mass/components/5_5");
+    tables.radiation_damping_55 = ReadTwoColumnDataset(
+        file, body_name + "/hydro_coeffs/radiation_damping/components/5_5");
+    tables.excitation_mag_51 = ReadTwoColumnDataset(
+        file, body_name + "/hydro_coeffs/excitation/components/mag/5_1");
+    tables.h5_rho = ReadScalarDatasetOrDefault(file, "simulation_parameters/rho",
+                                               std::numeric_limits<double>::quiet_NaN());
+    tables.g      = ReadScalarDatasetOrDefault(file, "simulation_parameters/g", 9.81);
+
+    return cache.emplace(cache_key, std::move(tables)).first->second;
+}
+
+double InterpolateClamped(const FrequencyTable& table, double omega0, bool* clamped) {
+    if (table.omega.empty()) {
+        throw std::runtime_error("[impedance] Cannot interpolate empty frequency table");
+    }
+    if (clamped) {
+        *clamped = false;
+    }
+
+    if (omega0 <= table.omega.front()) {
+        if (clamped) {
+            *clamped = true;
+        }
+        return table.value.front();
+    }
+    if (omega0 >= table.omega.back()) {
+        if (clamped) {
+            *clamped = true;
+        }
+        return table.value.back();
+    }
+
+    const auto upper_it = std::lower_bound(table.omega.begin(), table.omega.end(), omega0);
+    if (upper_it == table.omega.begin()) {
+        return table.value.front();
+    }
+
+    const auto upper_idx = static_cast<size_t>(std::distance(table.omega.begin(), upper_it));
+    const auto lower_idx = upper_idx - 1;
+    const double w_lo    = table.omega[lower_idx];
+    const double w_hi    = table.omega[upper_idx];
+    const double v_lo    = table.value[lower_idx];
+    const double v_hi    = table.value[upper_idx];
+    const double alpha   = (omega0 - w_lo) / (w_hi - w_lo);
+    return v_lo + alpha * (v_hi - v_lo);
 }
 
 }  // anonymous namespace
 
+PitchHydroCoefficients GetPitchHydroCoefficientsAtOmega(
+    const seastack::hydro::HydroData& data,
+    const std::string& h5_file,
+    int flap_body_idx,
+    double omega0,
+    double rho_match_omega) {
+    constexpr int kPitchDOF = 4;  // H5 component 5_5 == 0-based pitch DOF 4.
+    if (!(rho_match_omega > 0.0) || !(omega0 > 0.0)) {
+        throw std::runtime_error("[impedance] omega and rho_match_omega must be > 0");
+    }
+
+    const auto& tables = LoadPitchBEMTables(h5_file, flap_body_idx);
+
+    bool added_mass_clamped_match = false;
+    const double mu55_match = InterpolateClamped(
+        tables.added_mass_55, rho_match_omega, &added_mass_clamped_match);
+    if (!(mu55_match > 0.0)) {
+        throw std::runtime_error("[impedance] H5 added-mass table returned non-positive mu55");
+    }
+
+    const auto legacy = ComputeRadCoeffsFromRIRF(data, flap_body_idx, kPitchDOF, rho_match_omega);
+    const double rho_eff = legacy.A / mu55_match;
+
+    bool added_mass_clamped = false;
+    bool damping_clamped    = false;
+    bool excitation_clamped = false;
+    const double mu55 = InterpolateClamped(tables.added_mass_55, omega0, &added_mass_clamped);
+    const double lambda55 = InterpolateClamped(
+        tables.radiation_damping_55, omega0, &damping_clamped);
+    const double ex55 = InterpolateClamped(
+        tables.excitation_mag_51, omega0, &excitation_clamped);
+
+    const bool omega_clamped =
+        added_mass_clamped || damping_clamped || excitation_clamped || added_mass_clamped_match;
+    if (omega_clamped) {
+        std::cerr << "[impedance] WARNING: requested frequency was clamped to the H5 table range ["
+                  << tables.added_mass_55.omega.front() << ", "
+                  << tables.added_mass_55.omega.back() << "] rad/s\n";
+    }
+
+    PitchHydroCoefficients coeffs{};
+    coeffs.A55          = mu55 * rho_eff;
+    coeffs.B55          = std::max(0.0, lambda55 * rho_eff * omega0);
+    coeffs.Fexc55       = ex55 * rho_eff * tables.g;
+    coeffs.rho_eff      = rho_eff;
+    coeffs.h5_rho       = tables.h5_rho;
+    coeffs.g            = tables.g;
+    coeffs.A55_existing = legacy.A;
+    coeffs.omega_clamped = omega_clamped;
+
+    const double ref_a55_from_h5 = mu55_match * rho_eff;
+    const double match_tolerance = std::max(1e-9, 1e-6 * std::abs(legacy.A));
+    if (std::abs(ref_a55_from_h5 - legacy.A) > match_tolerance) {
+        std::cerr << "[impedance] WARNING: H5-derived A55(" << rho_match_omega
+                  << ")=" << ref_a55_from_h5
+                  << " kg*m^2 does not match legacy A55=" << legacy.A
+                  << " kg*m^2; check rho_eff derivation / H5 indexing\n";
+    }
+
+    return coeffs;
+}
+
 std::pair<double,double> GetPitchRadCoeffsAtOmega(
-    const seastack::hydro::HydroData& data, int flap_body_idx, double omega0) {
-    constexpr int kPitchDOF = 4;
-    const auto [A, B] = ComputeRadCoeffsFromRIRF(data, flap_body_idx, kPitchDOF, omega0);
-    return {A, B};
+    const seastack::hydro::HydroData& data,
+    const std::string& h5_file,
+    int flap_body_idx,
+    double omega0,
+    double rho_match_omega) {
+    const auto coeffs =
+        GetPitchHydroCoefficientsAtOmega(data, h5_file, flap_body_idx, omega0, rho_match_omega);
+    return {coeffs.A55, coeffs.B55};
 }
 
 double PitchImpedanceMagnitude(const seastack::hydro::HydroData& data,
+                                const std::string& h5_file,
                                 int flap_body_idx,
                                 double omega0,
                                 double I_flap_kgm2) {
     constexpr int kPitchDOF = 4;  // DOF index 4 = pitch about Y (BEMIO convention)
 
-    const auto [A55, B55] = ComputeRadCoeffsFromRIRF(data, flap_body_idx, kPitchDOF, omega0);
+    const auto coeffs =
+        GetPitchHydroCoefficientsAtOmega(data, h5_file, flap_body_idx, omega0, omega0);
     const double K_hs55   = data.GetHydrostaticStiffnessVal(flap_body_idx, kPitchDOF, kPitchDOF);
 
     // Z_intrinsic = B_rad + i·(ω·(I + A(ω)) − K_hs/ω)
-    const double Z_real = B55;
-    const double Z_imag = omega0 * (I_flap_kgm2 + A55) - K_hs55 / omega0;
+    const double Z_real = coeffs.B55;
+    const double Z_imag = omega0 * (I_flap_kgm2 + coeffs.A55) - K_hs55 / omega0;
     return std::sqrt(Z_real * Z_real + Z_imag * Z_imag);
 }
 
 CCGains ComputeCCGains(const seastack::hydro::HydroData& data,
+                        const std::string& h5_file,
                         int flap_body_idx,
                         double omega0,
                         double I_flap_kgm2) {
     constexpr int kPitchDOF = 4;
 
-    const auto [A55, B55] = ComputeRadCoeffsFromRIRF(data, flap_body_idx, kPitchDOF, omega0);
+    const auto coeffs =
+        GetPitchHydroCoefficientsAtOmega(data, h5_file, flap_body_idx, omega0, omega0);
     const double K_hs55   = data.GetHydrostaticStiffnessVal(flap_body_idx, kPitchDOF, kPitchDOF);
 
     CCGains gains;
     // K_r is the intrinsic pitch reactance X·ω = ω²(I+A) − K_hs to be cancelled;
     // the control law applies the conjugate sign: τ_react = −K_r·θ.
-    gains.K_r = omega0 * omega0 * (I_flap_kgm2 + A55) - K_hs55;
-    gains.B_r = B55;
+    gains.K_r = omega0 * omega0 * (I_flap_kgm2 + coeffs.A55) - K_hs55;
+    gains.B_r = coeffs.B55;
     return gains;
 }
 
