@@ -1,6 +1,7 @@
 // impedance.cpp
 #include "impedance.h"
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
@@ -64,7 +65,15 @@ RadCoeffs ComputeRadCoeffsFromRIRF(const seastack::hydro::HydroData& data,
 
     const double B_rad = sum_cos;
     const double A     = A_inf - sum_sin / omega0;
-    return {A, B_rad};
+    // Clamp radiation damping to ≥ 0: B_rad is physically required to be non-negative
+    // (it represents energy radiated as waves; paper Eq. (1), λ₅,₅ ≥ 0).  The RIRF
+    // cosine-transform can produce small negative jitter (~±3×10⁻⁴) where λ₅₅ is
+    // genuinely tiny (long-period tail); the clamp removes that noise-floor artefact.
+    // NOTE: The H5 file stores frequency-domain radiation damping tables directly
+    // (body1/hydro_coeffs/radiation_damping/components/5_5), but no direct
+    // per-frequency accessor was found in the HydroData API; the RIRF transform
+    // path is therefore retained, with this ≥ 0 clamp as the safety net.
+    return {A, std::max(0.0, B_rad)};
 }
 
 }  // anonymous namespace
