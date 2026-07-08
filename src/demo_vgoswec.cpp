@@ -292,19 +292,37 @@ int main(int argc, char* argv[]) {
                            && cfg.controller.cc.B_r_override == 0.0)
                           ? cfg.controller.cc.K_r_override
                           : 0.0;
-    const double omega_n_pred = std::sqrt((K_hs55 + C_ext) / (I_cg + A55_inf));
-    const double Ts_pred      = 2.0 * M_PI / omega_n_pred;
+    // Guarded natural-frequency prediction (two estimates: A55_inf and A55(omega0))
+    const double num_pred     = K_hs55 + C_ext;
+    const double den_pred_inf = I_cg + A55_inf;
+    const double den_pred_lf  = I_cg + A55;    // A55 = A55(omega0) already computed above
 
     std::cout << "=== HYDRO DIAGNOSTIC (flap pitch, about CG) ===\n"
-              << "  omega0       = " << omega0    << " rad/s\n"
-              << "  K_hs55       = " << K_hs55   << " N*m/rad\n"
-              << "  A55(omega0)  = " << A55       << " kg*m^2\n"
-              << "  B55(omega0)  = " << B55       << " N*m*s/rad\n"
-              << "  A55_inf      = " << A55_inf   << " kg*m^2\n"
-              << "  I_cg         = " << I_cg      << " kg*m^2\n"
-              << "  C_ext        = " << C_ext     << " N*m/rad\n"
-              << "  omega_n_pred = " << omega_n_pred << " rad/s\n"
-              << "  Ts_pred      = " << Ts_pred   << " s\n";
+              << "  omega0       = " << omega0   << " rad/s\n"
+              << "  K_hs55       = " << K_hs55  << " N*m/rad\n"
+              << "  A55(omega0)  = " << A55      << " kg*m^2\n"
+              << "  B55(omega0)  = " << B55      << " N*m*s/rad\n"
+              << "  A55_inf      = " << A55_inf  << " kg*m^2\n"
+              << "  I_cg         = " << I_cg     << " kg*m^2\n"
+              << "  C_ext        = " << C_ext    << " N*m/rad\n";
+    if (num_pred <= 0.0) {
+      std::cout << "  omega_n_pred = N/A (K_hs+C_ext <= 0: hydrostatically unstable without spring)\n"
+                << "  Ts_pred      = N/A\n";
+    } else {
+      if (den_pred_inf > 0.0) {
+        const double wn_inf = std::sqrt(num_pred / den_pred_inf);
+        std::cout << "  omega_n_pred (A55_inf) = " << wn_inf
+                  << " rad/s  [high-freq asymptote, A55_inf=" << A55_inf << " kg*m^2]\n"
+                  << "  Ts_pred      (A55_inf) = " << 2.0 * M_PI / wn_inf << " s\n";
+      }
+      if (den_pred_lf > 0.0) {
+        const double wn_lf = std::sqrt(num_pred / den_pred_lf);
+        std::cout << "  omega_n_pred (A55(w0)) = " << wn_lf
+                  << " rad/s  [better predictor, A55(w0)=" << A55 << " kg*m^2]\n"
+                  << "  Ts_pred      (A55(w0)) = " << 2.0 * M_PI / wn_lf << " s\n"
+                  << "  Note: measured free-decay ~1.83 rad/s => eff. added mass ~1.4 kg*m^2 (low-freq > A55_inf)\n";
+      }
+    }
     if (ctrl_type == "cc") {
       double diag_K_r = cfg.controller.cc.K_r_override;
       double diag_B_r = cfg.controller.cc.B_r_override;
@@ -317,6 +335,41 @@ int main(int argc, char* argv[]) {
                 << "  B_r (CC)     = " << diag_B_r << " N*m*s/rad\n";
     }
     std::cout << "================================================\n";
+  }
+
+  // ── HYDRO FREQUENCY SWEEP (printed once at startup, side-effect free) ────────
+  {
+    constexpr int kBodySw  = 0;
+    const double K_hs55_sw = hydro_data.GetHydrostaticStiffnessVal(kBodySw, 4, 4);
+    const double I_cg_sw   = cfg.flap.inertia_yy;
+
+    std::cout << "=== HYDRO FREQUENCY SWEEP (flap pitch, about CG) ===\n"
+              << std::fixed << std::setprecision(4)
+              << std::setw(8)  << "T [s]"
+              << std::setw(10) << "w [r/s]"
+              << std::setw(14) << "A55[kg*m^2]"
+              << std::setw(15) << "B55[N*m*s/r]"
+              << std::setw(14) << "K_r[N*m/r]"
+              << std::setw(15) << "B_r[N*m*s/r]"
+              << "\n";
+    // Sweep from T=6 s (low ω) to T=1 s (high ω) in 0.25 s steps (21 rows).
+    // Use integer steps to avoid floating-point accumulation in the loop bound.
+    for (int step = 0; step <= 20; ++step) {
+      const double T_sw = 6.0 - step * 0.25;
+      const double w_sw = 2.0 * M_PI / T_sw;
+      const auto [A55_sw, B55_sw] = vgoswec::GetPitchRadCoeffsAtOmega(hydro_data, kBodySw, w_sw);
+      const double K_r_sw = w_sw * w_sw * (I_cg_sw + A55_sw) - K_hs55_sw;
+      const double B_r_sw = B55_sw;
+      std::cout << std::setw(8)  << T_sw
+                << std::setw(10) << w_sw
+                << std::setw(14) << A55_sw
+                << std::setw(15) << B55_sw
+                << std::setw(14) << K_r_sw
+                << std::setw(15) << B_r_sw
+                << "\n";
+    }
+    std::cout << std::defaultfloat
+              << "====================================================\n";
   }
 
   // Determine which visualization path to use.
