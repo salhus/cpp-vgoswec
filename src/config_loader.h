@@ -71,6 +71,7 @@ struct BodyConfig {
     double mass{1.0};
     std::array<double, 3> cog{0.0, 0.0, 0.0};
     double inertia_yy{0.15};        ///< [kg·m²] (flap only)
+    double initial_pitch{0.0};      ///< [rad] initial pitch about hinge Y-axis
 };
 
 // ─── Top-level SimConfig ──────────────────────────────────────────────────────

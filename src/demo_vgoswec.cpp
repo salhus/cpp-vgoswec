@@ -200,6 +200,17 @@ int main(int argc, char* argv[]) {
   flap_body->SetPos(ChVector3d(cfg.flap.cog[0], cfg.flap.cog[1], cfg.flap.cog[2]));
   flap_body->SetMass(cfg.flap.mass);
   flap_body->SetInertiaXX(ChVector3d(cfg.flap.inertia_yy, cfg.flap.inertia_yy, cfg.flap.inertia_yy));
+  if (std::abs(cfg.flap.initial_pitch) > 0.0) {
+    const double c = std::cos(cfg.flap.initial_pitch);
+    const double s = std::sin(cfg.flap.initial_pitch);
+    const double rel_x = cfg.flap.cog[0];
+    const double rel_y = cfg.flap.cog[1];
+    const double rel_z = cfg.flap.cog[2] - cfg.hinge_z;
+    flap_body->SetPos(ChVector3d(c * rel_x + s * rel_z,
+                                 rel_y,
+                                 cfg.hinge_z - s * rel_x + c * rel_z));
+    flap_body->SetRot(QuatFromAngleY(cfg.flap.initial_pitch));
+  }
 
   auto base_body = chrono_types::make_shared<ChBodyEasyMesh>(base_mesh, 1000.0, false, true, false);
   system.Add(base_body);

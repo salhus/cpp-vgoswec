@@ -1,10 +1,12 @@
 # vgoswec_45_cc.yaml
-# Complex-conjugate (CC) reactive control at design frequency ω₀.
+# Source: Ogden et al., ASME JOMAE 145(3):030905 (VGOSWEC-45 / VGM-45).
+# VGM-45 free-decay reference: ωn = 1.84 rad/s, Ts = 3.42 s.
+# Complex-conjugate (CC) reactive control at design frequency ω₀ = 1.84 rad/s.
 #
 # τ = -K_r · θ  -  B_r · θ̇
 #
 # Gains computed from HydroData at startup (impedance.h):
-#   K_r = -ω₀² · (I_flap + A₅₅(ω₀)) + K_hs,55
+#   K_r =  ω₀² · (I_flap + A₅₅(ω₀)) - K_hs,55
 #   B_r =  B_rad,55(ω₀)
 #
 # WARNING: CC control requires bidirectional power flow (reactive);
@@ -19,16 +21,17 @@ simulation:
 body:
   flap:
     mesh: geometry/vgm45.obj
-    mass: 7.60
-    cog: [0.0, 0.0, -0.2352]
-    inertia_yy: 0.15              # [kg·m²]  TODO: bifilar-pendulum measurement needed
+    mass: 6.30
+    cog: [0.0, 0.0, -0.226]       # [m] hinge_z + r_g = -0.5 + 0.274
+    inertia_yy: 0.962             # [kg·m²] Table 1 I55 about hinge
+    # Geometry/properties from Table 1: w=0.40 m, H_p=0.50 m, t=0.076 m, V=7395 cm^3, r_b=0.293 m.
   base:
     mesh: geometry/stl_files/center_beam_w_foundation_BEM.STL
     mass: 1.0e6
     cog: [0.0, 0.0, -0.7658]
 
 hinge:
-  position_z: -0.7658
+  position_z: -0.5      # [m] hinge/foundation reference (Table 1); foundation radius r_f = 0.05 m
 
 hydro:
   h5_file: hydroData/vgoswec_45.h5
@@ -42,6 +45,10 @@ wave:
 
 controller:
   type: cc
+  # BuildController uses opt_passive.design_omega as the shared tuning frequency for
+  # opt_passive/cc impedance-based gain calculations.
+  opt_passive:
+    design_omega: 1.84   # [rad/s] VGM-45 resonance from Table 2 (equiv. T = 3.42 s)
   cc:
     # K_r and B_r are computed automatically; override only if needed:
     # K_r_override: 0.0  # [N·m/rad]

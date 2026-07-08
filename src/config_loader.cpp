@@ -32,6 +32,7 @@ BodyConfig ParseBody(const YAML::Node& n) {
     b.mesh       = ReadOpt<std::string>(n, "mesh", "");
     b.mass       = ReadOpt<double>(n, "mass", 1.0);
     b.inertia_yy = ReadOpt<double>(n, "inertia_yy", 0.15);
+    b.initial_pitch = ReadOpt<double>(n, "initial_pitch", 0.0);
     if (n["cog"] && n["cog"].IsSequence()) {
         b.cog[0] = n["cog"][0].as<double>();
         b.cog[1] = n["cog"][1].as<double>();
