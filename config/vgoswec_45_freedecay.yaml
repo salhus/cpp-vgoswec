@@ -38,8 +38,6 @@ wave:
 
 controller:
   type: cc
-  opt_passive:
-    design_omega: 1.84
   cc:
     K_r_override: 6.57   # [N·m/rad] external spring C_ext (Table 1)
     B_r_override: 0.0    # [N·m·s/rad] spring-only (no PTO damping)
