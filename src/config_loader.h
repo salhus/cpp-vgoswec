@@ -71,11 +71,14 @@ struct BodyConfig {
     double mass{1.0};
     std::array<double, 3> cog{0.0, 0.0, 0.0};
     /// CG-referenced inertia components [kg·m²] (flap only).
-    /// SEA-Stack references A₅₅, B₅₅, and K_hs,55 about the body CG; these values
-    /// MUST be CG-referenced to be consistent with those hydro coefficients.
+    /// Chrono builds the body about its CG; the revolute constraint automatically
+    /// synthesises the parallel-axis term m·r_g² when the CG swings on its arc, so
+    /// SetInertiaXX must receive the CG value (not the hinge value).
     /// Pitch about hinge Y-axis = body Iyy (body frame = world frame when upright).
+    /// Default 0.489 = I_55(hinge) − m·r_g² = 0.962 − 6.30·0.274²
+    ///   (Ogden et al., ASME JOMAE 145(3):030905, Table 1).
     double inertia_xx{0.32};        ///< [kg·m²] CG roll inertia  (about body X)
-    double inertia_yy{0.21};        ///< [kg·m²] CG pitch inertia (about body Y = hinge axis)
+    double inertia_yy{0.489};       ///< [kg·m²] CG pitch inertia (about body Y = hinge axis)
     double inertia_zz{0.12};        ///< [kg·m²] CG yaw inertia   (about body Z)
     double initial_pitch{0.0};      ///< [rad] initial pitch about hinge Y-axis
 };
