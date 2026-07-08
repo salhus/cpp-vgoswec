@@ -35,7 +35,7 @@ double PitchImpedanceMagnitude(const seastack::hydro::HydroData& data,
                                 double I_flap_kgm2);
 
 /// Complex-conjugate reactive control gains at ω₀.
-///   K_r = −ω₀² · (I_flap + A₅₅(ω₀)) + K_hs,55
+///   K_r =  ω₀² · (I_flap + A₅₅(ω₀)) − K_hs,55   (intrinsic pitch reactance to be cancelled)
 ///   B_r =  B_rad,55(ω₀)
 struct CCGains {
     double K_r;   ///< Reactive stiffness [N·m/rad]
