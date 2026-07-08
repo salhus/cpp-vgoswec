@@ -6,8 +6,9 @@
 // ChLinkRSDA (Rotational Spring-Damper-Actuator) is Chrono 10's rotational
 // counterpart to ChLinkTSDA.  Its TorqueFunctor callback receives:
 //   time  — current simulation time [s]
-//   angle — relative rotation angle [rad]   (maps to IPTOModel::displacement)
-//   vel   — relative angular velocity [rad/s] (maps to IPTOModel::velocity)
+//   rest_angle — undeformed angle [rad] (Chrono 10 signature; unused here)
+//   angle      — relative rotation angle [rad]   (maps to IPTOModel::displacement)
+//   vel        — relative angular velocity [rad/s] (maps to IPTOModel::velocity)
 //
 // Typical wiring (Y-axis hinge):
 //   auto rsda = chrono_types::make_shared<ChLinkRSDA>();
@@ -39,7 +40,10 @@ class RsdaPtoFunctor : public ::chrono::ChLinkRSDA::TorqueFunctor {
     explicit RsdaPtoFunctor(std::shared_ptr<seastack::pto::IPTOModel> model);
 
     /// Called by Chrono at each force-assembly sub-step.
+    /// Signature matches chrono::ChLinkRSDA::TorqueFunctor::evaluate in Chrono 10
+    /// (note the `rest_angle` parameter between `time` and `angle`).
     double evaluate(double time,
+                    double rest_angle,
                     double angle,
                     double vel,
                     const ::chrono::ChLinkRSDA& link) override;
