@@ -260,6 +260,17 @@ int main(int argc, char* argv[]) {
   // no mass, inertia, or collision geometry is added.  Only added when the
   // simple-viz path will be used to avoid changing the guihelper path's appearance.
   if (use_simple_viz) {
+    // ChBodyEasyMesh is constructed with visualize=true (see body construction above),
+    // so it auto-creates a triangle-mesh visual asset from the .obj/.STL file.  Those
+    // mesh visuals have unallocated GPU vertex/index buffers in Chrono's VSG binding,
+    // which causes vsg::VertexIndexDraw::record() to segfault with VK_NULL_HANDLE
+    // buffers on the first rendered frame.  Clear the auto-created visual model first
+    // so that the box shapes below are the ONLY visuals submitted to the VSG pipeline.
+    if (flap_body->GetVisualModel())
+      flap_body->GetVisualModel()->Clear();
+    if (base_body->GetVisualModel())
+      base_body->GetVisualModel()->Clear();
+
     // Flap: thin plate (~0.02 m × 0.30 m × 0.30 m). Thin along local X so the
     // plate face is visible as the flap swings about the hinge (world Y).
     auto flap_box = chrono_types::make_shared<ChVisualShapeBox>(0.02, 0.30, 0.30);
@@ -317,6 +328,9 @@ int main(int argc, char* argv[]) {
     vis->SetWindowTitle("VGOSWEC-45 (simple VSG)");
     vis->SetWindowSize(1000, 700);
     vis->AddCamera(ChVector3d(0.0, -3.0, 0.5), ChVector3d(0.0, 0.0, cfg.hinge_z + 0.3));
+    vis->SetCameraVertical(CameraVerticalDir::Z);  // world is Z-up (gravity = -Z)
+    vis->SetLightIntensity(0.9f);                  // configure directional light intensity
+    vis->SetLightDirection(0.5 * CH_PI_2, CH_PI_4);
     vis->Initialize();
 
     while (vis->Run() && system.GetChTime() <= sim_duration) {
