@@ -352,8 +352,10 @@ int main(int argc, char* argv[]) {
               << std::setw(14) << "K_r[N*m/r]"
               << std::setw(15) << "B_r[N*m*s/r]"
               << "\n";
-    // Sweep from T=6 s (low ω) to T=1 s (high ω) in 0.25 s steps (21 rows)
-    for (double T_sw = 6.0; T_sw >= 0.999; T_sw -= 0.25) {
+    // Sweep from T=6 s (low ω) to T=1 s (high ω) in 0.25 s steps (21 rows).
+    // Use integer steps to avoid floating-point accumulation in the loop bound.
+    for (int step = 0; step <= 20; ++step) {
+      const double T_sw = 6.0 - step * 0.25;
       const double w_sw = 2.0 * M_PI / T_sw;
       const auto [A55_sw, B55_sw] = vgoswec::GetPitchRadCoeffsAtOmega(hydro_data, kBodySw, w_sw);
       const double K_r_sw = w_sw * w_sw * (I_cg_sw + A55_sw) - K_hs55_sw;
