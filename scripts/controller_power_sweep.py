@@ -171,12 +171,18 @@ def make_plot(rows: List[dict], out_png: Path) -> None:
                     linestyle="none",
                     label="cc (reactive-limited, ≈0)",
                 )
-                # Annotate each reactive-limited point.
-                for rx in rl_xs:
+                # Annotate each reactive-limited CC point with its actual B55 value.
+                # The label "reactive-limited (B₅₅≈<value>, ~0 net power)" is consistent
+                # with the narrative produced by render_markdown().
+                for rr in rl_rows:
+                    b55_val = rr.get("b55_omega_wave", float("nan"))
+                    b55_label = (
+                        f"B₅₅≈{b55_val:.1e}" if math.isfinite(b55_val) else "B₅₅≈0"
+                    )
                     ax0.annotate(
-                        "reactive-limited\n(B₅₅≈0, ~0 net power)",
-                        xy=(rx, 0.0),
-                        xytext=(rx + 0.25, 0.0),
+                        f"reactive-limited\n({b55_label}, ~0 net power)",
+                        xy=(rr["T_s"], 0.0),
+                        xytext=(rr["T_s"] + 0.25, 0.0),
                         fontsize=7,
                         color="grey",
                         va="center",
@@ -305,9 +311,12 @@ def render_markdown(rows: List[dict], included_optional: bool, out_md: Path) -> 
     if cc_res is not None and cc_rl_rows:
         rl_T_list = ", ".join(f"{r['T_s']:.2f}" for r in sorted(cc_rl_rows, key=lambda x: x["T_s"]))
         peak_deg = math.degrees(cc_res["peak_pitch_rad"])
+        # Use actual B55 from data rather than a hardcoded constant.
+        b55_notch = cc_res.get("b55_omega_wave", float("nan"))
+        b55_str = f"{b55_notch:.2e}" if math.isfinite(b55_notch) else "~2e-6"
         interpretation.append(
             f"- **CC at the radiation-damping notch (T={rl_T_list} s)**: "
-            "the VGOSWEC-45 pitch radiation damping B₅₅(ω₀) collapses to ≈2.2×10⁻⁶ N·m·s/rad "
+            f"the VGOSWEC-45 pitch radiation damping B₅₅(ω₀) collapses to {b55_str} N·m·s/rad "
             f"(> 4 orders of magnitude below B_R_FLOOR={B_R_FLOOR:.0e}). "
             "CC gain B_r = B₅₅(ω₀) ≈ 0, so the controller degenerates to a pure reactive "
             "spring τ ≈ −K_r·θ that does **~0 NET work** per cycle. "
@@ -544,6 +553,7 @@ def main() -> int:
                         "peak_abs_inst_power_W": m["peak_abs_inst_power_W"],
                         "regime": regime,
                         "note": note,
+                        "b55_omega_wave": h["B55"],  # B55 at wave freq (used in reactive-limited check)
                         "P_opt_floor_applied": h["B55_floor_applied"],
                     }
                 )
