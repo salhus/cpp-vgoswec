@@ -69,6 +69,13 @@ RadCoeffs ComputeRadCoeffsFromRIRF(const seastack::hydro::HydroData& data,
 
 }  // anonymous namespace
 
+std::pair<double,double> GetPitchRadCoeffsAtOmega(
+    const seastack::hydro::HydroData& data, int flap_body_idx, double omega0) {
+    constexpr int kPitchDOF = 4;
+    const auto [A, B] = ComputeRadCoeffsFromRIRF(data, flap_body_idx, kPitchDOF, omega0);
+    return {A, B};
+}
+
 double PitchImpedanceMagnitude(const seastack::hydro::HydroData& data,
                                 int flap_body_idx,
                                 double omega0,

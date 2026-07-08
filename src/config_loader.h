@@ -70,7 +70,13 @@ struct BodyConfig {
     std::string mesh;
     double mass{1.0};
     std::array<double, 3> cog{0.0, 0.0, 0.0};
-    double inertia_yy{0.15};        ///< [kg·m²] (flap only)
+    /// CG-referenced inertia components [kg·m²] (flap only).
+    /// SEA-Stack references A₅₅, B₅₅, and K_hs,55 about the body CG; these values
+    /// MUST be CG-referenced to be consistent with those hydro coefficients.
+    /// Pitch about hinge Y-axis = body Iyy (body frame = world frame when upright).
+    double inertia_xx{0.32};        ///< [kg·m²] CG roll inertia  (about body X)
+    double inertia_yy{0.21};        ///< [kg·m²] CG pitch inertia (about body Y = hinge axis)
+    double inertia_zz{0.12};        ///< [kg·m²] CG yaw inertia   (about body Z)
     double initial_pitch{0.0};      ///< [rad] initial pitch about hinge Y-axis
 };
 
