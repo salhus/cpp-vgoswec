@@ -343,6 +343,26 @@ int main(int argc, char* argv[]) {
     const double K_hs55_sw = hydro_data.GetHydrostaticStiffnessVal(kBodySw, 4, 4);
     const double I_cg_sw   = cfg.flap.inertia_yy;
 
+    // Sweep ω = 1.0–4.0 rad/s (operating band containing VGM 45 resonance at 1.84 rad/s).
+    // Δω = 0.1 rad/s (31 rows).  B55 is clamped ≥ 0 in GetPitchRadCoeffsAtOmega
+    // (radiation damping is physically non-negative; paper Eq. (1), λ₅,₅ ≥ 0).
+    // An extra row is inserted at ω = 1.84 rad/s to mark the VGM 45 natural frequency.
+    constexpr double kOmegaResonance = 1.84;  // VGM 45 ωₙ ≈ 1.84 rad/s (paper Table 2)
+    auto PrintSweepRow = [&](double w_sw, const char* note = nullptr) {
+      const double T_sw = 2.0 * M_PI / w_sw;
+      const auto [A55_sw, B55_sw] = vgoswec::GetPitchRadCoeffsAtOmega(hydro_data, kBodySw, w_sw);
+      const double K_r_sw = w_sw * w_sw * (I_cg_sw + A55_sw) - K_hs55_sw;
+      const double B_r_sw = B55_sw;
+      std::cout << std::setw(8)  << T_sw
+                << std::setw(10) << w_sw
+                << std::setw(14) << A55_sw
+                << std::setw(15) << B55_sw
+                << std::setw(14) << K_r_sw
+                << std::setw(15) << B_r_sw;
+      if (note) std::cout << "  " << note;
+      std::cout << "\n";
+    };
+
     std::cout << "=== HYDRO FREQUENCY SWEEP (flap pitch, about CG) ===\n"
               << std::fixed << std::setprecision(4)
               << std::setw(8)  << "T [s]"
@@ -352,21 +372,20 @@ int main(int argc, char* argv[]) {
               << std::setw(14) << "K_r[N*m/r]"
               << std::setw(15) << "B_r[N*m*s/r]"
               << "\n";
-    // Sweep from T=6 s (low ω) to T=1 s (high ω) in 0.25 s steps (21 rows).
     // Use integer steps to avoid floating-point accumulation in the loop bound.
-    for (int step = 0; step <= 20; ++step) {
-      const double T_sw = 6.0 - step * 0.25;
-      const double w_sw = 2.0 * M_PI / T_sw;
-      const auto [A55_sw, B55_sw] = vgoswec::GetPitchRadCoeffsAtOmega(hydro_data, kBodySw, w_sw);
-      const double K_r_sw = w_sw * w_sw * (I_cg_sw + A55_sw) - K_hs55_sw;
-      const double B_r_sw = B55_sw;
-      std::cout << std::setw(8)  << T_sw
-                << std::setw(10) << w_sw
-                << std::setw(14) << A55_sw
-                << std::setw(15) << B55_sw
-                << std::setw(14) << K_r_sw
-                << std::setw(15) << B_r_sw
-                << "\n";
+    bool resonance_printed = false;
+    for (int step = 0; step <= 30; ++step) {
+      const double w_sw = 1.0 + step * 0.1;
+      // Insert the VGM 45 resonance row (1.84 rad/s) before the first grid point
+      // above it, so it always appears in the table regardless of grid alignment.
+      if (!resonance_printed && w_sw > kOmegaResonance) {
+        PrintSweepRow(kOmegaResonance, "<-- VGM45 resonance");
+        resonance_printed = true;
+      }
+      PrintSweepRow(w_sw);
+    }
+    if (!resonance_printed) {
+      PrintSweepRow(kOmegaResonance, "<-- VGM45 resonance");
     }
     std::cout << std::defaultfloat
               << "====================================================\n";
