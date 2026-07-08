@@ -3,6 +3,8 @@ install/
 output/
 *.log
 *.csv
+*.pyc
+__pycache__/
 
 # CMake
 CMakeCache.txt

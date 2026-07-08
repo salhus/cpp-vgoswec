@@ -52,7 +52,10 @@ struct CLIArgs {
   std::string data_dir{"."};
   bool visualization_on{true};
   bool simple_viz{false};
+  bool hydro_report{false};
   double duration_override{-1.0};
+  double wave_period_override{-1.0};
+  double wave_height_override{-1.0};
 };
 
 static void PrintUsage(const char* argv0) {
@@ -61,7 +64,10 @@ static void PrintUsage(const char* argv0) {
             << "  --data-dir <path>\n"
             << "  --no-viz             Headless (no window); takes precedence over --simple-viz\n"
             << "  --simple-viz         Render flap as a box via plain Chrono VSG (no SEA-Stack water surface)\n"
-            << "  --duration <s>\n";
+            << "  --duration <s>\n"
+            << "  --wave-period <s>\n"
+            << "  --wave-height <m>\n"
+            << "  --hydro-report       Print de-normalized hydro coefficients and P_opt at fixed periods, then exit\n";
 }
 
 static CLIArgs ParseCLI(int argc, char* argv[]) {
@@ -83,6 +89,12 @@ static CLIArgs ParseCLI(int argc, char* argv[]) {
       args.simple_viz = true;
     } else if (a == "--duration" && i + 1 < argc) {
       args.duration_override = std::stod(argv[++i]);
+    } else if (a == "--wave-period" && i + 1 < argc) {
+      args.wave_period_override = std::stod(argv[++i]);
+    } else if (a == "--wave-height" && i + 1 < argc) {
+      args.wave_height_override = std::stod(argv[++i]);
+    } else if (a == "--hydro-report") {
+      args.hydro_report = true;
     } else {
       std::cerr << "Unknown arg: " << a << "\n";
       std::exit(1);
@@ -184,7 +196,13 @@ struct Record {
 
 int main(int argc, char* argv[]) {
   const auto args = ParseCLI(argc, argv);
-  const auto cfg = vgoswec::LoadConfig(args.config_path);
+  auto cfg = vgoswec::LoadConfig(args.config_path);
+  if (args.wave_period_override > 0.0) {
+    cfg.wave.period = args.wave_period_override;
+  }
+  if (args.wave_height_override > 0.0) {
+    cfg.wave.height = args.wave_height_override;
+  }
   const double sim_duration = (args.duration_override > 0.0) ? args.duration_override : cfg.duration;
 
   const auto resolve = [&](const std::string& rel) {
@@ -198,6 +216,54 @@ int main(int argc, char* argv[]) {
   const std::string base_mesh = resolve(cfg.base.mesh);
 
   auto hydro_data = seastack::hydro_io::H5FileInfo(h5_file, 2).ReadH5Data();
+
+  if (cfg.wave.type == "regular") {
+    const double wave_h = cfg.wave.height;
+    const double wave_a = 0.5 * wave_h;
+    if (!(wave_h > 0.0)) {
+      throw std::runtime_error("Regular-wave height must be > 0");
+    }
+    std::cout << "=== WAVE INPUT (regular) ===\n"
+              << "  period T   = " << cfg.wave.period << " s\n"
+              << "  omega      = " << (2.0 * M_PI / cfg.wave.period) << " rad/s\n"
+              << "  height H   = " << wave_h << " m (config field 'wave.height')\n"
+              << "  amplitude A= " << wave_a << " m (A = H/2 used by SEA-Stack regular wave)\n"
+              << "============================\n";
+  }
+
+  if (args.hydro_report) {
+    constexpr int kBody = 0;
+    constexpr double kB55Floor = 1e-9;
+    const std::vector<double> periods_s{6.00, 4.49, 3.42, 3.00, 2.50, 2.00, 1.57};
+    const double rho_match_omega = (cfg.controller.opt_passive.design_omega > 0.0)
+                                       ? cfg.controller.opt_passive.design_omega
+                                       : 2.0 * M_PI / cfg.wave.period;
+    const double wave_a = (cfg.wave.type == "regular") ? (0.5 * cfg.wave.height) : 0.0;
+
+    std::cout << "HYDRO_REPORT_HEADER,T_s,omega_rads,A55_kgm2,B55_Nmsrad,"
+              << "Fexc55_Nm_per_m,wave_A_m,F_exc_Nm,P_opt_W,B55_floor_applied\n";
+    for (const double T_s : periods_s) {
+      const double omega = 2.0 * M_PI / T_s;
+      const auto coeffs = vgoswec::GetPitchHydroCoefficientsAtOmega(
+          hydro_data, h5_file, kBody, omega, rho_match_omega);
+      const double F_exc = coeffs.Fexc55 * wave_a;
+      const bool floor_applied = coeffs.B55 < kB55Floor;
+      const double B55_for_power = floor_applied ? kB55Floor : coeffs.B55;
+      const double P_opt = (F_exc * F_exc) / (8.0 * B55_for_power);
+      std::cout << std::fixed << std::setprecision(6)
+                << "HYDRO_REPORT_ROW," << T_s
+                << "," << omega
+                << "," << coeffs.A55
+                << "," << coeffs.B55
+                << "," << coeffs.Fexc55
+                << "," << wave_a
+                << "," << F_exc
+                << "," << P_opt
+                << "," << (floor_applied ? 1 : 0)
+                << "\n";
+    }
+    return 0;
+  }
 
   ChSystemNSC system;
   system.SetGravitationalAcceleration(ChVector3d(0, 0, -9.81));
