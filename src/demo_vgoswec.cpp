@@ -35,6 +35,7 @@ using namespace chrono::vsg3d;
 #include <iomanip>
 #include <iostream>
 #include <memory>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -200,7 +201,7 @@ int main(int argc, char* argv[]) {
   flap_body->SetPos(ChVector3d(cfg.flap.cog[0], cfg.flap.cog[1], cfg.flap.cog[2]));
   flap_body->SetMass(cfg.flap.mass);
   flap_body->SetInertiaXX(ChVector3d(cfg.flap.inertia_yy, cfg.flap.inertia_yy, cfg.flap.inertia_yy));
-  if (std::abs(cfg.flap.initial_pitch) > 0.0) {
+  if (std::abs(cfg.flap.initial_pitch) > std::numeric_limits<double>::epsilon()) {
     const double c = std::cos(cfg.flap.initial_pitch);
     const double s = std::sin(cfg.flap.initial_pitch);
     const double rel_x = cfg.flap.cog[0];
