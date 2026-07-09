@@ -40,11 +40,13 @@ ExcitationVelocityController::ExcitationVelocityController(
     double B_ctrl,
     double alpha,
     std::unique_ptr<PIDController> pid,
-    double clip_torque)
+    double clip_torque,
+    bool passive_safe)
     : f_exc_source_(std::move(src)),
       B_ctrl_(B_ctrl),
       alpha_(alpha),
       clip_(clip_torque),
+      passive_safe_(passive_safe),
       pid_(std::move(pid)) {}
 
 double ExcitationVelocityController::ComputeForce(double /*disp*/, double vel, double t) {
@@ -53,7 +55,15 @@ double ExcitationVelocityController::ComputeForce(double /*disp*/, double vel, d
     pid_->SetSetpoint(vel_ref);
     const double tau_pid = pid_->Compute(vel, t);
     const double tau_damp = -B_ctrl_ * vel;
-    return std::clamp(tau_damp + tau_pid, -clip_, clip_);
+    double tau = tau_damp + tau_pid;
+    // Passive-safety guard: if the candidate torque would inject energy into
+    // the system (tau * vel > 0 means torque acts in the direction of motion),
+    // replace it with the guaranteed-dissipative damping floor. The floor
+    // cannot inject energy because it always opposes velocity.
+    if (passive_safe_ && (tau * vel > 0.0)) {
+        tau = tau_damp;
+    }
+    return std::clamp(tau, -clip_, clip_);
 }
 
 }  // namespace vgoswec

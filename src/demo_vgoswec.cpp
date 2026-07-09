@@ -201,7 +201,7 @@ static std::shared_ptr<seastack::pto::IPTOModel> BuildController(
     pid_params.dt_expected = cfg.timestep;
     auto pid = std::make_unique<vgoswec::PIDController>(pid_params);
     return std::make_shared<vgoswec::ExcitationVelocityController>(
-        exc_provider, e.B_ctrl, e.alpha, std::move(pid), e.clip_torque);
+        exc_provider, e.B_ctrl, e.alpha, std::move(pid), e.clip_torque, e.passive_safe);
   }
 
   throw std::runtime_error("Unknown controller type: " + type);

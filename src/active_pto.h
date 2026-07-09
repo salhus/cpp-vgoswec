@@ -84,6 +84,11 @@ class ComplexConjugateControl : public seastack::pto::IPTOModel {
 //   empirically, it only approximated additional damping rather than genuine
 //   reactive control. Under this file's sign convention, the returned torque
 //   already follows the restoring convention; there is no outer negation.
+//
+//   passive_safe: when true, any candidate torque that would inject energy
+//   (tau * vel > 0) is replaced by the guaranteed-dissipative damping floor
+//   −B_ctrl · vel before applying the final clip. This guard allows alpha/PID
+//   gains to be tuned aggressively without risk of net energy injection.
 // =============================================================================
 class ExcitationVelocityController : public seastack::pto::IPTOModel {
  public:
@@ -91,7 +96,8 @@ class ExcitationVelocityController : public seastack::pto::IPTOModel {
                                  double B_ctrl,
                                  double alpha,
                                  std::unique_ptr<PIDController> pid,
-                                 double clip_torque = 5.0);
+                                 double clip_torque = 5.0,
+                                 bool passive_safe = true);
 
     double ComputeForce(double disp, double vel, double t) override;
 
@@ -100,6 +106,7 @@ class ExcitationVelocityController : public seastack::pto::IPTOModel {
     double B_ctrl_;
     double alpha_;
     double clip_;
+    bool   passive_safe_;
     std::unique_ptr<PIDController> pid_;
 };
 
