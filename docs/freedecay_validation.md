@@ -68,7 +68,11 @@ $$\delta = \frac{1}{N} \ln\!\frac{A_0}{A_N}, \qquad \zeta = \frac{\delta}{\sqrt{
 
 where $A_0$ is the first retained positive peak amplitude, $A_N$ is the $N$-th peak (the last retained), and $N$ is the number of cycles between them (= number of retained peaks − 1).
 
-> **`n` pitfall (important):** The formula above gives the *per-cycle* $\delta$, so $N$ must equal the actual number of oscillation cycles between $A_0$ and $A_N$. Calling `logdec(x1, x2, n=2)` with *adjacent* peaks — which are only **1 cycle apart** — effectively halves $\delta$ and therefore halves $\zeta$. The correct call for adjacent peaks is `n=1`. Passing `n=2` on adjacent peaks is exactly the kind of off-by-one that produces a spurious ×2 factor; combined with a small-amplitude tail selection, it can compound to a ×10 discrepancy.
+> **`n` pitfall (important):** The formula above gives the *per-cycle* $\delta$, so $N$ must equal the actual number of oscillation cycles between $A_0$ and $A_N$.
+>
+> - Adjacent peaks are only **1 cycle apart**, so the correct call is `n=1`.
+> - Calling `logdec(x1, x2, n=2)` with adjacent peaks halves $\delta$ and therefore halves $\zeta$.
+> - Passing `n=2` on adjacent peaks is exactly the kind of off-by-one that produces a spurious ×2 factor; combined with a small-amplitude tail selection, it can compound to a ×10 discrepancy.
 
 ### C++ ζ results vs paper Table 2
 
@@ -103,7 +107,7 @@ The C++ model **matches the paper's real free-decay damping** as displayed in it
 
 **Physical plausibility check:**
 - C++ result: ζ ≈ 40×10⁻⁴ → Q ≈ 1/(2ζ) ≈ **125** — typical for a BEM radiation-damped flap in water.
-- Table 2 as written: ζ ≈ 4×10⁻⁴ → Q ≈ **1250** — unrealistically low damping for a wetted oscillating body in open water.
+- Table 2 as written: ζ ≈ 4×10⁻⁴ → Q ≈ **1250** — unrealistically high Q (under-damped) for a wetted oscillating body in open water.
 
 The ~10× ratio is also a **flat scalar across all five geometries** (mean ≈ 9.9×, range 8.6–11.3×), not a geometry-dependent spread. A physical coupling or leakage effect would scatter with angle; a nearly-constant scalar multiplier is the fingerprint of a tabulation error (exponent, units, or scale factor in post-processing).
 

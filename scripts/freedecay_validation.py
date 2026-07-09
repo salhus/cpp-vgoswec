@@ -128,7 +128,7 @@ def _make_figures(rows: List[dict], repo_root: Path) -> None:
     if t_plot is None:
         # Synthetic free-decay envelope matching VGM-0 validated parameters
         wn = FALLBACK_CPP_WN[0]["cpp_zc"]       # 1.072 rad/s
-        zeta_val = FALLBACK_CPP_ZETA_1E4[0] * 1e-4  # 49.9e-4
+        zeta_val = FALLBACK_CPP_ZETA_1E4[0] * 1e-4  # 49.9×10⁻⁴
         A0 = 0.15  # rad
         t_plot = np.linspace(0.0, 55.0, 5500)
         wd = wn * math.sqrt(max(1.0 - zeta_val ** 2, 1e-10))
@@ -290,11 +290,14 @@ def print_table(rows: List[dict]) -> None:
         np.mean([r["zeta_ratio_cpp_over_table2"] for r in rows
                  if math.isfinite(r["zeta_ratio_cpp_over_table2"])])
     )
+    mean_cpp_zeta = float(
+        np.mean([r["cpp_zeta_1e4"] for r in rows])
+    )
     print(f"  ω_n: C++ zero-cross matches Table 2 within ±0.6% (all angles).")
     print(f"  ζ:   C++ / Table2 ratio ≈ {mean_ratio:.1f}× (mean across all angles).")
     print(f"       A rough log-decrement of the paper's own Fig. 4 envelope")
     print(f"       (≈1.0 → ≈0.35 over ~200 s, ≈50 cycles) gives ζ ≈ 34×10⁻⁴,")
-    print(f"       matching the C++ values ({mean_ratio:.0f}×10⁻⁴ mean) and ~10× the")
+    print(f"       matching the C++ values (≈{mean_cpp_zeta:.0f}×10⁻⁴ mean) and ~10× the")
     print(f"       Table 2 values.  The C++ model matches the paper's own Fig. 4.")
     print()
 
