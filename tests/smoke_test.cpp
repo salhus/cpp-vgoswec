@@ -6,6 +6,8 @@
 
 #include <gtest/gtest.h>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 
 #include "config_loader.h"
 #include "pid_controller.h"
@@ -88,9 +90,9 @@ TEST(OptimalPassive, BasicDamping) {
     EXPECT_NEAR(op.ComputeForce(0.0, 3.0, 0.0), -6.0, 1e-12);
 }
 
-// ─── ExcitationFeedforwardPID tests ──────────────────────────────────────────
+// ─── ExcitationVelocityController tests ──────────────────────────────────────
 
-TEST(ExcitationFeedforwardPID, FeedforwardOnly) {
+TEST(ExcitationVelocityController, FeedforwardOnlyUsesActiveSignConvention) {
     auto exc = std::make_shared<vgoswec::ExcitationForceProvider>(0, 4);
     exc->UpdateDirect(2.0, 0.0);  // F_exc = 2.0 N·m
 
@@ -98,10 +100,65 @@ TEST(ExcitationFeedforwardPID, FeedforwardOnly) {
     p.kp = 0.0; p.ki = 0.0; p.kd = 0.0;
     p.tau_d = 0.01; p.u_min = -100.0; p.u_max = 100.0;
     auto pid = std::make_unique<vgoswec::PIDController>(p);
-    vgoswec::ExcitationFeedforwardPID ff_pid(exc, /*alpha=*/0.5, std::move(pid));
+    vgoswec::ExcitationVelocityController controller(
+        exc, /*alpha=*/0.5, /*ff_gain=*/0.5, std::move(pid));
 
-    // τ = alpha * F_exc + PID(0) = 0.5 * 2.0 + 0 = 1.0
-    EXPECT_NEAR(ff_pid.ComputeForce(0.0, 0.0, 0.0), 1.0, 1e-9);
+    // Applied PTO torque follows the repo's restoring sign convention:
+    // τ_pto = -(ff_gain * F_exc + 0) = -1.0 N·m (PID disabled via zero gains).
+    EXPECT_NEAR(controller.ComputeForce(0.0, 0.0, 0.0), -1.0, 1e-9);
+}
+
+TEST(ExcitationVelocityController, TracksVelocityErrorNotPosition) {
+    auto exc = std::make_shared<vgoswec::ExcitationForceProvider>(0, 4);
+    exc->UpdateDirect(2.0, 0.0);  // vel_ref = alpha * F_exc = 1.0 rad/s
+
+    vgoswec::PIDParams p;
+    p.kp = 2.0; p.ki = 0.0; p.kd = 0.0;
+    p.tau_d = 0.01; p.u_min = -100.0; p.u_max = 100.0;
+    auto pid = std::make_unique<vgoswec::PIDController>(p);
+    vgoswec::ExcitationVelocityController controller(
+        exc, /*alpha=*/0.5, /*ff_gain=*/0.5, std::move(pid));
+
+    // error = vel_ref - vel = 1.0 - 0.25 = 0.75
+    // tau_cmd = (0.5 * 2.0) + (2.0 * 0.75) = 1.0 + 1.5 = 2.5
+    // tau_pto = -tau_cmd = -2.5
+    // Use a nonzero displacement sentinel to confirm the velocity controller ignores it.
+    EXPECT_NEAR(controller.ComputeForce(/*disp=*/99.0, /*vel=*/0.25, 0.0), -2.5, 1e-9);
+}
+
+TEST(ConfigLoader, ExcitationVelocityControllerSchema) {
+    const auto cfg_path =
+        (std::filesystem::temp_directory_path() / "vgoswec_exc_ff_pid_test.yaml").string();
+    std::ofstream cfg(cfg_path);
+    ASSERT_TRUE(cfg.is_open());
+    cfg << "hydro:\n"
+           "  h5_file: hydroData/test.h5\n"
+           "controller:\n"
+           "  type: exc_ff_pid\n"
+           "  exc_ff_pid:\n"
+           "    alpha: 0.05\n"
+           "    ff_gain: 0.5\n"
+           "    vel_pid:\n"
+           "      kp: 1.25\n"
+           "      ki: 0.1\n"
+           "      kd: 0.2\n"
+           "      tau_d: 0.03\n"
+           "      u_min: -4.0\n"
+           "      u_max: 6.0\n";
+    cfg.close();
+
+    const auto loaded = vgoswec::LoadConfig(cfg_path);
+    EXPECT_EQ(loaded.controller.type, "exc_ff_pid");
+    EXPECT_DOUBLE_EQ(loaded.controller.exc_ff_pid.alpha, 0.05);
+    EXPECT_DOUBLE_EQ(loaded.controller.exc_ff_pid.ff_gain, 0.5);
+    EXPECT_DOUBLE_EQ(loaded.controller.exc_ff_pid.vel_pid.kp, 1.25);
+    EXPECT_DOUBLE_EQ(loaded.controller.exc_ff_pid.vel_pid.ki, 0.1);
+    EXPECT_DOUBLE_EQ(loaded.controller.exc_ff_pid.vel_pid.kd, 0.2);
+    EXPECT_DOUBLE_EQ(loaded.controller.exc_ff_pid.vel_pid.tau_d, 0.03);
+    EXPECT_DOUBLE_EQ(loaded.controller.exc_ff_pid.vel_pid.u_min, -4.0);
+    EXPECT_DOUBLE_EQ(loaded.controller.exc_ff_pid.vel_pid.u_max, 6.0);
+
+    std::filesystem::remove(cfg_path);
 }
 
 int main(int argc, char** argv) {

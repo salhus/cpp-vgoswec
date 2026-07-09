@@ -7,7 +7,7 @@
 //   std::vector<seastack::hydro::ComponentForceRecord> per_comp;
 //   hydro_forces.Evaluate(state, time, &per_comp);
 //   exc_provider.Update(per_comp);
-//   // ... ExcitationFeedforwardPID reads GetLatestExcitationTorque()
+//   // ... ExcitationVelocityController reads GetLatestExcitationTorque()
 //
 // DOF convention (BEMIO / WEC-Sim):
 //   0 = surge (Fx), 1 = sway (Fy), 2 = heave (Fz),

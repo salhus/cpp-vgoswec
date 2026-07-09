@@ -79,23 +79,28 @@ CC control requires bidirectional power flow. A physical PTO must support reacti
 
 ---
 
-## (D) ExcitationFeedforwardPID
+## (D) ExcitationVelocityController (`exc_ff_pid`)
 
 ### Formula
 ```
-τ = α · F_exc,pitch(t)  +  PID(θ_ref − θ)
+vel_ref = α · F_exc,pitch(t)
+τ_cmd   = ff_gain · F_exc,pitch(t) + PID_vel(vel_ref − θ̇)
+τ_pto   = −τ_cmd
 ```
 
 ### Sub-components
-- **Feedforward** (`α · F_exc`): uses real-time wave excitation torque from `ExcitationForceProvider`. Requires `HydroSystem::SetPerComponentCaptureEnabled(true)`.
-- **PID** (`PID(θ_ref − θ)`): full PID with filtered derivative (time constant τ_d) and anti-windup back-calculation. Keeps flap near `θ_ref` (default: 0 = upright).
+- **Velocity reference** (`α · F_exc`): sets a phase-aligned target velocity from real-time wave excitation torque.
+- **Feedforward torque** (`ff_gain · F_exc`): uses real-time wave excitation torque from `ExcitationForceProvider`. Requires `HydroSystem::SetPerComponentCaptureEnabled(true)`.
+- **Velocity PID** (`PID_vel(vel_ref − θ̇)`): full PID with filtered derivative (time constant τ_d) and anti-windup back-calculation. Regulates flap velocity, not flap position.
 
 ### PID parameters
 | Name | Default | Notes |
 |------|---------|-------|
-| `kp` | 0.5 | N·m/rad |
-| `ki` | 0.05 | N·m/(rad·s) |
-| `kd` | 0.05 | N·m·s/rad |
+| `alpha` | 0.05 | (rad/s)/(N·m) |
+| `ff_gain` | 0.5 | direct feedforward torque scale |
+| `kp` | 1.0 | N·m per (rad/s) |
+| `ki` | 0.0 | integral gain on velocity error |
+| `kd` | 0.0 | derivative gain on velocity error |
 | `tau_d` | 0.02 s | ≈ 4× timestep |
 | `u_min/u_max` | ±5 N·m | Saturation clamp |
 

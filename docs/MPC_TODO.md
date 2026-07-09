@@ -4,7 +4,7 @@ Future extension: Model Predictive Control (MPC) for the VGOSWEC-45.
 
 ## Why MPC
 
-The current ExcitationFeedforwardPID assumes the excitation force is known
+The current ExcitationVelocityController assumes the excitation force is known
 perfectly at each instant (from HydroForces::Evaluate) but uses it reactively.
 True optimal WEC control requires **preview** of future excitation — MPC
 provides this while respecting torque, angle, and power constraints.
@@ -50,7 +50,7 @@ Add `--controller mpc` to CLI and `vgoswec_45_mpc.yaml` config.
 - [ ] Implement linear state-space discretization
 - [ ] Implement causal excitation predictor (Kalman filter on wave elevation)
 - [ ] Implement QP formulation and OSQP wrapper
-- [ ] Validate against ExcitationFeedforwardPID in simulation
+- [ ] Validate against ExcitationVelocityController in simulation
 - [ ] Tank-test comparison
 
 ## References

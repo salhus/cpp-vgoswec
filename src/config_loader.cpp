@@ -46,9 +46,9 @@ BodyConfig ParseBody(const YAML::Node& n) {
 
 PIDConfig ParsePID(const YAML::Node& n) {
     PIDConfig p;
-    p.kp    = ReadOpt<double>(n, "kp",    0.5);
-    p.ki    = ReadOpt<double>(n, "ki",    0.05);
-    p.kd    = ReadOpt<double>(n, "kd",    0.05);
+    p.kp    = ReadOpt<double>(n, "kp",    1.0);
+    p.ki    = ReadOpt<double>(n, "ki",    0.0);
+    p.kd    = ReadOpt<double>(n, "kd",    0.0);
     p.tau_d = ReadOpt<double>(n, "tau_d", 0.02);
     p.u_min = ReadOpt<double>(n, "u_min", -5.0);
     p.u_max = ReadOpt<double>(n, "u_max",  5.0);
@@ -77,9 +77,9 @@ ControllerConfig ParseController(const YAML::Node& n) {
     }
     if (n["exc_ff_pid"]) {
         const auto& p = n["exc_ff_pid"];
-        ctrl.exc_ff_pid.alpha     = ReadOpt<double>(p, "alpha",     1.0);
-        ctrl.exc_ff_pid.theta_ref = ReadOpt<double>(p, "theta_ref", 0.0);
-        if (p["pid"]) ctrl.exc_ff_pid.pid = ParsePID(p["pid"]);
+        ctrl.exc_ff_pid.alpha   = ReadOpt<double>(p, "alpha",   0.05);
+        ctrl.exc_ff_pid.ff_gain = ReadOpt<double>(p, "ff_gain", 0.5);
+        if (p["vel_pid"]) ctrl.exc_ff_pid.vel_pid = ParsePID(p["vel_pid"]);
     }
     return ctrl;
 }
