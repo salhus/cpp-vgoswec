@@ -75,10 +75,11 @@ struct BodyConfig {
     /// synthesises the parallel-axis term m·r_g² when the CG swings on its arc, so
     /// SetInertiaXX must receive the CG value (not the hinge value).
     /// Pitch about hinge Y-axis = body Iyy (body frame = world frame when upright).
-    /// Default 0.489 = I_55(hinge) − m·r_g² = 0.962 − 6.30·0.274²
-    ///   (Ogden et al., ASME JOMAE 145(3):030905, Table 1).
+    /// Default 0.21 kg·m² is the WEC-Sim-validated CG pitch inertia.
+    /// The hinge pitch inertia used by the analytic impedance formulas is
+    ///   I_hinge = I_cg + m·r_g² = 0.21 + 6.676·0.265² = 0.652 kg·m².
     double inertia_xx{0.32};        ///< [kg·m²] CG roll inertia  (about body X)
-    double inertia_yy{0.489};       ///< [kg·m²] CG pitch inertia (about body Y = hinge axis)
+    double inertia_yy{0.21};        ///< [kg·m²] CG pitch inertia (about body Y = hinge axis)
     double inertia_zz{0.12};        ///< [kg·m²] CG yaw inertia   (about body Z)
     double initial_pitch{0.0};      ///< [rad] initial pitch about hinge Y-axis
 };
