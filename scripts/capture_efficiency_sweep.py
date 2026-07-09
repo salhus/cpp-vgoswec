@@ -307,10 +307,14 @@ def plot_per_flap(rows: list[dict], flap_angle: int, out_png: Path) -> None:
     ax0.set_title(title)
 
     if flap_angle == 0:
+        finite_eta_pct = eta_pct[np.isfinite(eta_pct)]
+        eta_ceiling = float(np.max(finite_eta_pct)) if finite_eta_pct.size > 0 else 0.0
+        text_x = max(float(np.min(T)), meta["res_period"] - 1.8)
+        text_y = eta_ceiling + 5.0
         ax1.annotate(
             "P_opt undefined near resonance:\nreactive-limited pitch mode ($B_{55}\\rightarrow 0$)",
-            xy=(5.86, 0.0),
-            xytext=(4.1, np.nanmax(np.nan_to_num(eta_pct, nan=0.0)) + 10.0),
+            xy=(meta["res_period"], 0.0),
+            xytext=(text_x, text_y),
             arrowprops=dict(arrowstyle="->", color="0.35", lw=0.9),
             fontsize=8,
             color="0.25",
