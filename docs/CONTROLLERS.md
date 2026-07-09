@@ -168,7 +168,7 @@ Use `scripts/capture_efficiency_sweep.py` to compute:
 - `P_capture(T)`: steady-state (second-half) mean absorbed power from the tuned per-flap `exc_ff_pid` configs.
 - `P_opt(T)`: theoretical optimum from each flap H5 using `body1` pitch hydrodynamics (`radiation_damping/components/5_5`, excitation DOF5), with WEC-Sim de-normalization:
   - `B55 = B55_norm * rho * omega`
-  - `|F_exc| = mag * rho * g * A`, with `A = 0.014 m` (`H = 0.028 m`)
+  - `|F_exc| = mag * rho * g * A`, with `A = H/2 = 0.014 m` (`H = 0.028 m`)
 - `eta(T) = P_capture / P_opt` where defined.
 
 Reactive-limited masking is mandatory: periods with `B55 <= 1e-4` (including non-positive `B55`) are reported as undefined (`masked=true`) and are shaded/hatched in figures. This is expected near the known pitch radiation-damping notch behavior; for VGM-0 the resonance-band efficiency is explicitly annotated as undefined in that region.

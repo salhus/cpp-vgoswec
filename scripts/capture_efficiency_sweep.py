@@ -35,6 +35,7 @@ WAVE_AMPLITUDE_M = WAVE_HEIGHT_M / 2.0
 DURATION_S = 171.0
 MASK_B55_THRESHOLD = 1e-4
 PITCH_DOF_INDEX = 4  # 0-based, DOF5 (pitch)
+MASK_NOTE = f"B55 <= {MASK_B55_THRESHOLD:.0e}"
 
 FLAPS = {
     0: {
@@ -237,11 +238,11 @@ def load_efficiency_csv(csv_path: Path) -> list[dict]:
                 "T_s": float(r["T_s"]),
                 "omega_rads": float(r["omega_rads"]),
                 "P_capture_W": float(r["P_capture_W"]),
-                "P_opt_W": float(r["P_opt_W"]) if r["P_opt_W"] else float("nan"),
+                "P_opt_W": float(r["P_opt_W"]) if r["P_opt_W"].strip() else float("nan"),
                 "B55_Nmsrad": float(r["B55_Nmsrad"]),
                 "F_exc_Nm": float(r["F_exc_Nm"]),
-                "eta": float(r["eta"]) if r["eta"] else float("nan"),
-                "masked": str(r["masked"]).strip().lower() in {"1", "true", "yes"},
+                "eta": float(r["eta"]) if r["eta"].strip() else float("nan"),
+                "masked": str(r["masked"]).strip().lower() == "true",
             }
             rows.append(out)
     rows.sort(key=lambda d: d["T_s"])
@@ -306,7 +307,7 @@ def plot_per_flap(rows: list[dict], flap_angle: int, out_png: Path) -> None:
 
     if flap_angle == 0:
         ax1.annotate(
-            "P_opt undefined near resonance:\nreactive-limited pitch mode ($B_{55}\\to0$)",
+            "P_opt undefined near resonance:\nreactive-limited pitch mode ($B_{55}\\rightarrow0$)",
             xy=(5.86, 0.0),
             xytext=(4.1, np.nanmax(np.nan_to_num(eta_pct, nan=0.0)) + 10.0),
             arrowprops=dict(arrowstyle="->", color="0.35", lw=0.9),
@@ -318,7 +319,7 @@ def plot_per_flap(rows: list[dict], flap_angle: int, out_png: Path) -> None:
     fig.text(
         0.01,
         0.01,
-        f"Mask rule: B55 <= {MASK_B55_THRESHOLD:.0e} N·m·s/rad (reactive-limited)",
+        f"Mask rule: {MASK_NOTE} N·m·s/rad (reactive-limited)",
         fontsize=7,
         color="0.35",
     )
@@ -347,7 +348,7 @@ def plot_summary(csv_map: dict[int, Path], out_png: Path) -> None:
     ax.text(
         0.01,
         0.02,
-        f"Masked points omitted where B55 <= {MASK_B55_THRESHOLD:.0e} (reactive-limited)",
+        f"Masked points omitted where {MASK_NOTE} (reactive-limited)",
         transform=ax.transAxes,
         fontsize=7,
         color="0.35",
