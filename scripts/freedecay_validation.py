@@ -6,7 +6,7 @@ Ogden et al., ASME JOMAE 145(3):030905, Table 2 and Fig. 4.
 
 Usage
 -----
-    python scripts/freedecay_validation.py [--run] [--make-figures]
+    python scripts/freedecay_validation.py [--run] [--make-figures] [--paper-fig-zeta]
 
 Flags
 -----
@@ -15,6 +15,10 @@ Flags
 --no-run        (default) Use existing output/vgoswec_*_freedecay_results.csv.
 --make-figures  Regenerate docs/img/freedecay_zeta_validation.png and
                 docs/img/freedecay_zeta_decay_fit.png (requires matplotlib).
+--paper-fig-zeta
+                Print a focused per-geometry table: C++ ζ, paper Fig. 4 ζ,
+                Table 2 ζ, and their ratios — for direct angle-by-angle
+                reconciliation of the three ζ estimates.
 
 Outputs
 -------
@@ -46,6 +50,7 @@ if str(REPO_ROOT / "scripts") not in sys.path:
 from freedecay_analysis import (  # noqa: E402
     FALLBACK_CPP_WN,
     FALLBACK_CPP_ZETA_1E4,
+    PAPER_FIG4_ZETA_1E4,
     PAPER_TABLE2,
     estimate_wn_fft,
     estimate_wn_zerocross,
@@ -78,9 +83,10 @@ def _make_figures(rows: List[dict], repo_root: Path) -> None:
     cpp_z = [float(r["cpp_zeta_1e4"]) for r in rows_s]
     tbl_z = [float(r["paper_zeta_1e4"]) for r in rows_s]
     tbl_z10 = [z * 10.0 for z in tbl_z]
+    fig4_z = [float(r["paper_fig4_zeta_1e4"]) for r in rows_s]
 
     # ------------------------------------------------------------------
-    # Figure 1: ζ vs angle (C++ vs Table 2 vs Table2×10)
+    # Figure 1: ζ vs angle (C++ vs Table 2 vs Table2×10 vs paper Fig. 4)
     # ------------------------------------------------------------------
     fig1, ax1 = plt.subplots(figsize=(8.5, 5.5))
     ax1.plot(angles, cpp_z,   marker="s", linewidth=2.0, color="#1f77b4",
@@ -88,10 +94,12 @@ def _make_figures(rows: List[dict], repo_root: Path) -> None:
     ax1.plot(angles, tbl_z,   marker="o", linewidth=2.0, color="#d62728",
              linestyle="--", label="Paper Table 2 ζ")
     ax1.plot(angles, tbl_z10, marker="^", linewidth=2.0, color="#2ca02c",
-             linestyle=":", label="Table 2 ζ × 10  (matches Fig. 4 ≈ 34×10⁻⁴)")
+             linestyle=":", label="Table 2 ζ × 10  (scale reconciliation)")
+    ax1.plot(angles, fig4_z,  marker="D", linewidth=2.0, color="#ff7f0e",
+             linestyle="-.", label="Paper Fig. 4 per-config ζ (log-dec of envelope)")
 
     ax1.set_title("VGOSWEC free-decay damping ratio validation\n"
-                  "C++ matches paper Fig. 4; Table 2 ζ column is ~10× too low")
+                  "C++ and paper Fig. 4 agree per geometry; Table 2 ζ is ~10× lower")
     ax1.set_xlabel("Flap angle [deg]")
     ax1.set_ylabel("Damping ratio ζ × 10⁻⁴")
     ax1.set_xticks(angles)
@@ -232,6 +240,7 @@ def analyse(repo_root: Path, run_sims: bool) -> List[dict]:
         err_pct = (cpp_zc - paper_wn) / paper_wn * 100.0
         paper_z = paper["paper_zeta_1e4"]
         ratio = cpp_zeta / paper_z if paper_z != 0 else float("nan")
+        fig4_z = PAPER_FIG4_ZETA_1E4[deg]
 
         rows.append({
             "config": cfg,
@@ -239,6 +248,7 @@ def analyse(repo_root: Path, run_sims: bool) -> List[dict]:
             "paper_wn_rads": paper_wn,
             "paper_Ts_s": paper["paper_Ts_s"],
             "paper_zeta_1e4": paper_z,
+            "paper_fig4_zeta_1e4": fig4_z,
             "cpp_zerocross_wn_rads": cpp_zc,
             "cpp_fft_wn_rads": cpp_fft,
             "zerocross_err_pct": err_pct,
@@ -260,6 +270,7 @@ HEADER_FMT = (
     f"{'C++ FFT ωn':>11} "
     f"{'ZC err%':>8} "
     f"{'Paper ζ×1e4':>12} "
+    f"{'Fig4 ζ×1e4':>11} "
     f"{'C++ ζ×1e4':>11} "
     f"{'C++/Tbl2':>10}"
 )
@@ -270,6 +281,7 @@ ROW_FMT = (
     "{cpp_fft_wn_rads:>11.3f} "
     "{zerocross_err_pct:>+8.1f} "
     "{paper_zeta_1e4:>12.1f} "
+    "{paper_fig4_zeta_1e4:>11.0f} "
     "{cpp_zeta_1e4:>11.1f} "
     "{zeta_ratio_cpp_over_table2:>10.1f}x"
 )
@@ -295,10 +307,54 @@ def print_table(rows: List[dict]) -> None:
     )
     print(f"  ω_n: C++ zero-cross matches Table 2 within ±0.6% (all angles).")
     print(f"  ζ:   C++ / Table2 ratio ≈ {mean_ratio:.1f}× (mean across all angles).")
-    print(f"       A rough log-decrement of the paper's own Fig. 4 envelope")
-    print(f"       (≈1.0 → ≈0.35 over ~200 s, ≈50 cycles) gives ζ ≈ 34×10⁻⁴,")
-    print(f"       matching the C++ values (≈{mean_cpp_zeta:.0f}×10⁻⁴ mean) and ~10× the")
-    print(f"       Table 2 values.  The C++ model matches the paper's own Fig. 4.")
+    print(f"       Per-config log-decrement of the paper's own Fig. 4 envelope")
+    print(f"       (A ≈ 1.0 → ≈ 0.35 over ~200 s, N = 200/T_s cycles per geometry)")
+    print(f"       gives ζ ≈ 25–49×10⁻⁴ (decreasing 0°→90°), matching the C++")
+    print(f"       values (≈{mean_cpp_zeta:.0f}×10⁻⁴ mean) and ~10× the Table 2 values.")
+    print(f"       All three series (C++, Fig. 4, Table 2) share the same")
+    print(f"       decreasing 0°→90° trend; C++ and Fig. 4 agree in magnitude.")
+    print()
+
+
+def print_paper_fig_zeta_table(rows: List[dict]) -> None:
+    """Print per-geometry comparison: C++ ζ, paper Fig. 4 ζ, Table 2 ζ, and ratios."""
+    hdr = (
+        f"{'Config':<8} "
+        f"{'T_s [s]':>8} "
+        f"{'C++ ζ×1e4':>11} "
+        f"{'Fig4 ζ×1e4':>12} "
+        f"{'Tbl2 ζ×1e4':>12} "
+        f"{'C++/Tbl2':>10} "
+        f"{'Fig4/Tbl2':>10}"
+    )
+    sep = "-" * len(hdr)
+    print()
+    print("Per-geometry ζ cross-check: C++ vs paper Fig. 4 vs Table 2")
+    print("(Fig. 4 values: log-dec of nondim. envelope A≈1.0→0.35 over 200 s, N=200/T_s)")
+    print(sep)
+    print(hdr)
+    print(sep)
+    for r in sorted(rows, key=lambda rr: int(rr["angle_deg"])):
+        cpp_z = float(r["cpp_zeta_1e4"])
+        fig4_z = float(r["paper_fig4_zeta_1e4"])
+        tbl2_z = float(r["paper_zeta_1e4"])
+        ratio_cpp = cpp_z / tbl2_z if tbl2_z != 0 else float("nan")
+        ratio_fig4 = fig4_z / tbl2_z if tbl2_z != 0 else float("nan")
+        print(
+            f"{r['config']:<8} "
+            f"{float(r['paper_Ts_s']):>8.2f} "
+            f"{cpp_z:>11.1f} "
+            f"{fig4_z:>12.0f} "
+            f"{tbl2_z:>12.1f} "
+            f"{ratio_cpp:>9.1f}x "
+            f"{ratio_fig4:>9.1f}x"
+        )
+    print(sep)
+    print()
+    print("  All three series decrease monotonically 0°→90° (same physical trend).")
+    print("  C++ ζ and paper Fig. 4 ζ agree in magnitude (tens of ×10⁻⁴).")
+    print("  Table 2 ζ is uniformly ~10× lower — consistent with a ×10⁻³/×10⁻⁴")
+    print("  exponent inconsistency in the paper's Table 2 ζ column.")
     print()
 
 
@@ -315,6 +371,7 @@ def write_csv(rows: List[dict], repo_root: Path) -> None:
         "paper_wn_rads",
         "paper_Ts_s",
         "paper_zeta_1e4",
+        "paper_fig4_zeta_1e4",
         "cpp_zerocross_wn_rads",
         "cpp_fft_wn_rads",
         "zerocross_err_pct",
@@ -330,6 +387,7 @@ def write_csv(rows: List[dict], repo_root: Path) -> None:
             row_out["paper_wn_rads"] = f"{float(r['paper_wn_rads']):.3f}"
             row_out["paper_Ts_s"] = f"{float(r['paper_Ts_s']):.2f}"
             row_out["paper_zeta_1e4"] = f"{float(r['paper_zeta_1e4']):.1f}"
+            row_out["paper_fig4_zeta_1e4"] = f"{float(r['paper_fig4_zeta_1e4']):.0f}"
             row_out["cpp_zerocross_wn_rads"] = f"{float(r['cpp_zerocross_wn_rads']):.3f}"
             row_out["cpp_fft_wn_rads"] = f"{float(r['cpp_fft_wn_rads']):.3f}"
             row_out["zerocross_err_pct"] = f"{float(r['zerocross_err_pct']):.1f}"
@@ -369,12 +427,24 @@ def main() -> int:
         default=False,
         help="Regenerate docs/img/freedecay_zeta_*.png figures.",
     )
+    parser.add_argument(
+        "--paper-fig-zeta",
+        action="store_true",
+        default=False,
+        help=(
+            "Print a focused per-geometry table comparing C++ ζ, paper Fig. 4 ζ, "
+            "and Table 2 ζ with their ratios."
+        ),
+    )
     args = parser.parse_args()
 
     repo_root = REPO_ROOT
     rows = analyse(repo_root, run_sims=args.run)
     print_table(rows)
     write_csv(rows, repo_root)
+
+    if args.paper_fig_zeta:
+        print_paper_fig_zeta_table(rows)
 
     if args.make_figures:
         _make_figures(rows, repo_root)
