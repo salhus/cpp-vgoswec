@@ -1,9 +1,9 @@
 # vgoswec_0_exc_ff_pid.yaml
 # Source: Ogden et al., ASME JOMAE 145(3):030905 (VGOSWEC-0 / VGM-0).
 # VGM-0 free-decay reference: ωn = 1.07 rad/s, Ts = 5.86 s.
-# Active control: excitation-force feedforward + inner velocity PID.
+# Active control: damping + excitation-force feedforward.
 #
-# τ = -(ff_gain · F_exc,pitch(t) + PID_vel(alpha · F_exc,pitch(t) - θ̇(t)))
+# τ = -B_ctrl · θ̇ + ff_gain · F_exc,pitch(t)  (clamped)
 
 simulation:
   duration: 60.0
@@ -40,12 +40,6 @@ wave:
 controller:
   type: exc_ff_pid
   exc_ff_pid:
-    alpha: 0.05         # vel_ref = alpha * F_exc [(rad/s)/(N·m)] (~1/(2·B_eff), B_eff = effective hinge radiation damping); TODO tune
-    ff_gain: 0.5        # feedforward torque = ff_gain * F_exc [-] (default half-excitation feedforward, i.e. the Korde F_exc/2 term); TODO tune
-    vel_pid:
-      kp: 1.0           # [N·m per (rad/s)] TODO tune
-      ki: 0.0           # TODO tune
-      kd: 0.0           # TODO tune
-      tau_d: 0.02       # [s] derivative filter time constant
-      u_min: -5.0       # [N·m] output clamp
-      u_max:  5.0       # [N·m] output clamp
+    B_ctrl:  0.5        # [N·m·s/rad] control damping (dissipative; guarantees stability). TODO tune.
+    ff_gain: 0.0        # [-] excitation feedforward gain (Korde-style anticipation). Start 0; raise carefully. TODO tune.
+    clip_torque: 5.0    # [N·m] output saturation

@@ -37,21 +37,18 @@ double ComplexConjugateControl::ComputeForce(double disp, double vel, double /*t
 
 ExcitationVelocityController::ExcitationVelocityController(
     std::shared_ptr<ExcitationForceProvider> src,
-    double alpha,
+    double B_ctrl,
     double ff_gain,
-    std::unique_ptr<PIDController> pid)
+    double clip_torque)
     : f_exc_source_(std::move(src)),
-      alpha_(alpha),
+      B_ctrl_(B_ctrl),
       ff_gain_(ff_gain),
-      pid_(std::move(pid)) {}
+      clip_(clip_torque) {}
 
-double ExcitationVelocityController::ComputeForce(double disp, double vel, double t) {
-    (void)disp;  // Inner velocity loop only: no outer position/displacement regulation.
+double ExcitationVelocityController::ComputeForce(double /*disp*/, double vel, double /*t*/) {
     const double f_exc = f_exc_source_->GetLatestExcitationTorque();
-    pid_->SetSetpoint(alpha_ * f_exc);
-    const double tau_ff = ff_gain_ * f_exc;
-    const double tau_pid = pid_->Compute(vel, t);
-    return -(tau_ff + tau_pid);
+    const double tau = -B_ctrl_ * vel + ff_gain_ * f_exc;  // damping (dissipative) + feedforward
+    return std::clamp(tau, -clip_, clip_);
 }
 
 }  // namespace vgoswec
