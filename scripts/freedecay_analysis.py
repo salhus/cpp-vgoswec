@@ -7,6 +7,7 @@ This module is import-safe (no side effects on import) and provides:
   - estimate_wn_zerocross : natural frequency via zero-crossing period
   - find_peaks         : positive local maxima above a fractional threshold
   - estimate_zeta_logdec : damping ratio via logarithmic decrement (correct n)
+  - paper_fig4_zeta_estimate : compute per-config ζ from paper Fig. 4 envelope
 
 Reference values from Ogden et al., ASME JOMAE 145(3):030905, Table 2, keyed by
 flap angle in degrees.
@@ -55,8 +56,91 @@ FALLBACK_CPP_WN = {
 
 
 # ---------------------------------------------------------------------------
+# Per-config paper Fig. 4 ζ estimates (×10⁻⁴)
+#
+# Derived by log-decrement on the paper's own nondimensional free-decay
+# time-history figure (Fig. 4, Ogden et al. ASME JOMAE 145(3):030905).
+#
+# Method: the nondimensional envelope decays from A₀ ≈ 1.0 to A_N ≈ 0.35
+# over a record length of ~200 s.  Each config has a distinct oscillation
+# period T_s (Table 2), giving N ≈ 200 / T_s cycles over the record.
+#
+#     δ = ln(A₀ / A_N) / N = ln(1.0 / 0.35) / N ≈ 1.0498 / N
+#     ζ = δ / √(4π² + δ²)
+#
+# Values computed via paper_fig4_zeta_estimate(Ts_s) for each T_s:
+#
+# | angle | T_s [s] | N ≈ 200/T_s | δ      | ζ (×10⁻⁴) |
+# |-------|---------|-------------|--------|------------|
+# |  0°   |  5.86   |    ~34      | 0.0309 |    ~49     |
+# |  10°  |  4.29   |    ~47      | 0.0224 |    ~36     |
+# |  20°  |  4.01   |    ~50      | 0.0210 |    ~33     |
+# |  45°  |  3.42   |    ~58      | 0.0180 |    ~29     |
+# |  90°  |  2.99   |    ~67      | 0.0157 |    ~25     |
+#
+# These are approximate figure-read estimates (±few ×10⁻⁴); the envelope
+# ratio and cycle count are both read from the plot, not digitised precisely.
+# They are included as an independent per-geometry corroboration, not a
+# precision measurement.  They agree with the C++ ζ values (30–50×10⁻⁴)
+# and are ~10× the Table 2 ζ column (3.2–5.8×10⁻⁴), confirming the
+# ×10⁻³/×10⁻⁴ exponent inconsistency in Table 2 at every geometry.
+# ---------------------------------------------------------------------------
+PAPER_FIG4_ZETA_1E4 = {
+    0:  49,
+    10: 36,
+    20: 33,
+    45: 29,
+    90: 25,
+}
+
+
+# ---------------------------------------------------------------------------
 # Core analysis functions
 # ---------------------------------------------------------------------------
+
+
+def paper_fig4_zeta_estimate(
+    Ts_s: float,
+    A0: float = 1.0,
+    AN: float = 0.35,
+    record_s: float = 200.0,
+) -> float:
+    """Compute per-config ζ estimate from the paper's Fig. 4 envelope.
+
+    Uses the log-decrement formula applied to the nondimensional free-decay
+    envelope visible in Fig. 4 (Ogden et al. ASME JOMAE 145(3):030905):
+
+        N  = record_s / Ts_s          (number of cycles over the record)
+        δ  = ln(A0 / AN) / N          (per-cycle logarithmic decrement)
+        ζ  = δ / √(4π² + δ²)
+
+    Parameters
+    ----------
+    Ts_s : float
+        Oscillation period [s] from Table 2 for this geometry.
+    A0 : float
+        Initial nondimensional amplitude (default 1.0, start of record).
+    AN : float
+        Final nondimensional amplitude (default 0.35, end of 200 s record).
+    record_s : float
+        Length of the free-decay record [s] over which the envelope is read
+        (default 200.0 s, matching the paper's Fig. 4 time axis).
+
+    Returns
+    -------
+    float
+        Estimated damping ratio ζ (dimensionless).
+
+    Notes
+    -----
+    The returned value is an *approximate* figure-read estimate.  The envelope
+    ratio A0/AN and the record length are both read from the plot and carry
+    ±10–15% uncertainty.  Use for qualitative per-geometry corroboration only.
+    """
+    N = record_s / Ts_s
+    delta = math.log(A0 / AN) / N
+    return delta / math.sqrt(4.0 * math.pi ** 2 + delta ** 2)
+
 
 def load_series(
     csv_path: Path,
