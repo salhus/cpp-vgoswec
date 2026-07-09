@@ -104,7 +104,7 @@ def compute_rows(repo_root: Path) -> Tuple[List[dict], bool]:
             wn_fft, wn_zc = _estimate_wn(csv_path)
             row["cpp_fft"] = wn_fft
             row["cpp_zc"] = wn_zc
-        except Exception as exc:  # fallback remains valid table values
+        except (RuntimeError, OSError, ValueError) as exc:  # fallback remains valid table values
             print(f"WARN: {csv_path}: {exc}. Using embedded fallback values.")
             all_found = False
 
