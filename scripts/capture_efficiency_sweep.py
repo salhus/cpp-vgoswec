@@ -265,7 +265,8 @@ def _masked_spans(periods: np.ndarray, masked: np.ndarray) -> list[tuple[float, 
             prev = i
             continue
         spans.append((periods[start] - half_step, periods[prev] + half_step))
-        start = prev = i
+        start = i
+        prev = i
     spans.append((periods[start] - half_step, periods[prev] + half_step))
     return spans
 
@@ -307,7 +308,7 @@ def plot_per_flap(rows: list[dict], flap_angle: int, out_png: Path) -> None:
 
     if flap_angle == 0:
         ax1.annotate(
-            "P_opt undefined near resonance:\nreactive-limited pitch mode ($B_{55}\\rightarrow0$)",
+            "P_opt undefined near resonance:\nreactive-limited pitch mode ($B_{55}\\rightarrow 0$)",
             xy=(5.86, 0.0),
             xytext=(4.1, np.nanmax(np.nan_to_num(eta_pct, nan=0.0)) + 10.0),
             arrowprops=dict(arrowstyle="->", color="0.35", lw=0.9),

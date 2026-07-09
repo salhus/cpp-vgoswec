@@ -68,7 +68,7 @@ Capture-efficiency CSV columns (`capture_efficiency_VGM*.csv`):
   - De-normalization: `B55 = B55_norm * rho * omega`, `|F_exc| = mag * rho * g * A`.
   - Wave amplitude fixed to `A = 0.014 m` (`H = 0.028 m`) for both sim and `P_opt`.
 - Masking (essential): `B55 <= 1e-4` => `P_opt` undefined (reactive-limited, including non-positive `B55`), so `η` is not reported/plotted.
-- VGM-0 caveat: near `T ≈ 4.8–6.0 s`, the pitch mode is reactive-limited (`B55 -> 0`), so resonance-band efficiency is physically undefined and is explicitly annotated in the VGM-0 figure.
+- VGM-0 caveat: near `T ≈ 4.8–6.0 s`, the pitch mode is reactive-limited (`B55` approaches zero), so resonance-band efficiency is physically undefined and is explicitly annotated in the VGM-0 figure.
 
 ## Fixed parameters
 
