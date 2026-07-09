@@ -122,6 +122,7 @@ TEST(ExcitationVelocityController, TracksVelocityErrorNotPosition) {
     // error = vel_ref - vel = 1.0 - 0.25 = 0.75
     // tau_cmd = ff_gain * F_exc + kp * error = 1.0 + 1.5 = 2.5
     // tau_pto = -tau_cmd = -2.5
+    // Use a nonzero displacement sentinel to confirm the velocity controller ignores it.
     EXPECT_NEAR(controller.ComputeForce(/*disp=*/99.0, /*vel=*/0.25, 0.0), -2.5, 1e-9);
 }
 

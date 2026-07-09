@@ -46,7 +46,7 @@ ExcitationVelocityController::ExcitationVelocityController(
       pid_(std::move(pid)) {}
 
 double ExcitationVelocityController::ComputeForce(double disp, double vel, double t) {
-    (void)disp;
+    (void)disp;  // Inner velocity loop only: no outer position/displacement regulation.
     const double f_exc = f_exc_source_->GetLatestExcitationTorque();
     pid_->SetSetpoint(alpha_ * f_exc);
     const double tau_ff = ff_gain_ * f_exc;
