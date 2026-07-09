@@ -92,43 +92,68 @@ TEST(OptimalPassive, BasicDamping) {
 
 // ─── ExcitationVelocityController tests ──────────────────────────────────────
 
+namespace {
+
+std::unique_ptr<vgoswec::PIDController> MakeVelocityPid(double kp,
+                                                        double ki = 0.0,
+                                                        double kd = 0.0,
+                                                        double u_min = -100.0,
+                                                        double u_max = 100.0,
+                                                        double dt_expected = 0.005) {
+    vgoswec::PIDParams params;
+    params.kp = kp;
+    params.ki = ki;
+    params.kd = kd;
+    params.tau_d = 0.02;
+    params.u_min = u_min;
+    params.u_max = u_max;
+    params.dt_expected = dt_expected;
+    return std::make_unique<vgoswec::PIDController>(params);
+}
+
+}  // namespace
+
 TEST(ExcitationVelocityController, DampingTerm) {
     auto exc = std::make_shared<vgoswec::ExcitationForceProvider>(0, 4);
     exc->UpdateDirect(0.0, 0.0);  // F_exc = 0, so only damping term
 
-    // B_ctrl = 0.5, ff_gain = 0.0: tau = -0.5 * vel + 0 * 0 = -B*vel
-    vgoswec::ExcitationVelocityController controller(exc, /*B_ctrl=*/0.5, /*ff_gain=*/0.0, /*clip=*/100.0);
+    vgoswec::ExcitationVelocityController controller(
+        exc, /*B_ctrl=*/0.5, /*alpha=*/0.0, MakeVelocityPid(/*kp=*/0.0), /*clip=*/100.0);
 
     // tau = -0.5 * 2.0 = -1.0 (same as PassiveDamper)
     EXPECT_NEAR(controller.ComputeForce(0.0, 2.0, 0.0), -1.0, 1e-9);
     EXPECT_NEAR(controller.ComputeForce(0.0, -2.0, 0.0), 1.0, 1e-9);
 }
 
-TEST(ExcitationVelocityController, FeedforwardTerm) {
+TEST(ExcitationVelocityController, VelocityTrackingPidTerm) {
     auto exc = std::make_shared<vgoswec::ExcitationForceProvider>(0, 4);
     exc->UpdateDirect(2.0, 0.0);  // F_exc = 2.0 N·m
 
-    // B_ctrl = 0.0, ff_gain = 0.5: tau = 0 + 0.5 * 2.0 = 1.0
-    vgoswec::ExcitationVelocityController controller(exc, /*B_ctrl=*/0.0, /*ff_gain=*/0.5, /*clip=*/100.0);
+    // B_ctrl = 0, alpha = -2 => vel_ref = -4. With kp = 0.5 and vel = 0,
+    // tau_pid = 0.5 * (-4 - 0) = -2.0
+    vgoswec::ExcitationVelocityController controller(
+        exc, /*B_ctrl=*/0.0, /*alpha=*/-2.0, MakeVelocityPid(/*kp=*/0.5), /*clip=*/100.0);
 
-    EXPECT_NEAR(controller.ComputeForce(0.0, 0.0, 0.0), 1.0, 1e-9);
+    EXPECT_NEAR(controller.ComputeForce(0.0, 0.0, 0.0), -2.0, 1e-9);
 }
 
-TEST(ExcitationVelocityController, DampingPlusFeedforward) {
+TEST(ExcitationVelocityController, DampingPlusVelocityTrackingPid) {
     auto exc = std::make_shared<vgoswec::ExcitationForceProvider>(0, 4);
     exc->UpdateDirect(2.0, 0.0);  // F_exc = 2.0 N·m
 
-    // B_ctrl = 0.5, ff_gain = 0.5: tau = -0.5*1.0 + 0.5*2.0 = -0.5 + 1.0 = 0.5
-    vgoswec::ExcitationVelocityController controller(exc, /*B_ctrl=*/0.5, /*ff_gain=*/0.5, /*clip=*/100.0);
+    // vel_ref = -4, error = -4 - 1 = -5, tau_pid = -5, tau_damp = -0.5 => total = -5.5
+    vgoswec::ExcitationVelocityController controller(
+        exc, /*B_ctrl=*/0.5, /*alpha=*/-2.0, MakeVelocityPid(/*kp=*/1.0), /*clip=*/100.0);
 
-    EXPECT_NEAR(controller.ComputeForce(0.0, 1.0, 0.0), 0.5, 1e-9);
+    EXPECT_NEAR(controller.ComputeForce(0.0, 1.0, 0.0), -5.5, 1e-9);
 }
 
 TEST(ExcitationVelocityController, IgnoresDisplacement) {
     auto exc = std::make_shared<vgoswec::ExcitationForceProvider>(0, 4);
     exc->UpdateDirect(0.0, 0.0);  // F_exc = 0
 
-    vgoswec::ExcitationVelocityController controller(exc, /*B_ctrl=*/0.5, /*ff_gain=*/0.0, /*clip=*/100.0);
+    vgoswec::ExcitationVelocityController controller(
+        exc, /*B_ctrl=*/0.5, /*alpha=*/0.0, MakeVelocityPid(/*kp=*/0.0), /*clip=*/100.0);
 
     // Displacement should have no effect on the output
     EXPECT_NEAR(controller.ComputeForce(/*disp=*/99.0, /*vel=*/1.0, 0.0),
@@ -139,11 +164,22 @@ TEST(ExcitationVelocityController, Clipping) {
     auto exc = std::make_shared<vgoswec::ExcitationForceProvider>(0, 4);
     exc->UpdateDirect(0.0, 0.0);  // F_exc = 0
 
-    // Large B_ctrl to saturate output
-    vgoswec::ExcitationVelocityController controller(exc, /*B_ctrl=*/100.0, /*ff_gain=*/0.0, /*clip=*/5.0);
+    vgoswec::ExcitationVelocityController controller(
+        exc, /*B_ctrl=*/0.0, /*alpha=*/1.0, MakeVelocityPid(/*kp=*/10.0), /*clip=*/5.0);
 
-    EXPECT_EQ(controller.ComputeForce(0.0, 1.0, 0.0), -5.0);
-    EXPECT_EQ(controller.ComputeForce(0.0, -1.0, 0.0), 5.0);
+    exc->UpdateDirect(10.0, 0.0);  // vel_ref = 10, pid error = 10 - 0 = 10, tau_pid = 100 -> clamp
+    EXPECT_EQ(controller.ComputeForce(0.0, 0.0, 0.0), 5.0);
+}
+
+TEST(ExcitationVelocityController, PidTermUsesInternalClampBeforeFinalClamp) {
+    auto exc = std::make_shared<vgoswec::ExcitationForceProvider>(0, 4);
+    exc->UpdateDirect(2.0, 0.0);  // vel_ref = -4 with alpha = -2
+
+    // tau_pid would be -40 without the PID clamp; verify inner clamp to -1 before sum.
+    vgoswec::ExcitationVelocityController controller(
+        exc, /*B_ctrl=*/0.5, /*alpha=*/-2.0, MakeVelocityPid(/*kp=*/10.0, 0.0, 0.0, -1.0, 1.0), /*clip=*/100.0);
+
+    EXPECT_NEAR(controller.ComputeForce(0.0, 1.0, 0.0), -1.5, 1e-9);
 }
 
 TEST(ConfigLoader, ExcitationVelocityControllerSchema) {
@@ -157,15 +193,28 @@ TEST(ConfigLoader, ExcitationVelocityControllerSchema) {
            "  type: exc_ff_pid\n"
            "  exc_ff_pid:\n"
            "    B_ctrl: 0.75\n"
-           "    ff_gain: 0.3\n"
-           "    clip_torque: 4.0\n";
+           "    alpha: -1.5\n"
+           "    clip_torque: 4.0\n"
+           "    vel_pid:\n"
+           "      kp: 2.0\n"
+           "      ki: 0.1\n"
+           "      kd: 0.2\n"
+           "      tau_d: 0.03\n"
+           "      u_min: -2.5\n"
+           "      u_max: 2.5\n";
     cfg.close();
 
     const auto loaded = vgoswec::LoadConfig(cfg_path);
     EXPECT_EQ(loaded.controller.type, "exc_ff_pid");
     EXPECT_DOUBLE_EQ(loaded.controller.exc_ff_pid.B_ctrl, 0.75);
-    EXPECT_DOUBLE_EQ(loaded.controller.exc_ff_pid.ff_gain, 0.3);
+    EXPECT_DOUBLE_EQ(loaded.controller.exc_ff_pid.alpha, -1.5);
     EXPECT_DOUBLE_EQ(loaded.controller.exc_ff_pid.clip_torque, 4.0);
+    EXPECT_DOUBLE_EQ(loaded.controller.exc_ff_pid.vel_pid.kp, 2.0);
+    EXPECT_DOUBLE_EQ(loaded.controller.exc_ff_pid.vel_pid.ki, 0.1);
+    EXPECT_DOUBLE_EQ(loaded.controller.exc_ff_pid.vel_pid.kd, 0.2);
+    EXPECT_DOUBLE_EQ(loaded.controller.exc_ff_pid.vel_pid.tau_d, 0.03);
+    EXPECT_DOUBLE_EQ(loaded.controller.exc_ff_pid.vel_pid.u_min, -2.5);
+    EXPECT_DOUBLE_EQ(loaded.controller.exc_ff_pid.vel_pid.u_max, 2.5);
 
     std::filesystem::remove(cfg_path);
 }

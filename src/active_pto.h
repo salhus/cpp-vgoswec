@@ -8,7 +8,8 @@
 // │   returned value = PTO torque about hinge Y-axis [N·m]                   │
 // │   Positive torque OPPOSES positive θ (restoring convention)              │
 // │   Absorbed power: P_abs = −τ_pto · ω   (positive = extracted from waves)│
-// │   Active control law: τ_pto = −B_ctrl·θ̇ + ff_gain·F_exc  (clamped)     │
+// │   Active control law: τ_pto = −B_ctrl·θ̇ + PID(alpha·F_exc − θ̇)         │
+// │                       (clamped; returned torque already uses restoring)   │
 // └──────────────────────────────────────────────────────────────────────────┘
 // =============================================================================
 #pragma once
@@ -18,6 +19,7 @@
 #include <memory>
 #include <seastack/pto/pto_model.h>
 #include "excitation_force_provider.h"
+#include "pid_controller.h"
 
 namespace vgoswec {
 
@@ -69,23 +71,26 @@ class ComplexConjugateControl : public seastack::pto::IPTOModel {
 };
 
 // =============================================================================
-// (D) ExcitationVelocityController — damping + excitation feedforward
-//     τ_pto = −B_ctrl · θ̇ + ff_gain · F_exc,pitch(t)   (clamped to ±clip)
+// (D) ExcitationVelocityController — stabilized velocity-tracking absorber
+//     τ_pto = −B_ctrl · θ̇ + PID(alpha · F_exc,pitch(t) − θ̇)   (clamped)
 //
-//   The −B_ctrl·θ̇ term is guaranteed dissipative (cannot inject energy),
-//   giving unconditional stability like PassiveDamper. The ff_gain·F_exc term
-//   adds Korde-style phase anticipation using the real-time pitch excitation
-//   torque from ExcitationForceProvider. With ff_gain = 0 the controller
-//   reduces exactly to a passive damper.
+//   This is the Korde/Ringwood stabilized velocity-tracking structure:
+//   a guaranteed-dissipative damping floor −B_ctrl·θ̇ bounds the response,
+//   while an inner velocity PID drives flap velocity toward
+//   vel_ref = alpha · F_exc,pitch(t). alpha is SIGNED; the default negative
+//   value accounts for the current hinge-referred excitation sign mismatch.
 //
-//   Under this file's sign convention, positive returned torque opposes
-//   positive θ (restoring convention).
+//   The older open-loop excitation feedforward term was removed because,
+//   empirically, it only approximated additional damping rather than genuine
+//   reactive control. Under this file's sign convention, the returned torque
+//   already follows the restoring convention; there is no outer negation.
 // =============================================================================
 class ExcitationVelocityController : public seastack::pto::IPTOModel {
  public:
     ExcitationVelocityController(std::shared_ptr<ExcitationForceProvider> src,
                                  double B_ctrl,
-                                 double ff_gain,
+                                 double alpha,
+                                 std::unique_ptr<PIDController> pid,
                                  double clip_torque = 5.0);
 
     double ComputeForce(double disp, double vel, double t) override;
@@ -93,8 +98,9 @@ class ExcitationVelocityController : public seastack::pto::IPTOModel {
  private:
     std::shared_ptr<ExcitationForceProvider> f_exc_source_;
     double B_ctrl_;
-    double ff_gain_;
+    double alpha_;
     double clip_;
+    std::unique_ptr<PIDController> pid_;
 };
 
 }  // namespace vgoswec
