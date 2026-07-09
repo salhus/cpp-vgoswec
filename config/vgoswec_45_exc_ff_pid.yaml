@@ -1,14 +1,9 @@
 # vgoswec_45_exc_ff_pid.yaml
 # Source: Ogden et al., ASME JOMAE 145(3):030905 (VGOSWEC-45 / VGM-45).
 # VGM-45 free-decay reference: ωn = 1.84 rad/s, Ts = 3.42 s.
-# Active control: damping + excitation-force feedforward.
+# Active control: stabilized velocity-tracking absorber.
 #
-# τ = -B_ctrl · θ̇ + ff_gain · F_exc,pitch(t)  (clamped)
-#
-# The −B_ctrl·θ̇ term is guaranteed dissipative (cannot inject energy).
-# The ff_gain·F_exc term adds Korde-style phase anticipation using the
-# real-time pitch excitation torque from ExcitationForceProvider.
-# ff_gain = 0 reduces to a pure passive damper.
+# τ = -B_ctrl · θ̇ + PID_vel(alpha · F_exc,pitch(t) - θ̇)   (clamped)
 
 simulation:
   duration: 60.0
@@ -53,6 +48,13 @@ wave:
 controller:
   type: exc_ff_pid
   exc_ff_pid:
-    B_ctrl:  0.5        # [N·m·s/rad] control damping (dissipative; guarantees stability). TODO tune.
-    ff_gain: 0.0        # [-] excitation feedforward gain (Korde-style anticipation). Start 0; raise carefully. TODO tune.
-    clip_torque: 5.0    # [N·m] output saturation
+    B_ctrl: 0.5       # [N·m·s/rad] stability damping floor (dissipative; guarantees stability). TODO tune.
+    alpha: -2.0       # [(rad/s)/(N·m)] SIGNED velocity-reference gain, vel_ref = alpha*F_exc. Negative accounts for hinge-referred excitation sign. TODO tune.
+    clip_torque: 5.0  # [N·m] output saturation (final torque)
+    vel_pid:
+      kp: 1.0         # [N·m per (rad/s)] velocity-error proportional gain. TODO tune.
+      ki: 0.0         # TODO tune
+      kd: 0.0         # TODO tune
+      tau_d: 0.02     # [s] derivative filter time constant
+      u_min: -5.0     # [N·m] clamp on PID term
+      u_max: 5.0      # [N·m] clamp on PID term

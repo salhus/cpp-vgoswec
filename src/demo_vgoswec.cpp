@@ -190,11 +190,18 @@ static std::shared_ptr<seastack::pto::IPTOModel> BuildController(
   }
 
   if (type == "exc_ff_pid") {
+    const auto& e = cfg.controller.exc_ff_pid;
+    vgoswec::PIDParams pid_params;
+    pid_params.kp = e.vel_pid.kp;
+    pid_params.ki = e.vel_pid.ki;
+    pid_params.kd = e.vel_pid.kd;
+    pid_params.tau_d = e.vel_pid.tau_d;
+    pid_params.u_min = e.vel_pid.u_min;
+    pid_params.u_max = e.vel_pid.u_max;
+    pid_params.dt_expected = cfg.timestep;
+    auto pid = std::make_unique<vgoswec::PIDController>(pid_params);
     return std::make_shared<vgoswec::ExcitationVelocityController>(
-        exc_provider,
-        cfg.controller.exc_ff_pid.B_ctrl,
-        cfg.controller.exc_ff_pid.ff_gain,
-        cfg.controller.exc_ff_pid.clip_torque);
+        exc_provider, e.B_ctrl, e.alpha, std::move(pid), e.clip_torque);
   }
 
   throw std::runtime_error("Unknown controller type: " + type);

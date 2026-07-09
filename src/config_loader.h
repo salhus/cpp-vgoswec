@@ -51,9 +51,10 @@ struct PIDConfig {
 };
 
 struct ExcFFPIDConfig {
-    double B_ctrl{0.5};             ///< [N·m·s/rad] control damping (guaranteed-dissipative); tau = -B_ctrl*theta_dot
-    double ff_gain{0.0};            ///< [-] excitation feedforward gain; tau += ff_gain*F_exc. 0 => pure damper.
-    double clip_torque{5.0};        ///< [N·m] output saturation
+    double B_ctrl{0.5};       ///< [N·m·s/rad] stability damping floor: tau += -B_ctrl*theta_dot (always dissipative)
+    double alpha{-2.0};       ///< [(rad/s)/(N·m)] SIGNED velocity-reference gain: vel_ref = alpha*F_exc (negative for hinge sign)
+    double clip_torque{5.0};  ///< [N·m] output saturation on the FINAL torque
+    PIDConfig vel_pid;        ///< velocity-error PID (gains/clamp). Note vel_pid.u_min/u_max clamp the PID term only.
 };
 
 struct ControllerConfig {

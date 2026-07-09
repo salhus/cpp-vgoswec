@@ -83,19 +83,29 @@ CC control requires bidirectional power flow. A physical PTO must support reacti
 
 ### Formula
 ```
-τ_pto = −B_ctrl · θ̇ + ff_gain · F_exc,pitch(t)   (clamped to ±clip_torque)
+vel_ref = alpha · F_exc,pitch(t)
+τ_pto = clamp( −B_ctrl · θ̇ + PID_vel(vel_ref − θ̇), -clip_torque, clip_torque )
 ```
 
 ### Sub-components
-- **Damping term** (`−B_ctrl · θ̇`): guaranteed dissipative feedback. With `B_ctrl ≥ 0` this term always opposes velocity and CANNOT inject energy into the system, giving unconditional stability — the same proven-stable structure as `PassiveDamper` and `OptimalPassive`.
-- **Feedforward term** (`ff_gain · F_exc`): uses real-time wave excitation torque from `ExcitationForceProvider` to add Korde-style phase anticipation. With `ff_gain = 0` the controller reduces exactly to a passive damper `τ = −B_ctrl·θ̇`.
+- **Damping floor** (`−B_ctrl · θ̇`): guaranteed dissipative feedback. With `B_ctrl ≥ 0` this term always opposes velocity and CANNOT inject energy into the system, bounding the response and preventing runaway — the same proven-stable structure as `PassiveDamper`.
+- **Velocity inner loop** (`PID_vel(vel_ref − θ̇)`): the Korde/Ringwood-style tracking loop that drives the flap toward a phase-aligned reference velocity `vel_ref = alpha · F_exc`.
+
+`alpha` is **SIGNED** and defaults **negative** because the effective hinge-referred excitation currently has the opposite sign from the raw pitch excitation moment exposed by `ExcitationForceProvider`. A later follow-up can fix the excitation referral directly; for now the sign is carried by `alpha`.
+
+The previous open-loop excitation feedforward term was removed because sweep testing showed it only approximated additional damping (and eventually over-damped toward lockup), rather than delivering genuine reactive control.
 
 ### Parameters
 | Name | Default | Units | Notes |
 |------|---------|-------|-------|
-| `B_ctrl` | 0.5 | N·m·s/rad | Control damping (dissipative; guarantees stability). TODO tune. |
-| `ff_gain` | 0.0 | — | Excitation feedforward gain. Start at 0 (pure damper); raise carefully. TODO tune. |
-| `clip_torque` | 5.0 | N·m | Output saturation clamp |
+| `B_ctrl` | 0.5 | N·m·s/rad | Stability damping floor (always dissipative). |
+| `alpha` | -2.0 | (rad/s)/(N·m) | SIGNED velocity-reference gain, `vel_ref = alpha·F_exc`. |
+| `clip_torque` | 5.0 | N·m | Final output saturation clamp. |
+| `vel_pid.kp` | 1.0 | N·m per (rad/s) | Velocity-error proportional gain. |
+| `vel_pid.ki` | 0.0 | N·m/(rad/s·s) | Velocity-error integral gain. |
+| `vel_pid.kd` | 0.0 | N·m·s/(rad/s) | Velocity-error derivative gain. |
+| `vel_pid.tau_d` | 0.02 | s | Derivative filter time constant. |
+| `vel_pid.u_min` / `vel_pid.u_max` | -5.0 / 5.0 | N·m | Clamp on the PID term only. |
 
 **All gains marked TODO: tune with tank-test data.**
 
@@ -120,6 +130,6 @@ To replace any controller with a hardware-in-the-loop (HIL) implementation, deri
 1. **Start with PassiveDamper**. Verify flap motion is physical (no divergence).
 2. **OptimalPassive**: theoretical maximum for passive control. Compare with step 1.
 3. **CC control**: compare peak torque vs clip. Reduce clip until stable.
-4. **ExcFF+PID**: Start with `ff_gain = 0` (pure damper), choose `B_ctrl` for stable absorbing motion, then raise `ff_gain` carefully from 0 to add anticipation.
+4. **ExcFF+PID**: Choose `B_ctrl` for a stable absorbing baseline (start 0.5); then tune the velocity loop: set `alpha` (negative) and `kp` to track `vel_ref = alpha·F_exc`. Watch that improvements come from tracking, NOT from collapsing velocity toward lockup.
 
 All gains are seed values based on order-of-magnitude estimates. **Tank-test data required** to identify inertia (bifilar pendulum) and validate gains.
