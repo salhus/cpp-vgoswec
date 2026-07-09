@@ -1,6 +1,6 @@
-# vgoswec_0_exc_ff_pid.yaml
-# Source: Ogden et al., ASME JOMAE 145(3):030905 (VGOSWEC-0 / VGM-0).
-# VGM-0 free-decay reference: ωn = 1.07 rad/s, Ts = 5.86 s.
+# vgoswec_90_exc_ff_pid.yaml
+# Source: Ogden et al., ASME JOMAE 145(3):030905 (VGOSWEC-90 / VGM-90).
+# VGM-90 free-decay reference: ωn = 2.10 rad/s, Ts = 2.99 s.
 # Active control: stabilized velocity-tracking absorber with passive-safety guard.
 #
 # τ = clamp( -B_ctrl · θ̇ + PID_vel(alpha · F_exc,pitch(t) - θ̇), -clip, clip )
@@ -12,8 +12,11 @@
 #               knee with max|pitch| < 0.8 rad at both band edges)
 #   ki    = 5   (fixed integral gain; integral wind-up is bounded by u_min/u_max)
 #
-# Tuned parameters (Kp×Kd sweep, band 3.5–7.0 s, see analysis/kpkd_sweep_VGM0.csv):
-#   kp = 4, kd = 1
+# Tuned parameters (Kp×Kd sweep, band 2.0–5.0 s, see analysis/kpkd_sweep_VGM90.csv):
+#   kp = 4, kd = 2  (higher Kd vs lower-frequency flaps: VGM-90 has the shortest
+#                    resonance period and needs more derivative damping to keep the
+#                    short-period band edge stable; kd=1 was marginal, kd=2 gives
+#                    healthy corr < 0 at T=2.0 s without sacrificing resonance capture)
 #
 # Known limitation: F_exc is the raw un-hinge-referred pitch moment (moment.y()
 # from ExcitationForceProvider). alpha is signed positive to paper over the
@@ -23,7 +26,7 @@
 # See docs/CONTROLLERS.md §Known limitations for full discussion.
 
 simulation:
-  duration: 236.0      # [s] ≥ 40 × T_res = 234 s at 5.86 s resonance
+  duration: 171.0      # [s] ≥ 57 × T_res = 171 s at 2.99 s resonance
   timestep: 0.005
   wave_ramp: 10.0
 
@@ -45,13 +48,13 @@ hinge:
   external_stiffness: 6.57  # [N·m/rad] experimental hinge spring (Table 1), applied at all times
 
 hydro:
-  h5_file: hydroData/vgoswec_0.h5
+  h5_file: hydroData/vgoswec_90.h5
   rho: 1025.0
 
 wave:
   type: regular
   height: 0.05
-  period: 5.86          # [s]  VGM-0 resonance period (WEC-Sim free-decay reference)
+  period: 2.99          # [s]  VGM-90 resonance period (WEC-Sim free-decay reference)
   direction: 0.0
 
 controller:
@@ -62,10 +65,9 @@ controller:
     clip_torque: 10.0   # [N·m] output saturation (final torque)
     passive_safe: true  # replace injecting commands with dissipative floor -B_ctrl·vel
     vel_pid:
-      kp: 4.0           # [N·m per (rad/s)] tuned; optimal Kp×Kd from band-integrated sweep (3.5–7.0 s)
+      kp: 4.0           # [N·m per (rad/s)] tuned; optimal Kp×Kd from band-integrated sweep (2.0–5.0 s)
       ki: 5.0           # [N·m/(rad/s·s)] fixed (see header rationale)
-      kd: 1.0           # [N·m·s/(rad/s)] tuned; improves off-resonance stability
+      kd: 2.0           # [N·m·s/(rad/s)] tuned; higher than lower-frequency flaps (see header)
       tau_d: 0.02       # [s] derivative filter time constant
       u_min: -10.0      # [N·m] clamp on PID term
       u_max: 10.0       # [N·m] clamp on PID term
-

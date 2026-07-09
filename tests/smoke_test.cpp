@@ -182,6 +182,66 @@ TEST(ExcitationVelocityController, PidTermUsesInternalClampBeforeFinalClamp) {
     EXPECT_NEAR(controller.ComputeForce(0.0, 1.0, 0.0), -1.5, 1e-9);
 }
 
+// ─── ExcitationVelocityController passive-safety guard tests ──────────────────
+
+TEST(ExcitationVelocityControllerPassiveSafe, GuardTriggersWhenCommandWouldInject) {
+    // Scenario: raw tau_damp + tau_pid would inject energy (tau * vel > 0).
+    // With B_ctrl=0.5 and vel=1.0, tau_damp = -0.5 (dissipative).
+    // With kp=100, F_exc=0 → vel_ref=0, error = 0 - 1 = -1, tau_pid = -100 (clamped to -200 by PID,
+    // but let's use a case where tau_pid pushes the TOTAL to be injecting).
+    //
+    // To force injection: need tau * vel > 0. With vel = -1.0:
+    //   tau_damp = -B_ctrl * vel = -0.5 * (-1.0) = +0.5  (injecting: tau>0, vel<0 → tau*vel<0; wait that's dissipative)
+    // Let's think more carefully:
+    //   tau * vel > 0 means they have the SAME sign (torque aids motion = injection).
+    //   vel = 2.0 (positive): tau must be POSITIVE → energy input.
+    //   tau_damp = -0.5 * 2.0 = -1.0 (negative = dissipative, good).
+    //   Need tau_pid > 1.0 to overcome tau_damp and make total positive.
+    //   With alpha=1, F_exc=10 → vel_ref=10, error=10-2=8, tau_pid=kp*8.
+    //   Use kp=1.0: tau_pid=8, total = -1 + 8 = +7 > 0 → INJECTS.
+    //   Guard should replace with tau_damp = -1.0.
+    auto exc = std::make_shared<vgoswec::ExcitationForceProvider>(0, 4);
+    exc->UpdateDirect(10.0, 0.0);  // F_exc = 10
+
+    vgoswec::ExcitationVelocityController controller(
+        exc, /*B_ctrl=*/0.5, /*alpha=*/1.0, MakeVelocityPid(/*kp=*/1.0), /*clip=*/100.0,
+        /*passive_safe=*/true);
+
+    // vel=2: tau_raw = -1 + 8 = +7 → injecting; guard replaces with tau_damp = -1.0
+    EXPECT_NEAR(controller.ComputeForce(0.0, 2.0, 0.0), -1.0, 1e-9);
+}
+
+TEST(ExcitationVelocityControllerPassiveSafe, GuardNoOpWhenCommandIsDissipative) {
+    // When the raw command is already dissipative (tau * vel <= 0), the guard
+    // must NOT modify the output.
+    // vel=1.0, alpha=-2, F_exc=2 → vel_ref=-4, error=-5, kp=1 → tau_pid=-5
+    // tau_damp = -0.5, total = -5.5. tau*vel = -5.5 * 1.0 < 0 → dissipative. No guard.
+    auto exc = std::make_shared<vgoswec::ExcitationForceProvider>(0, 4);
+    exc->UpdateDirect(2.0, 0.0);
+
+    vgoswec::ExcitationVelocityController controller(
+        exc, /*B_ctrl=*/0.5, /*alpha=*/-2.0, MakeVelocityPid(/*kp=*/1.0), /*clip=*/100.0,
+        /*passive_safe=*/true);
+
+    // tau = -5.5: dissipative (same direction as restoring), guard is a no-op
+    EXPECT_NEAR(controller.ComputeForce(0.0, 1.0, 0.0), -5.5, 1e-9);
+}
+
+TEST(ExcitationVelocityControllerPassiveSafe, GuardDisabledRestoresUngardedBehavior) {
+    // With passive_safe=false, the original (unguarded) behavior is restored:
+    // injecting commands pass through unchanged.
+    // Same scenario as GuardTriggersWhenCommandWouldInject: vel=2, tau_raw=+7.
+    auto exc = std::make_shared<vgoswec::ExcitationForceProvider>(0, 4);
+    exc->UpdateDirect(10.0, 0.0);  // F_exc = 10
+
+    vgoswec::ExcitationVelocityController controller(
+        exc, /*B_ctrl=*/0.5, /*alpha=*/1.0, MakeVelocityPid(/*kp=*/1.0), /*clip=*/100.0,
+        /*passive_safe=*/false);
+
+    // tau_raw = +7: injecting, but guard is off → passes through as +7
+    EXPECT_NEAR(controller.ComputeForce(0.0, 2.0, 0.0), 7.0, 1e-9);
+}
+
 TEST(ConfigLoader, ExcitationVelocityControllerSchema) {
     const auto cfg_path =
         (std::filesystem::temp_directory_path() / "vgoswec_exc_ff_pid_test.yaml").string();
@@ -195,6 +255,7 @@ TEST(ConfigLoader, ExcitationVelocityControllerSchema) {
            "    B_ctrl: 0.75\n"
            "    alpha: -1.5\n"
            "    clip_torque: 4.0\n"
+           "    passive_safe: false\n"
            "    vel_pid:\n"
            "      kp: 2.0\n"
            "      ki: 0.1\n"
@@ -209,12 +270,39 @@ TEST(ConfigLoader, ExcitationVelocityControllerSchema) {
     EXPECT_DOUBLE_EQ(loaded.controller.exc_ff_pid.B_ctrl, 0.75);
     EXPECT_DOUBLE_EQ(loaded.controller.exc_ff_pid.alpha, -1.5);
     EXPECT_DOUBLE_EQ(loaded.controller.exc_ff_pid.clip_torque, 4.0);
+    EXPECT_EQ(loaded.controller.exc_ff_pid.passive_safe, false);
     EXPECT_DOUBLE_EQ(loaded.controller.exc_ff_pid.vel_pid.kp, 2.0);
     EXPECT_DOUBLE_EQ(loaded.controller.exc_ff_pid.vel_pid.ki, 0.1);
     EXPECT_DOUBLE_EQ(loaded.controller.exc_ff_pid.vel_pid.kd, 0.2);
     EXPECT_DOUBLE_EQ(loaded.controller.exc_ff_pid.vel_pid.tau_d, 0.03);
     EXPECT_DOUBLE_EQ(loaded.controller.exc_ff_pid.vel_pid.u_min, -2.5);
     EXPECT_DOUBLE_EQ(loaded.controller.exc_ff_pid.vel_pid.u_max, 2.5);
+
+    std::filesystem::remove(cfg_path);
+}
+
+TEST(ConfigLoader, ExcitationVelocityControllerPassiveSafeDefaultsTrue) {
+    // Verify passive_safe defaults to true when not specified in YAML.
+    const auto cfg_path =
+        (std::filesystem::temp_directory_path() / "vgoswec_exc_ff_pid_default_test.yaml").string();
+    std::ofstream cfg(cfg_path);
+    ASSERT_TRUE(cfg.is_open());
+    cfg << "hydro:\n"
+           "  h5_file: hydroData/test.h5\n"
+           "controller:\n"
+           "  type: exc_ff_pid\n"
+           "  exc_ff_pid:\n"
+           "    B_ctrl: 0.5\n"
+           "    alpha: 11.0\n"
+           "    clip_torque: 10.0\n"
+           "    vel_pid:\n"
+           "      kp: 4.0\n"
+           "      ki: 5.0\n"
+           "      kd: 1.0\n";
+    cfg.close();
+
+    const auto loaded = vgoswec::LoadConfig(cfg_path);
+    EXPECT_EQ(loaded.controller.exc_ff_pid.passive_safe, true);
 
     std::filesystem::remove(cfg_path);
 }

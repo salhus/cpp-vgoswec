@@ -6,6 +6,11 @@ output/
 *.pyc
 __pycache__/
 
+# Committed analysis data — allow sweep CSVs and figures
+!analysis/*.csv
+!analysis/figures/
+!analysis/figures/*.png
+
 # CMake
 CMakeCache.txt
 CMakeFiles/
