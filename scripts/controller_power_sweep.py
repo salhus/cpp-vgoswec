@@ -265,7 +265,7 @@ def render_markdown(all_results: List[dict], device_meta: dict,
         " now wired into the wave-run dynamics for ALL controllers and both devices.",
         "  With K_hs55 ≈ −1.20 N·m/rad (hydrostatically unstable without spring), the effective"
         " restoring stiffness K_hs_eff = K_hs55 + C_ext ≈ +5.37 N·m/rad — stable and matching"
-        " Table 2 resonances (VGM-45: ≈1.84 rad/s; VGM-0: ≈1.07 rad/s).",
+        " WEC-Sim free-decay resonances (VGM-45: ≈1.84 rad/s; VGM-0: ≈1.07 rad/s).",
         "- **De-normalization** uses the stored H5 rho (1000 kg/m³) for both devices — consistent basis.",
 ] + [
         f"- **{dev_name}** sweep: "
@@ -446,7 +446,7 @@ def render_markdown(all_results: List[dict], device_meta: dict,
         sections += [
             f"## {dev_name}: {dev['label']}",
             "",
-            f"Design frequency: ω₀ = {resonance_omega:.2f} rad/s (T = {resonance_period:.2f} s, Table 2).",
+            f"Design frequency: ω₀ = {resonance_omega:.2f} rad/s (T = {resonance_period:.2f} s, WEC-Sim free-decay).",
             f"Plot: `output/controller_power_sweep_{dev_name.replace('-', '')}.png`",
             "",
             "### Results table",
@@ -498,7 +498,7 @@ def render_markdown(all_results: List[dict], device_meta: dict,
     cross.append(
         "- **Model corrections applied in this run** (vs. prior mis-normalised baseline):"
         " (1) external hinge spring C_ext=6.57 N·m/rad now in ALL wave-run dynamics"
-        " → both devices stable at Table 2 resonances;"
+        " → both devices stable at WEC-Sim free-decay resonances;"
         " (2) de-normalization pinned to stored H5 rho=1000 kg/m³"
         " (was 954 for VGM-45, 844 for VGM-0 under legacy A55 match);"
         " (3) output filenames now derived from config stem (no clobber between devices)."

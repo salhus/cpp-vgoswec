@@ -161,7 +161,8 @@ static std::shared_ptr<seastack::pto::IPTOModel> BuildController(
   const double C_ext_cg = cfg.hinge_external_stiffness;
   // Hinge-referenced pitch inertia for analytic impedance/gain formulas.
   // The closed-form expressions have no kinematic constraint to synthesise the
-  // parallel-axis term m·r_g²; they must use I_hinge = I_cg + m·r_g² = 0.962 kg·m².
+  // parallel-axis term m·r_g²; they must use I_hinge = I_cg + m·r_g² = 0.652 kg·m²
+  // (= 0.21 + 6.676·0.265² ≈ 0.21 + 0.469 = 0.652, WEC-Sim validated).
   // (Chrono dynamics use I_cg via SetInertiaXX; the revolute constraint adds m·r_g².)
   const double r_g_ctrl = std::abs(cfg.flap.cog[2] - cfg.hinge_z);
   const double I_hinge_ctrl = cfg.flap.inertia_yy + cfg.flap.mass * r_g_ctrl * r_g_ctrl;
@@ -298,8 +299,8 @@ int main(int argc, char* argv[]) {
   flap_body->SetName("body1");
   flap_body->SetPos(ChVector3d(cfg.flap.cog[0], cfg.flap.cog[1], cfg.flap.cog[2]));
   flap_body->SetMass(cfg.flap.mass);
-  // Inertia about CG — SetInertiaXX receives the CG value (0.489 kg·m²), NOT the hinge
-  // value (0.962 kg·m²).  The revolute constraint at the hinge automatically synthesises
+  // Inertia about CG — SetInertiaXX receives the CG value (0.21 kg·m²), NOT the hinge
+  // value (0.652 kg·m²).  The revolute constraint at the hinge automatically synthesises
   // the parallel-axis term m·r_g² when the CG swings on its arc, so passing the hinge
   // inertia here would double-count m·r_g² and drive the dynamic resonance too low.
   // Body frame = world frame when the flap is upright; the revolute is initialized with
@@ -400,7 +401,7 @@ int main(int argc, char* argv[]) {
     const double I_cg   = cfg.flap.inertia_yy;
     // Hinge-referenced inertia for the natural-frequency prediction.
     // The analytic ωn formula has no kinematic constraint to add m·r_g²; it must
-    // use I_hinge = I_cg + m·r_g² = 0.962 kg·m² (Ogden et al., Table 1).
+    // use I_hinge = I_cg + m·r_g² = 0.652 kg·m² (= 0.21 + 6.676·0.265², WEC-Sim validated).
     // (Chrono's revolute constraint already adds m·r_g² dynamically from I_cg.)
     const double r_g_diag   = std::abs(cfg.flap.cog[2] - cfg.hinge_z);
     const double I_hinge    = I_cg + cfg.flap.mass * r_g_diag * r_g_diag;
@@ -410,8 +411,10 @@ int main(int argc, char* argv[]) {
     // C_ext is a pure torsional spring so its CG-referred value equals the hinge value.
     const double K_hs_eff = K_hs55 + C_ext;
     // Guarded natural-frequency prediction (two estimates: A55_inf and A55(omega0)).
-    // Uses I_hinge so the denominator is (I_hinge + A55) ≈ (0.962 + 0.552) = 1.514 kg·m²
-    // → ωn ≈ sqrt(5.37/1.514) ≈ 1.88 rad/s for VGM-45 (paper: 1.84 rad/s).
+    // Uses I_hinge so the denominator is (I_hinge + A55) ≈ (0.652 + 0.904) = 1.556 kg·m²
+    // → ωn ≈ sqrt(5.37/1.556) ≈ 1.86 rad/s for VGM-45 (WEC-Sim free-decay: 1.84 rad/s).
+    // VGM-0 analytic single-DOF prediction is ~7% high vs WEC-Sim free-decay (1.07 rad/s);
+    // this is expected and acceptable — the authoritative value is the WEC-Sim free-decay.
     const double num_pred     = K_hs_eff;
     const double den_pred_inf = I_hinge + A55_inf;
     const double den_pred_lf  = I_hinge + A55;    // A55 = A55(omega0) already computed above

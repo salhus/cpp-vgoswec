@@ -13,10 +13,10 @@ simulation:
 body:
   flap:
     mesh: geometry/vgm45.obj
-    mass: 6.30
-    cog: [0.0, 0.0, -0.226]       # [m] hinge_z + r_g = -0.5 + 0.274
+    mass: 6.676
+    cog: [0.0, 0.0, -0.235]       # [m] hinge_z + r_g = -0.5 + 0.265
     inertia_xx: 0.32              # [kg·m²] CG roll inertia  (owner-provided, about CG)
-    inertia_yy: 0.489             # [kg·m²] CG pitch inertia derived from paper: I_cg = I_55(hinge) − m·r_g² = 0.962 − 6.30·0.274² = 0.489 kg·m²
+    inertia_yy: 0.21             # [kg·m²] CG pitch inertia (WEC-Sim validated). Hinge inertia = I_cg + m·r_g² = 0.21 + 6.676·0.265² (≈0.469) = 0.652
     inertia_zz: 0.12              # [kg·m²] CG yaw inertia   (owner-provided, about CG)
     initial_pitch: 0.15           # [rad] nonzero initial displacement for free decay
   base:

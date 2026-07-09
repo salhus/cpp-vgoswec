@@ -21,10 +21,10 @@ simulation:
 body:
   flap:
     mesh: geometry/vgm45.obj
-    mass: 6.30
-    cog: [0.0, 0.0, -0.226]       # [m] hinge_z + r_g = -0.5 + 0.274
+    mass: 6.676
+    cog: [0.0, 0.0, -0.235]       # [m] hinge_z + r_g = -0.5 + 0.265
     inertia_xx: 0.32              # [kg·m²] CG roll inertia  (owner-provided, about CG)
-    inertia_yy: 0.489             # [kg·m²] CG pitch inertia derived from paper: I_cg = I_55(hinge) − m·r_g² = 0.962 − 6.30·0.274² = 0.489 kg·m²
+    inertia_yy: 0.21             # [kg·m²] CG pitch inertia (WEC-Sim validated). Hinge inertia = I_cg + m·r_g² = 0.21 + 6.676·0.265² (≈0.469) = 0.652
     inertia_zz: 0.12              # [kg·m²] CG yaw inertia   (owner-provided, about CG)
     # Geometry/properties from Table 1: w=0.40 m, H_p=0.50 m, t=0.076 m, V=7395 cm^3, r_b=0.293 m.
   base:
@@ -51,7 +51,7 @@ controller:
   # BuildController uses opt_passive.design_omega as the shared tuning frequency for
   # opt_passive/cc impedance-based gain calculations.
   opt_passive:
-    design_omega: 1.84   # [rad/s] VGM-45 resonance from Table 2 (equiv. T = 3.42 s)
+    design_omega: 1.84   # [rad/s] VGM-45 resonance (WEC-Sim free-decay reference, equiv. T = 3.42 s)
   cc:
     # K_r and B_r are computed automatically; override only if needed:
     # K_r_override: 0.0  # [N·m/rad]

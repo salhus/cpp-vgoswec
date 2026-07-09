@@ -23,11 +23,11 @@
 //   pitch reactance ω·(I + A₅₅) − K_hs_eff/ω.  Because these are closed-form
 //   expressions with no kinematic constraint, the inertia term I MUST be the
 //   hinge-referenced pitch inertia:
-//     I_hinge = I_cg + m·r_g²  (= 0.962 kg·m² for the VGOSWEC paddle)
+//     I_hinge = I_cg + m·r_g²  (= 0.652 kg·m² for the VGOSWEC paddle)
 //   There is no constraint to synthesise the parallel-axis term m·r_g² for them.
 //
 //   By contrast, the Chrono rigid-body dynamics (SetInertiaXX) MUST be given the
-//   CG inertia I_cg (= 0.489 kg·m²), because the revolute constraint at the hinge
+//   CG inertia I_cg (= 0.21 kg·m²), because the revolute constraint at the hinge
 //   automatically adds m·r_g² when the CG swings on its arc.  Passing the full
 //   hinge inertia to SetInertiaXX would double-count m·r_g² and produce a resonance
 //   that is too low.
@@ -35,7 +35,7 @@
 //   Callers in demo_vgoswec.cpp should compute
 //     I_hinge = cfg.flap.inertia_yy + cfg.flap.mass * r_g²
 //   (where r_g = |cfg.flap.cog[2] − cfg.hinge_z|) and pass I_hinge to all
-//   functions below.  cfg.flap.inertia_yy (the CG value, 0.489 kg·m²) is passed
+//   functions below.  cfg.flap.inertia_yy (the CG value, 0.21 kg·m²) is passed
 //   only to SetInertiaXX.
 //
 // EXTERNAL SPRING (C_ext):
@@ -104,7 +104,7 @@ std::pair<double,double> GetPitchRadCoeffsAtOmega(
 /// @param flap_body_idx  Body index of flap in HydroData (0)
 /// @param omega0         Design angular frequency [rad/s]
 /// @param I_flap_kgm2    Hinge-referenced dry pitch inertia of the flap [kg·m²]
-///                       I_hinge = I_cg + m·r_g²  (= 0.962 kg·m² for VGOSWEC paddle)
+///                       I_hinge = I_cg + m·r_g²  (= 0.652 kg·m² for VGOSWEC paddle)
 /// @param C_ext_cg       CG-referred external spring stiffness [N·m/rad] (default 0)
 /// @return               |Z(ω₀)| [N·m·s/rad]
 double PitchImpedanceMagnitude(const seastack::hydro::HydroData& data,
@@ -122,7 +122,7 @@ double PitchImpedanceMagnitude(const seastack::hydro::HydroData& data,
 ///   B_r =  B_rad,55(ω₀)
 ///
 /// I_flap_kgm2 MUST be the hinge-referenced pitch inertia I_hinge = I_cg + m·r_g²
-/// (= 0.962 kg·m² for the VGOSWEC paddle).  The analytic formula has no kinematic
+/// (= 0.652 kg·m² for the VGOSWEC paddle).  The analytic formula has no kinematic
 /// constraint to synthesise the parallel-axis term; passing the CG value would
 /// underestimate the reactive inertia and drive the gains off resonance.
 struct CCGains {
