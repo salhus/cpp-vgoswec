@@ -1,1 +1,1 @@
-$$\alpha_{opt} = \frac{1}{2,B_{eff}}, \qquad \tau_{pto}\big|{opt} = -\tfrac{1}{2} F{exc}$$
+$$\tau_{pto} = \text{clamp}\Big(\underbrace{-B_{ctrl}\cdot\dot\theta}{\text{stable floor}} + \underbrace{\text{PID}(\alpha F{exc} - \dot\theta)}_{\text{velocity loop}},\ \pm\text{clip}\Big)$$
