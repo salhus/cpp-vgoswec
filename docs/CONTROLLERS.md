@@ -99,8 +99,8 @@ vel_ref = α · F_exc,pitch(t)
 | `alpha` | 0.05 | (rad/s)/(N·m) |
 | `ff_gain` | 0.5 | direct feedforward torque scale |
 | `kp` | 1.0 | N·m per (rad/s) |
-| `ki` | 0.0 | N·m/rad |
-| `kd` | 0.0 | N·m·s/(rad/s) |
+| `ki` | 0.0 | integral gain on velocity error |
+| `kd` | 0.0 | derivative gain on velocity error |
 | `tau_d` | 0.02 s | ≈ 4× timestep |
 | `u_min/u_max` | ±5 N·m | Saturation clamp |
 

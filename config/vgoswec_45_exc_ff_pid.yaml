@@ -52,8 +52,8 @@ wave:
 controller:
   type: exc_ff_pid
   exc_ff_pid:
-    alpha: 0.05         # vel_ref = alpha * F_exc [(rad/s)/(N·m)] (~1/(2·B_eff)); TODO tune
-    ff_gain: 0.5        # feedforward torque = ff_gain * F_exc [-] (Korde F_exc/2); TODO tune
+    alpha: 0.05         # vel_ref = alpha * F_exc [(rad/s)/(N·m)] (~1/(2·B_eff), B_eff = effective hinge radiation damping); TODO tune
+    ff_gain: 0.5        # feedforward torque = ff_gain * F_exc [-] (default half-excitation feedforward, i.e. the Korde F_exc/2 term); TODO tune
     vel_pid:
       kp: 1.0           # [N·m per (rad/s)] TODO tune
       ki: 0.0           # TODO tune
