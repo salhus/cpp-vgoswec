@@ -75,7 +75,7 @@ def load_csv(csv_path: str) -> dict:
             for k, v in data.items()}
 
 
-def band_integrated_capture(data: dict, flap_angle: int) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def band_integrated_capture(data: dict) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Compute per-(Kp, Kd) band-integrated capture from sweep data.
 
     Returns (kp_unique, kd_unique, P_grid, feasible_grid).
@@ -192,7 +192,7 @@ def main(indir: str, outdir: str) -> None:
             print(f"[WARN] Missing sweep CSV: {csv_path}  — skipping VGM-{angle}")
             continue
         data = load_csv(csv_path)
-        kp_vals, kd_vals, P_grid, feasible_grid = band_integrated_capture(data, angle)
+        kp_vals, kd_vals, P_grid, feasible_grid = band_integrated_capture(data)
         all_data[angle] = data
         all_grids[angle] = (kp_vals, kd_vals, P_grid, feasible_grid)
         all_P_band.extend(P_grid[feasible_grid].tolist())

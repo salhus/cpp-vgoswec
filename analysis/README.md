@@ -1,6 +1,13 @@
 # analysis/README.md
 # Kp×Kd Sweep Results for VGOSWEC exc_ff_pid Controller
 
+> **⚠ Data notice:** The CSV files in this directory are **illustrative synthetic data**
+> derived from a physics-based model calibrated to the empirical α=11 sweep results.
+> They faithfully represent the constraint structure and qualitative optimality landscape
+> (Kp=4, Kd=1 or 2 per flap), but are **not from actual Chrono/SEA-Stack simulation runs**.
+> To replace with real simulation results, build the demo and run
+> `bash scripts/sweep_kpkd_vgoswec.sh` (see §Regenerating from scratch below).
+
 ## Contents
 
 | File | Description |
@@ -51,14 +58,3 @@ bash scripts/sweep_kpkd_vgoswec.sh
 python3 scripts/plot_kpkd_surface.py
 ```
 
-## Notes
-
-The CSV files committed here are **illustrative synthetic data** derived from a
-physics-based model calibrated to the empirical alpha=11 sweep results. They
-faithfully represent the constraint structure (passive-safe, clamp-free, pitch-bounded,
-non-injecting at band edges) and the qualitative optimality landscape (Kp=4, Kd=1 or 2
-per flap), but are not from actual Chrono/SEA-Stack simulation runs.
-
-To replace with real simulation results, run `scripts/sweep_kpkd_vgoswec.sh` with the
-built demo binary. The script overwrites `analysis/kpkd_sweep_VGM*.csv`; then
-re-run `scripts/plot_kpkd_surface.py` to update figures.

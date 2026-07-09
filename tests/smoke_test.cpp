@@ -185,21 +185,13 @@ TEST(ExcitationVelocityController, PidTermUsesInternalClampBeforeFinalClamp) {
 // ─── ExcitationVelocityController passive-safety guard tests ──────────────────
 
 TEST(ExcitationVelocityControllerPassiveSafe, GuardTriggersWhenCommandWouldInject) {
-    // Scenario: raw tau_damp + tau_pid would inject energy (tau * vel > 0).
-    // With B_ctrl=0.5 and vel=1.0, tau_damp = -0.5 (dissipative).
-    // With kp=100, F_exc=0 → vel_ref=0, error = 0 - 1 = -1, tau_pid = -100 (clamped to -200 by PID,
-    // but let's use a case where tau_pid pushes the TOTAL to be injecting).
-    //
-    // To force injection: need tau * vel > 0. With vel = -1.0:
-    //   tau_damp = -B_ctrl * vel = -0.5 * (-1.0) = +0.5  (injecting: tau>0, vel<0 → tau*vel<0; wait that's dissipative)
-    // Let's think more carefully:
-    //   tau * vel > 0 means they have the SAME sign (torque aids motion = injection).
-    //   vel = 2.0 (positive): tau must be POSITIVE → energy input.
-    //   tau_damp = -0.5 * 2.0 = -1.0 (negative = dissipative, good).
-    //   Need tau_pid > 1.0 to overcome tau_damp and make total positive.
-    //   With alpha=1, F_exc=10 → vel_ref=10, error=10-2=8, tau_pid=kp*8.
-    //   Use kp=1.0: tau_pid=8, total = -1 + 8 = +7 > 0 → INJECTS.
-    //   Guard should replace with tau_damp = -1.0.
+    // Scenario: raw tau = tau_damp + tau_pid would inject energy (tau * vel > 0).
+    // Setup: B_ctrl=0.5, alpha=1, F_exc=10, kp=1, vel=2.
+    //   tau_damp = -0.5 * 2  = -1.0
+    //   vel_ref  =  1.0 * 10 = 10
+    //   error    = 10 - 2    =  8  → tau_pid = 1.0 * 8 = 8
+    //   tau_raw  = -1 + 8    = +7 > 0, and vel = 2 > 0  → tau_raw * vel = 14 > 0 (INJECTING)
+    // Guard fires: replaces tau_raw with tau_damp = -1.0.
     auto exc = std::make_shared<vgoswec::ExcitationForceProvider>(0, 4);
     exc->UpdateDirect(10.0, 0.0);  // F_exc = 10
 
@@ -207,7 +199,7 @@ TEST(ExcitationVelocityControllerPassiveSafe, GuardTriggersWhenCommandWouldInjec
         exc, /*B_ctrl=*/0.5, /*alpha=*/1.0, MakeVelocityPid(/*kp=*/1.0), /*clip=*/100.0,
         /*passive_safe=*/true);
 
-    // vel=2: tau_raw = -1 + 8 = +7 → injecting; guard replaces with tau_damp = -1.0
+    // vel=2: tau_raw = +7 → injecting; guard replaces with tau_damp = -1.0
     EXPECT_NEAR(controller.ComputeForce(0.0, 2.0, 0.0), -1.0, 1e-9);
 }
 

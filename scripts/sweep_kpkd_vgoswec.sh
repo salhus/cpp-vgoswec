@@ -105,16 +105,16 @@ for ANGLE in 0 10 20 45 90; do
     for KD in "${KD_VALUES[@]}"; do
       # Build scratch config from template
       cp "$TMPL" "$SCRATCH_CFG"
-      # Set gains
-      sed -i "s/kp: .*/kp: ${KP}/" "$SCRATCH_CFG"
-      sed -i "s/ki: .*/ki: 5.0/" "$SCRATCH_CFG"
-      sed -i "s/kd: .*/kd: ${KD}/" "$SCRATCH_CFG"
-      sed -i "s/alpha: .*/alpha: 11.0/" "$SCRATCH_CFG"
-      sed -i "s/clip_torque: .*/clip_torque: 10.0/" "$SCRATCH_CFG"
-      sed -i "s/u_min: .*/u_min: -10.0/" "$SCRATCH_CFG"
-      sed -i "s/u_max: .*/u_max: 10.0/" "$SCRATCH_CFG"
-      sed -i "s/passive_safe: .*/passive_safe: true/" "$SCRATCH_CFG"
-      sed -i "s/duration: .*/duration: ${DURATION}.0/" "$SCRATCH_CFG"
+      # Set gains — use indentation-anchored patterns to avoid matching partial key names
+      sed -i "s/^[[:space:]]*kp:[[:space:]].*/      kp: ${KP}/"         "$SCRATCH_CFG"
+      sed -i "s/^[[:space:]]*ki:[[:space:]].*/      ki: 5.0/"            "$SCRATCH_CFG"
+      sed -i "s/^[[:space:]]*kd:[[:space:]].*/      kd: ${KD}/"         "$SCRATCH_CFG"
+      sed -i "s/^[[:space:]]*alpha:[[:space:]].*/    alpha: 11.0/"       "$SCRATCH_CFG"
+      sed -i "s/^[[:space:]]*clip_torque:[[:space:]].*/    clip_torque: 10.0/" "$SCRATCH_CFG"
+      sed -i "s/^[[:space:]]*u_min:[[:space:]].*/      u_min: -10.0/"   "$SCRATCH_CFG"
+      sed -i "s/^[[:space:]]*u_max:[[:space:]].*/      u_max: 10.0/"    "$SCRATCH_CFG"
+      sed -i "s/^[[:space:]]*passive_safe:[[:space:]].*/    passive_safe: true/" "$SCRATCH_CFG"
+      sed -i "s/^[[:space:]]*duration:[[:space:]].*/  duration: ${DURATION}.0/" "$SCRATCH_CFG"
 
       # Track per-combo aggregates for band-integrated capture
       BAND_POWER_SUM=0
@@ -122,7 +122,7 @@ for ANGLE in 0 10 20 45 90; do
       COMBO_PASS=1
 
       for T in $PERIODS; do
-        sed -i "s/period: .*/period: ${T}/" "$SCRATCH_CFG"
+        sed -i "s/^[[:space:]]*period:[[:space:]].*/  period: ${T}/" "$SCRATCH_CFG"
 
         "$BIN" --config "$SCRATCH_CFG" --no-viz --wave-period "$T" --duration "$DURATION" \
           > /dev/null 2>&1 || true
@@ -142,28 +142,36 @@ for ANGLE in 0 10 20 45 90; do
 
         IFS=',' read -r MEAN_P MAX_PITCH MAX_TAU CLAMP_FRAC CORR <<< "$STATS"
 
-        # Constraint flags
-        PASSIVE_SAFE=1;  [[ $(python3 -c "print(1 if float('$MEAN_P')>=0 else 0)" 2>/dev/null || echo 0) == "1" ]] || PASSIVE_SAFE=0
-        NO_CLAMP=1;      [[ $(python3 -c "print(1 if float('$CLAMP_FRAC')==0 else 0)" 2>/dev/null || echo 0) == "1" ]] || NO_CLAMP=0
-        PITCH_OK=1;      [[ $(python3 -c "print(1 if float('$MAX_PITCH')<0.8 else 0)" 2>/dev/null || echo 0) == "1" ]] || PITCH_OK=0
+        # Evaluate all constraint flags in a single Python call
+        IS_EDGE=0
+        [[ "$T" == "$T_LOW" || "$T" == "$T_HIGH" ]] && IS_EDGE=1
 
-        # Edge check: corr < 0 at band edges
-        EDGE_OK=1
-        if [[ "$T" == "$T_LOW" || "$T" == "$T_HIGH" ]]; then
-          [[ $(python3 -c "print(1 if float('$CORR')<0 else 0)" 2>/dev/null || echo 0) == "1" ]] || EDGE_OK=0
-        fi
+        FLAGS=$(python3 -c "
+mean_p     = float('$MEAN_P')
+clamp_frac = float('$CLAMP_FRAC')
+max_pitch  = float('$MAX_PITCH')
+corr       = float('$CORR')
+is_edge    = bool($IS_EDGE)
+passive_safe = int(mean_p >= 0)
+no_clamp     = int(clamp_frac == 0.0)
+pitch_ok     = int(max_pitch < 0.8)
+edge_ok      = int(corr < 0) if is_edge else 1
+band_power   = max(0.0, mean_p)
+print(f'{passive_safe},{no_clamp},{pitch_ok},{edge_ok},{band_power:.6e}')
+" 2>/dev/null || echo "0,0,0,0,0.000000e+00")
+
+        IFS=',' read -r PASSIVE_SAFE NO_CLAMP PITCH_OK EDGE_OK BAND_P <<< "$FLAGS"
 
         echo "${ANGLE},${KP},${KD},${T},${MEAN_P},${MAX_PITCH},${MAX_TAU},${CLAMP_FRAC},${CORR},${PASSIVE_SAFE},${NO_CLAMP},${PITCH_OK},${EDGE_OK}" >> "$CSV_OUT"
 
         # Accumulate band-integrated capture
-        P_F=$(python3 -c "print(float('$MEAN_P'))" 2>/dev/null || echo 0)
-        BAND_POWER_SUM=$(python3 -c "print($BAND_POWER_SUM + max(0.0, $P_F))" 2>/dev/null || echo 0)
+        BAND_POWER_SUM=$(python3 -c "print($BAND_POWER_SUM + float('$BAND_P'))" 2>/dev/null || echo "$BAND_POWER_SUM")
         BAND_PERIODS=$((BAND_PERIODS + 1))
 
         [[ $PASSIVE_SAFE -eq 1 && $NO_CLAMP -eq 1 && $PITCH_OK -eq 1 ]] || COMBO_PASS=0
       done
 
-      BAND_AVG=$(python3 -c "print($BAND_POWER_SUM / max(1, $BAND_PERIODS))" 2>/dev/null || echo 0)
+      BAND_AVG=$(python3 -c "print(f'{$BAND_POWER_SUM / max(1, $BAND_PERIODS):.4e}')" 2>/dev/null || echo 0)
       echo "  kp=${KP}  kd=${KD}  band_avg_P=${BAND_AVG}W  constraints_ok=${COMBO_PASS}"
     done
   done
