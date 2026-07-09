@@ -53,7 +53,7 @@ Capture-efficiency CSV columns (`capture_efficiency_VGM*.csv`):
 | `B55_Nmsrad` | De-normalized pitch radiation damping `B55` [N·m·s/rad] |
 | `F_exc_Nm` | De-normalized pitch excitation moment magnitude `|F_exc|` for `A=0.014 m` [N·m] |
 | `eta` | Capture efficiency `η = P_capture / P_opt`, blank when masked |
-| `masked` | `true` where `B55 <= 0` or `B55 < 1e-4` (reactive-limited / undefined `P_opt`) |
+| `masked` | `true` where `B55 <= 1e-4` (reactive-limited / undefined `P_opt`, including non-positive `B55`) |
 
 ## Capture-efficiency method (tuned `exc_ff_pid`)
 
@@ -67,7 +67,7 @@ Capture-efficiency CSV columns (`capture_efficiency_VGM*.csv`):
   - Excitation: `body1/hydro_coeffs/excitation/mag` at DOF5 (index 4), direction 0.
   - De-normalization: `B55 = B55_norm * rho * omega`, `|F_exc| = mag * rho * g * A`.
   - Wave amplitude fixed to `A = 0.014 m` (`H = 0.028 m`) for both sim and `P_opt`.
-- Masking (essential): `B55 <= 0` or `B55 < 1e-4` => `P_opt` undefined (reactive-limited), so `η` is not reported/plotted.
+- Masking (essential): `B55 <= 1e-4` => `P_opt` undefined (reactive-limited, including non-positive `B55`), so `η` is not reported/plotted.
 - VGM-0 caveat: near `T ≈ 4.8–6.0 s`, the pitch mode is reactive-limited (`B55 -> 0`), so resonance-band efficiency is physically undefined and is explicitly annotated in the VGM-0 figure.
 
 ## Fixed parameters

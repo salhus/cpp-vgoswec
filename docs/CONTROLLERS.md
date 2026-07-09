@@ -171,7 +171,7 @@ Use `scripts/capture_efficiency_sweep.py` to compute:
   - `|F_exc| = mag * rho * g * A`, with `A = 0.014 m` (`H = 0.028 m`)
 - `eta(T) = P_capture / P_opt` where defined.
 
-Reactive-limited masking is mandatory: periods with `B55 <= 0` or `B55 < 1e-4` are reported as undefined (`masked=true`) and are shaded/hatched in figures. This is expected near the known pitch radiation-damping notch behavior; for VGM-0 the resonance-band efficiency is explicitly annotated as undefined in that region.
+Reactive-limited masking is mandatory: periods with `B55 <= 1e-4` (including non-positive `B55`) are reported as undefined (`masked=true`) and are shaded/hatched in figures. This is expected near the known pitch radiation-damping notch behavior; for VGM-0 the resonance-band efficiency is explicitly annotated as undefined in that region.
 
 ### One-step delay
 `ExcitationForceProvider` is updated after each `DoStepDynamics` call. The RSDA functor reads excitation from the previous step (≈ 0.005 s delay vs T≥2.0 s wave period → negligible).

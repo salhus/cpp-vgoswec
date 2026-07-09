@@ -6,7 +6,7 @@ For each flap angle variant (VGM-0,10,20,45,90) across T=2.0..7.0 s:
     (second half of run) => P_capture(T)
   - Compute P_opt(T) from body1 pitch hydrodynamics in H5
     (radiation_damping/components/5_5 + excitation/mag[dof=5,dir=0], de-normalized)
-  - Mask reactive-limited points where B55 <= 0 or B55 < 1e-4
+  - Mask reactive-limited points where B55 <= 1e-4
   - Write per-flap CSVs under analysis/
   - Generate per-flap and cross-flap figures under analysis/figures/
 
@@ -201,7 +201,7 @@ def popt_curve_from_h5(h5_path: Path, periods_s: np.ndarray) -> tuple[np.ndarray
     b55_t = np.interp(omega_targets, w, b55)
     fexc_t = np.interp(omega_targets, w, fexc)
 
-    masked = (b55_t <= 0.0) | (b55_t < MASK_B55_THRESHOLD)
+    masked = b55_t <= MASK_B55_THRESHOLD
     p_opt_t = np.full_like(b55_t, np.nan, dtype=float)
     valid = ~masked
     p_opt_t[valid] = (fexc_t[valid] ** 2) / (8.0 * b55_t[valid])
@@ -306,7 +306,7 @@ def plot_per_flap(rows: list[dict], flap_angle: int, out_png: Path) -> None:
 
     if flap_angle == 0:
         ax1.annotate(
-            "P_opt undefined near resonance:\nreactive-limited pitch mode (B55→0)",
+            "P_opt undefined near resonance:\nreactive-limited pitch mode ($B_{55}\\to0$)",
             xy=(5.86, 0.0),
             xytext=(4.1, np.nanmax(np.nan_to_num(eta_pct, nan=0.0)) + 10.0),
             arrowprops=dict(arrowstyle="->", color="0.35", lw=0.9),
@@ -318,7 +318,7 @@ def plot_per_flap(rows: list[dict], flap_angle: int, out_png: Path) -> None:
     fig.text(
         0.01,
         0.01,
-        f"Mask rule: B55 <= 0 or B55 < {MASK_B55_THRESHOLD:.0e} N·m·s/rad (reactive-limited)",
+        f"Mask rule: B55 <= {MASK_B55_THRESHOLD:.0e} N·m·s/rad (reactive-limited)",
         fontsize=7,
         color="0.35",
     )
@@ -347,7 +347,7 @@ def plot_summary(csv_map: dict[int, Path], out_png: Path) -> None:
     ax.text(
         0.01,
         0.02,
-        f"Masked points omitted where B55 <= 0 or B55 < {MASK_B55_THRESHOLD:.0e} (reactive-limited)",
+        f"Masked points omitted where B55 <= {MASK_B55_THRESHOLD:.0e} (reactive-limited)",
         transform=ax.transAxes,
         fontsize=7,
         color="0.35",
