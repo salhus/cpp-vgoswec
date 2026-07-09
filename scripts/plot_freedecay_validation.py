@@ -76,7 +76,7 @@ def _estimate_wn(csv_path: Path, transient_s: float = 2.0) -> Tuple[float, float
     for i in range(1, len(x)):
         if x[i - 1] < 0.0 <= x[i]:
             dx = x[i] - x[i - 1]
-            if dx == 0.0:
+            if abs(dx) < 1e-12:
                 continue
             alpha = -x[i - 1] / dx
             zc.append(float(t[i - 1] + alpha * (t[i] - t[i - 1])))
@@ -104,7 +104,7 @@ def compute_rows(repo_root: Path) -> Tuple[List[dict], bool]:
             wn_fft, wn_zc = _estimate_wn(csv_path)
             row["cpp_fft"] = wn_fft
             row["cpp_zc"] = wn_zc
-        except (RuntimeError, OSError, ValueError) as exc:  # fallback remains valid table values
+        except (RuntimeError, OSError, ValueError) as exc:
             print(f"WARN: {csv_path}: {exc}. Using embedded fallback values.")
             all_found = False
 
