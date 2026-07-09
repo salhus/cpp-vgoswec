@@ -77,9 +77,9 @@ ControllerConfig ParseController(const YAML::Node& n) {
     }
     if (n["exc_ff_pid"]) {
         const auto& p = n["exc_ff_pid"];
-        ctrl.exc_ff_pid.alpha   = ReadOpt<double>(p, "alpha",   0.05);
-        ctrl.exc_ff_pid.ff_gain = ReadOpt<double>(p, "ff_gain", 0.5);
-        if (p["vel_pid"]) ctrl.exc_ff_pid.vel_pid = ParsePID(p["vel_pid"]);
+        ctrl.exc_ff_pid.B_ctrl      = ReadOpt<double>(p, "B_ctrl",      0.5);
+        ctrl.exc_ff_pid.ff_gain     = ReadOpt<double>(p, "ff_gain",     0.0);
+        ctrl.exc_ff_pid.clip_torque = ReadOpt<double>(p, "clip_torque", 5.0);
     }
     return ctrl;
 }

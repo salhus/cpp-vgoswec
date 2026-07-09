@@ -83,26 +83,19 @@ CC control requires bidirectional power flow. A physical PTO must support reacti
 
 ### Formula
 ```
-vel_ref = α · F_exc,pitch(t)
-τ_cmd   = ff_gain · F_exc,pitch(t) + PID_vel(vel_ref − θ̇)
-τ_pto   = −τ_cmd
+τ_pto = −B_ctrl · θ̇ + ff_gain · F_exc,pitch(t)   (clamped to ±clip_torque)
 ```
 
 ### Sub-components
-- **Velocity reference** (`α · F_exc`): sets a phase-aligned target velocity from real-time wave excitation torque.
-- **Feedforward torque** (`ff_gain · F_exc`): uses real-time wave excitation torque from `ExcitationForceProvider`. Requires `HydroSystem::SetPerComponentCaptureEnabled(true)`.
-- **Velocity PID** (`PID_vel(vel_ref − θ̇)`): full PID with filtered derivative (time constant τ_d) and anti-windup back-calculation. Regulates flap velocity, not flap position.
+- **Damping term** (`−B_ctrl · θ̇`): guaranteed dissipative feedback. With `B_ctrl ≥ 0` this term always opposes velocity and CANNOT inject energy into the system, giving unconditional stability — the same proven-stable structure as `PassiveDamper` and `OptimalPassive`.
+- **Feedforward term** (`ff_gain · F_exc`): uses real-time wave excitation torque from `ExcitationForceProvider` to add Korde-style phase anticipation. With `ff_gain = 0` the controller reduces exactly to a passive damper `τ = −B_ctrl·θ̇`.
 
-### PID parameters
-| Name | Default | Notes |
-|------|---------|-------|
-| `alpha` | 0.05 | (rad/s)/(N·m) |
-| `ff_gain` | 0.5 | direct feedforward torque scale |
-| `kp` | 1.0 | N·m per (rad/s) |
-| `ki` | 0.0 | integral gain on velocity error |
-| `kd` | 0.0 | derivative gain on velocity error |
-| `tau_d` | 0.02 s | ≈ 4× timestep |
-| `u_min/u_max` | ±5 N·m | Saturation clamp |
+### Parameters
+| Name | Default | Units | Notes |
+|------|---------|-------|-------|
+| `B_ctrl` | 0.5 | N·m·s/rad | Control damping (dissipative; guarantees stability). TODO tune. |
+| `ff_gain` | 0.0 | — | Excitation feedforward gain. Start at 0 (pure damper); raise carefully. TODO tune. |
+| `clip_torque` | 5.0 | N·m | Output saturation clamp |
 
 **All gains marked TODO: tune with tank-test data.**
 
@@ -127,6 +120,6 @@ To replace any controller with a hardware-in-the-loop (HIL) implementation, deri
 1. **Start with PassiveDamper**. Verify flap motion is physical (no divergence).
 2. **OptimalPassive**: theoretical maximum for passive control. Compare with step 1.
 3. **CC control**: compare peak torque vs clip. Reduce clip until stable.
-4. **ExcFF+PID**: set α=0 first (pure PID), tune kp/ki/kd, then increase α from 0.
+4. **ExcFF+PID**: Start with `ff_gain = 0` (pure damper), choose `B_ctrl` for stable absorbing motion, then raise `ff_gain` carefully from 0 to add anticipation.
 
 All gains are seed values based on order-of-magnitude estimates. **Tank-test data required** to identify inertia (bifilar pendulum) and validate gains.

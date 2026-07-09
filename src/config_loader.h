@@ -51,9 +51,9 @@ struct PIDConfig {
 };
 
 struct ExcFFPIDConfig {
-    double alpha{0.05};             ///< [(rad/s)/(N·m)] velocity reference gain, vel_ref = alpha * F_exc
-    double ff_gain{0.5};            ///< [-] direct feedforward torque gain, tau_ff = ff_gain * F_exc
-    PIDConfig vel_pid;              ///< Velocity-loop PID gains/output clamp
+    double B_ctrl{0.5};             ///< [N·m·s/rad] control damping (guaranteed-dissipative); tau = -B_ctrl*theta_dot
+    double ff_gain{0.0};            ///< [-] excitation feedforward gain; tau += ff_gain*F_exc. 0 => pure damper.
+    double clip_torque{5.0};        ///< [N·m] output saturation
 };
 
 struct ControllerConfig {

@@ -8,8 +8,7 @@
 // │   returned value = PTO torque about hinge Y-axis [N·m]                   │
 // │   Positive torque OPPOSES positive θ (restoring convention)              │
 // │   Absorbed power: P_abs = −τ_pto · ω   (positive = extracted from waves)│
-// │   Active vel control demand: ff_gain·F_exc + PID(alpha·F_exc − θ̇)       │
-// │   Returned active-control torque: τ_pto = −(demand)                      │
+// │   Active control law: τ_pto = −B_ctrl·θ̇ + ff_gain·F_exc  (clamped)     │
 // └──────────────────────────────────────────────────────────────────────────┘
 // =============================================================================
 #pragma once
@@ -19,7 +18,6 @@
 #include <memory>
 #include <seastack/pto/pto_model.h>
 #include "excitation_force_provider.h"
-#include "pid_controller.h"
 
 namespace vgoswec {
 
@@ -71,34 +69,32 @@ class ComplexConjugateControl : public seastack::pto::IPTOModel {
 };
 
 // =============================================================================
-// (D) ExcitationVelocityController — active WEC control
-//     vel_ref = α · F_exc,pitch(t)
-//     τ_cmd   = ff_gain · F_exc,pitch(t) + PID( vel_ref − θ̇ )
-//     τ_pto   = −τ_cmd
+// (D) ExcitationVelocityController — damping + excitation feedforward
+//     τ_pto = −B_ctrl · θ̇ + ff_gain · F_exc,pitch(t)   (clamped to ±clip)
 //
-//   The feedforward term uses the actual wave excitation torque broadcast by
-//   ExcitationForceProvider (updated from HydroForces::Evaluate per_component).
-//   The PID closes an inner velocity loop, driving flap velocity to track a
-//   phase-aligned reference proportional to excitation torque.
+//   The −B_ctrl·θ̇ term is guaranteed dissipative (cannot inject energy),
+//   giving unconditional stability like PassiveDamper. The ff_gain·F_exc term
+//   adds Korde-style phase anticipation using the real-time pitch excitation
+//   torque from ExcitationForceProvider. With ff_gain = 0 the controller
+//   reduces exactly to a passive damper.
 //
 //   Under this file's sign convention, positive returned torque opposes
-//   positive θ, so the applied PTO torque is the negative of the active control
-//   effort above.
+//   positive θ (restoring convention).
 // =============================================================================
 class ExcitationVelocityController : public seastack::pto::IPTOModel {
  public:
     ExcitationVelocityController(std::shared_ptr<ExcitationForceProvider> src,
-                                 double alpha,
+                                 double B_ctrl,
                                  double ff_gain,
-                                 std::unique_ptr<PIDController> pid);
+                                 double clip_torque = 5.0);
 
     double ComputeForce(double disp, double vel, double t) override;
 
  private:
     std::shared_ptr<ExcitationForceProvider> f_exc_source_;
-    double alpha_;
+    double B_ctrl_;
     double ff_gain_;
-    std::unique_ptr<PIDController> pid_;
+    double clip_;
 };
 
 }  // namespace vgoswec
