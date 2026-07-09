@@ -33,25 +33,25 @@ double ComplexConjugateControl::ComputeForce(double disp, double vel, double /*t
     return std::clamp(-K_r_ * disp - B_r_ * vel, -clip_, clip_);
 }
 
-// ─── (D) ExcitationFeedforwardPID ────────────────────────────────────────────
+// ─── (D) ExcitationVelocityController ────────────────────────────────────────
 
-ExcitationFeedforwardPID::ExcitationFeedforwardPID(
+ExcitationVelocityController::ExcitationVelocityController(
     std::shared_ptr<ExcitationForceProvider> src,
     double alpha,
-    std::unique_ptr<PIDController> pid,
-    double theta_ref)
+    double ff_gain,
+    std::unique_ptr<PIDController> pid)
     : f_exc_source_(std::move(src)),
       alpha_(alpha),
-      pid_(std::move(pid)),
-      theta_ref_(theta_ref) {
-    pid_->SetSetpoint(theta_ref_);
-}
+      ff_gain_(ff_gain),
+      pid_(std::move(pid)) {}
 
-double ExcitationFeedforwardPID::ComputeForce(double disp, double vel, double t) {
-    (void)vel;
-    const double tau_ff  = alpha_ * f_exc_source_->GetLatestExcitationTorque();
-    const double tau_pid = pid_->Compute(disp, t);
-    return tau_ff + tau_pid;
+double ExcitationVelocityController::ComputeForce(double disp, double vel, double t) {
+    (void)disp;
+    const double f_exc = f_exc_source_->GetLatestExcitationTorque();
+    pid_->SetSetpoint(alpha_ * f_exc);
+    const double tau_ff = ff_gain_ * f_exc;
+    const double tau_pid = pid_->Compute(vel, t);
+    return -(tau_ff + tau_pid);
 }
 
 }  // namespace vgoswec

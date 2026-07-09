@@ -8,6 +8,8 @@
 // │   returned value = PTO torque about hinge Y-axis [N·m]                   │
 // │   Positive torque OPPOSES positive θ (restoring convention)              │
 // │   Absorbed power: P_abs = −τ_pto · ω   (positive = extracted from waves)│
+// │   Active vel control demand: ff_gain·F_exc + PID(alpha·F_exc − θ̇)       │
+// │   Returned active-control torque: τ_pto = −(demand)                      │
 // └──────────────────────────────────────────────────────────────────────────┘
 // =============================================================================
 #pragma once
@@ -69,30 +71,34 @@ class ComplexConjugateControl : public seastack::pto::IPTOModel {
 };
 
 // =============================================================================
-// (D) ExcitationFeedforwardPID — active WEC control
-//     τ = α · F_exc,pitch(t)  +  PID( θ_ref − θ )
+// (D) ExcitationVelocityController — active WEC control
+//     vel_ref = α · F_exc,pitch(t)
+//     τ_cmd   = ff_gain · F_exc,pitch(t) + PID( vel_ref − θ̇ )
+//     τ_pto   = −τ_cmd
 //
 //   The feedforward term uses the actual wave excitation torque broadcast by
 //   ExcitationForceProvider (updated from HydroForces::Evaluate per_component).
-//   The PID term regulates the flap toward θ_ref (default = 0, upright).
+//   The PID closes an inner velocity loop, driving flap velocity to track a
+//   phase-aligned reference proportional to excitation torque.
 //
-//   This implements phase anticipation: α·F_exc advances the flap to absorb
-//   energy while the PID damps deviations from the reference trajectory.
+//   Under this file's sign convention, positive returned torque opposes
+//   positive θ, so the applied PTO torque is the negative of the active control
+//   effort above.
 // =============================================================================
-class ExcitationFeedforwardPID : public seastack::pto::IPTOModel {
+class ExcitationVelocityController : public seastack::pto::IPTOModel {
  public:
-    ExcitationFeedforwardPID(std::shared_ptr<ExcitationForceProvider> src,
-                              double alpha,
-                              std::unique_ptr<PIDController> pid,
-                              double theta_ref = 0.0);
+    ExcitationVelocityController(std::shared_ptr<ExcitationForceProvider> src,
+                                 double alpha,
+                                 double ff_gain,
+                                 std::unique_ptr<PIDController> pid);
 
     double ComputeForce(double disp, double vel, double t) override;
 
  private:
     std::shared_ptr<ExcitationForceProvider> f_exc_source_;
     double alpha_;
+    double ff_gain_;
     std::unique_ptr<PIDController> pid_;
-    double theta_ref_;
 };
 
 }  // namespace vgoswec

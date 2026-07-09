@@ -32,7 +32,7 @@ struct PIDParams {
 ///   - Anti-windup via back-calculation (integrator only advances when unsaturated)
 ///   - Output clamp [u_min, u_max]
 ///
-/// Units: measurement [rad], output [N·m] (rotational PTO use case).
+/// Units: measurement/setpoint are application-defined, output is [N·m].
 class PIDController : public seastack::control::IController {
  public:
     explicit PIDController(const PIDParams& params);
@@ -42,7 +42,7 @@ class PIDController : public seastack::control::IController {
     double GetSetpoint() const { return setpoint_; }
 
     /// Compute control output.
-    /// @param measurement  Current flap angle θ [rad]
+    /// @param measurement  Current measured process variable
     /// @param time         Current simulation time [s] (used to compute dt)
     /// @return             PTO torque command [N·m]
     double Compute(double measurement, double time) override;

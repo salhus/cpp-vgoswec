@@ -42,18 +42,18 @@ struct CCConfig {
 };
 
 struct PIDConfig {
-    double kp{0.5};
-    double ki{0.05};
-    double kd{0.05};
+    double kp{1.0};
+    double ki{0.0};
+    double kd{0.0};
     double tau_d{0.02};             ///< [s] derivative filter time constant
     double u_min{-5.0};             ///< [N·m]
     double u_max{5.0};              ///< [N·m]
 };
 
 struct ExcFFPIDConfig {
-    double alpha{1.0};              ///< feedforward gain on F_exc
-    double theta_ref{0.0};          ///< [rad] reference angle
-    PIDConfig pid;
+    double alpha{0.05};             ///< [(rad/s)/(N·m)] velocity reference gain, vel_ref = alpha * F_exc
+    double ff_gain{0.5};            ///< [-] direct feedforward torque gain, tau_ff = ff_gain * F_exc
+    PIDConfig vel_pid;              ///< Velocity-loop PID gains/output clamp
 };
 
 struct ControllerConfig {

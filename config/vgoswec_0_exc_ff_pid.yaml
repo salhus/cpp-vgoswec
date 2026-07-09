@@ -1,9 +1,9 @@
 # vgoswec_0_exc_ff_pid.yaml
 # Source: Ogden et al., ASME JOMAE 145(3):030905 (VGOSWEC-0 / VGM-0).
 # VGM-0 free-decay reference: ωn = 1.07 rad/s, Ts = 5.86 s.
-# Active control: Excitation-force feedforward + PID trajectory tracking.
+# Active control: excitation-force feedforward + inner velocity PID.
 #
-# τ = α · F_exc,pitch(t)  +  PID( θ_ref(t) - θ(t) )
+# τ = -(ff_gain · F_exc,pitch(t) + PID_vel(alpha · F_exc,pitch(t) - θ̇(t)))
 
 simulation:
   duration: 60.0
@@ -40,12 +40,12 @@ wave:
 controller:
   type: exc_ff_pid
   exc_ff_pid:
-    alpha: 1.0          # feedforward gain on F_exc  TODO: tune with tank-test data
-    theta_ref: 0.0      # [rad]  reference angle (upright equilibrium)
-    pid:
-      kp: 0.5           # [N·m/rad]     TODO: tune with tank-test data
-      ki: 0.05          # [N·m/(rad·s)] TODO: tune with tank-test data
-      kd: 0.05          # [N·m·s/rad]   TODO: tune with tank-test data
-      tau_d: 0.02       # [s]  derivative filter time constant (≈ 3× dt)
-      u_min: -5.0       # [N·m]  output clamp
-      u_max:  5.0       # [N·m]  output clamp
+    alpha: 0.05         # vel_ref = alpha * F_exc [(rad/s)/(N·m)] (~1/(2·B_eff)); TODO tune
+    ff_gain: 0.5        # feedforward torque = ff_gain * F_exc [-] (Korde F_exc/2); TODO tune
+    vel_pid:
+      kp: 1.0           # [N·m per (rad/s)] TODO tune
+      ki: 0.0           # TODO tune
+      kd: 0.0           # TODO tune
+      tau_d: 0.02       # [s] derivative filter time constant
+      u_min: -5.0       # [N·m] output clamp
+      u_max:  5.0       # [N·m] output clamp
