@@ -1,6 +1,6 @@
 # vgoswec_0_cc.yaml
 # Source: Ogden et al., ASME JOMAE 145(3):030905 (VGOSWEC-0 / VGM-0).
-# VGM-0 hinge-frame resonance: ωn ≈ 0.8763 rad/s (I_hinge=0.6788 kg·m², K_eff=6.57 N·m/rad).
+# VGM-0 hinge-frame resonance: ωn = 0.8763 rad/s (I_hinge=0.6788 kg·m², K_eff=6.57 N·m/rad).
 # Complex-conjugate (CC) reactive control at design frequency ω₀ = ωn (impedance match).
 #
 # τ = -K_r · θ  -  B_r · θ̇

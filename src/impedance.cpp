@@ -168,6 +168,7 @@ const PitchBEMTables& LoadPitchBEMTables(const std::string& h5_file, int flap_bo
 
     // Read hydrostatic stiffness K_hs55 from linear_restoring_stiffness [4][4].
     // For hinge-referenced impedance files, this dataset is empty or absent → K_hs55 = 0.
+    constexpr hsize_t kPitchIdx = 4;  // 0-based pitch DOF index in BEMIO convention
     tables.K_hs55 = 0.0;
     try {
         H5::DataSet lrs_ds       = file.openDataSet(body_name + "/hydro_coeffs/linear_restoring_stiffness");
@@ -175,11 +176,11 @@ const PitchBEMTables& LoadPitchBEMTables(const std::string& h5_file, int flap_bo
         hsize_t lrs_dims[2]      = {0, 0};
         const int lrs_rank       = lrs_space.getSimpleExtentDims(lrs_dims);
         const hsize_t n_elem     = (lrs_rank >= 2) ? lrs_dims[0] * lrs_dims[1] : 0;
-        if (n_elem > 0 && lrs_dims[0] >= 5 && lrs_dims[1] >= 5) {
+        if (n_elem > 0 && lrs_dims[0] > kPitchIdx && lrs_dims[1] > kPitchIdx) {
             std::vector<double> lrs_buf(static_cast<size_t>(n_elem), 0.0);
             lrs_ds.read(lrs_buf.data(), H5::PredType::NATIVE_DOUBLE);
             // Row-major layout: element [row][col] = buf[row * cols + col]
-            tables.K_hs55 = lrs_buf[static_cast<size_t>(4 * lrs_dims[1] + 4)];
+            tables.K_hs55 = lrs_buf[static_cast<size_t>(kPitchIdx * lrs_dims[1] + kPitchIdx)];
         } else if (n_elem > 0) {
             std::cerr << "[impedance] NOTE: " << body_name
                       << "/hydro_coeffs/linear_restoring_stiffness is smaller than 5x5 "

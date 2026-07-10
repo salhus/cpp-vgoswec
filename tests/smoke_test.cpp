@@ -341,8 +341,8 @@ TEST(ConfigLoader, ImpedanceH5FileParsesWhenProvided) {
 // hinged-frame files) so that K_r ≈ 0 at the hinge resonance and B_r > 0.
 //
 // Physical parameters (VGM-0):
-//   I_hinge  = I_cg + m*r_g^2 = 0.21 + 6.676*0.265^2 = 0.6788 kg*m^2
-//   C_ext    = 6.57 N*m/rad  (pure torsional hinge spring)
+//   I_hinge  = I_cg + m·r_g² = 0.21 + 6.676·0.265² = 0.6788 kg·m²
+//   C_ext    = 6.57 N·m/rad  (pure torsional hinge spring)
 //   omega0   = 0.8763 rad/s  (hinge-frame resonance: K_r = 0 at this frequency)
 TEST(ComputeCCGains, HingedH5ZeroKhs) {
     const std::string cg_h5     = "hydroData/vgoswec_0.h5";
@@ -358,8 +358,8 @@ TEST(ComputeCCGains, HingedH5ZeroKhs) {
 
     constexpr int    kFlap   = 0;
     constexpr double kOmega0 = 0.8763;   // hinge-frame resonance [rad/s]
-    constexpr double kIHinge = 0.6788;   // I_cg + m*r_g^2 [kg*m^2]
-    constexpr double kCext   = 6.57;     // pure torsional hinge spring [N*m/rad]
+    constexpr double kIHinge = 0.6788;   // I_cg + m·r_g² [kg·m²]
+    constexpr double kCext   = 6.57;     // pure torsional hinge spring [N·m/rad]
 
     const auto gains = vgoswec::ComputeCCGains(hydro_data, hinged_h5, kFlap, kOmega0, kIHinge, kCext);
 
