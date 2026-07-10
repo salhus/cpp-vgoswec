@@ -12,6 +12,13 @@
 //   B55(ω)    = lambda55_stored(ω) * rho_h5 * ω
 //   |Fexc55|  = ex55_stored(ω)     * rho_h5 * g
 //
+// IMPORTANT – frequency axis:
+//   The BEMIO HDF5 component datasets (e.g. added_mass/components/5_5) store wave
+//   period T = 2π/ω in column 0, NOT angular frequency ω.  The authoritative ω
+//   axis is read from simulation_parameters/w (ascending rad/s).  If that dataset is
+//   absent, ω is derived as 2π/T from col0 (fallback with warning).  Never treat
+//   col0 of the component tables directly as ω.
+//
 // The legacy RIRF-derived A55(ω_ref) is still computed for diagnostics, but
 // is NO LONGER used as the basis for rho — the stored H5 rho is the single
 // source of truth so that VGM-45 and VGM-0 are on a consistent density basis.
