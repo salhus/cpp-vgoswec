@@ -299,6 +299,37 @@ TEST(ConfigLoader, ExcitationVelocityControllerPassiveSafeDefaultsTrue) {
     std::filesystem::remove(cfg_path);
 }
 
+TEST(ConfigLoader, ImpedanceH5FileDefaultsEmpty) {
+    const auto cfg_path =
+        (std::filesystem::temp_directory_path() / "vgoswec_impedance_h5_default.yaml").string();
+    std::ofstream cfg(cfg_path);
+    ASSERT_TRUE(cfg.is_open());
+    cfg << "hydro:\n"
+           "  h5_file: hydroData/test.h5\n";
+    cfg.close();
+
+    const auto loaded = vgoswec::LoadConfig(cfg_path);
+    EXPECT_TRUE(loaded.impedance_h5_file.empty());
+
+    std::filesystem::remove(cfg_path);
+}
+
+TEST(ConfigLoader, ImpedanceH5FileParsesWhenProvided) {
+    const auto cfg_path =
+        (std::filesystem::temp_directory_path() / "vgoswec_impedance_h5_set.yaml").string();
+    std::ofstream cfg(cfg_path);
+    ASSERT_TRUE(cfg.is_open());
+    cfg << "hydro:\n"
+           "  h5_file: hydroData/test.h5\n"
+           "  impedance_h5_file: hydroData/hinged_test.h5\n";
+    cfg.close();
+
+    const auto loaded = vgoswec::LoadConfig(cfg_path);
+    EXPECT_EQ(loaded.impedance_h5_file, "hydroData/hinged_test.h5");
+
+    std::filesystem::remove(cfg_path);
+}
+
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

@@ -150,6 +150,7 @@ static std::shared_ptr<seastack::pto::IPTOModel> BuildController(
     const vgoswec::SimConfig& cfg,
     const std::string& override_type,
     const std::string& h5_file,
+    const std::string& impedance_h5_file,
     const seastack::hydro::HydroData& hydro_data,
     const std::shared_ptr<vgoswec::ExcitationForceProvider>& exc_provider) {
   const std::string type = override_type.empty() ? cfg.controller.type : override_type;
@@ -166,6 +167,10 @@ static std::shared_ptr<seastack::pto::IPTOModel> BuildController(
   // (Chrono dynamics use I_cg via SetInertiaXX; the revolute constraint adds m·r_g².)
   const double r_g_ctrl = std::abs(cfg.flap.cog[2] - cfg.hinge_z);
   const double I_hinge_ctrl = cfg.flap.inertia_yy + cfg.flap.mass * r_g_ctrl * r_g_ctrl;
+  // Note: hydro_data remains the time-domain HydroData loaded from h5_file.
+  // In this milestone it is used only for diagnostics + hydrostatic stiffness
+  // (K_hs55, which is zero for the hinged files), while A55/B55/Fexc55 tables
+  // for impedance matching are read from impedance_h5_file.
 
   if (type == "passive")
     return std::make_shared<vgoswec::PassiveDamper>(cfg.controller.passive.B_pto,
@@ -173,7 +178,7 @@ static std::shared_ptr<seastack::pto::IPTOModel> BuildController(
 
   if (type == "opt_passive") {
     const double B_opt = vgoswec::PitchImpedanceMagnitude(
-        hydro_data, h5_file, 0, omega0, I_hinge_ctrl, C_ext_cg);
+        hydro_data, impedance_h5_file, 0, omega0, I_hinge_ctrl, C_ext_cg);
     return std::make_shared<vgoswec::OptimalPassive>(B_opt, cfg.controller.opt_passive.clip_torque);
   }
 
@@ -182,7 +187,7 @@ static std::shared_ptr<seastack::pto::IPTOModel> BuildController(
     double B_r = cfg.controller.cc.B_r_override;
     if (K_r == 0.0 && B_r == 0.0) {
       const auto gains = vgoswec::ComputeCCGains(
-          hydro_data, h5_file, 0, omega0, I_hinge_ctrl, C_ext_cg);
+          hydro_data, impedance_h5_file, 0, omega0, I_hinge_ctrl, C_ext_cg);
       K_r = gains.K_r;
       B_r = gains.B_r;
     }
@@ -231,6 +236,10 @@ int main(int argc, char* argv[]) {
   };
 
   const std::string h5_file = resolve(cfg.h5_file);
+  const std::string resolved_impedance_h5_file =
+      cfg.impedance_h5_file.empty() ? "" : resolve(cfg.impedance_h5_file);
+  const std::string impedance_h5_file =
+      resolved_impedance_h5_file.empty() ? h5_file : resolved_impedance_h5_file;
   const std::string flap_mesh = resolve(cfg.flap.mesh);
   const std::string base_mesh = resolve(cfg.base.mesh);
 
@@ -341,7 +350,8 @@ int main(int argc, char* argv[]) {
   hydro_system.SetPerComponentCaptureEnabled(true);
 
   auto exc_provider = std::make_shared<vgoswec::ExcitationForceProvider>(0, 4);
-  auto controller = BuildController(cfg, args.controller_override, h5_file, hydro_data, exc_provider);
+  auto controller = BuildController(
+      cfg, args.controller_override, h5_file, impedance_h5_file, hydro_data, exc_provider);
 
   // RSDA: applies PTO torque at every force-assembly sub-step via RsdaPtoFunctor.
   // This replaces the per-outer-step ChLinkMotorRotationTorque + ChFunctionConst pattern.
@@ -455,7 +465,8 @@ int main(int argc, char* argv[]) {
       double diag_K_r = cfg.controller.cc.K_r_override;
       double diag_B_r = cfg.controller.cc.B_r_override;
       if (diag_K_r == 0.0 && diag_B_r == 0.0) {
-        const auto gains = vgoswec::ComputeCCGains(hydro_data, h5_file, kBody, omega0, I_hinge, C_ext);
+        const auto gains = vgoswec::ComputeCCGains(
+            hydro_data, impedance_h5_file, kBody, omega0, I_hinge, C_ext);
         diag_K_r = gains.K_r;
         diag_B_r = gains.B_r;
       }

@@ -112,6 +112,10 @@ struct SimConfig {
 
     // Hydro
     std::string h5_file;
+    /// Optional H5 file used ONLY for frequency-domain impedance / CC-gain
+    /// computation (hinge-referenced coefficients). If empty, falls back to
+    /// h5_file. The time-domain HydroSystem always uses h5_file.
+    std::string impedance_h5_file;   ///< default "" => use h5_file
     double rho{1025.0};             ///< [kg/m³]
 
     // Wave

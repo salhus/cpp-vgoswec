@@ -38,6 +38,7 @@ hinge:
 
 hydro:
   h5_file: hydroData/vgoswec_45.h5
+  impedance_h5_file: hydroData/hinged_vgoswec_45.h5
   rho: 1025.0
 
 wave:

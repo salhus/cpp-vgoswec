@@ -40,7 +40,8 @@ hinge:
   external_stiffness: 6.57  # [N·m/rad] experimental hinge spring (Table 1), applied at all times
 
 hydro:
-  h5_file: hydroData/vgoswec_0.h5
+  h5_file: hydroData/vgoswec_0.h5            # time-domain (CG, 1-body) — unchanged
+  impedance_h5_file: hydroData/hinged_vgoswec_0.h5   # hinge-referenced impedance for CC gains
   rho: 1025.0
 
 wave:
