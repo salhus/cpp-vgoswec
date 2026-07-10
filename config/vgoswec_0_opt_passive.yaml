@@ -20,10 +20,10 @@ simulation:
 body:
   flap:
     mesh: geometry/vgm45.obj
-    mass: 6.30
-    cog: [0.0, 0.0, -0.226]       # [m] hinge_z + r_g = -0.5 + 0.274
+    mass: 6.676
+    cog: [0.0, 0.0, -0.235]       # [m] hinge_z + r_g = -0.5 + 0.265
     inertia_xx: 0.32              # [kg·m²] CG roll inertia  (owner-provided, about CG)
-    inertia_yy: 0.489             # [kg·m²] CG pitch inertia derived from paper: I_cg = I_55(hinge) − m·r_g² = 0.962 − 6.30·0.274² = 0.489 kg·m²
+    inertia_yy: 0.21             # [kg·m²] CG pitch inertia (WEC-Sim validated). Hinge inertia = I_cg + m·r_g² = 0.21 + 6.676·0.265² (≈0.469) = 0.652
     inertia_zz: 0.12              # [kg·m²] CG yaw inertia   (owner-provided, about CG)
   base:
     mesh: geometry/stl_files/center_beam_w_foundation_BEM.STL
@@ -41,11 +41,11 @@ hydro:
 wave:
   type: regular
   height: 0.05
-  period: 5.86          # [s]  VGM-0 resonance period (Table 2)
+  period: 5.86          # [s]  VGM-0 resonance period (WEC-Sim free-decay reference)
   direction: 0.0
 
 controller:
   type: opt_passive
   opt_passive:
-    design_omega: 1.07   # [rad/s] VGM-0 resonance from Table 2 (equiv. T = 5.86 s)
+    design_omega: 1.07   # [rad/s] VGM-0 resonance (WEC-Sim free-decay reference, equiv. T = 5.86 s)
     clip_torque: 5.0    # [N·m]  TODO: tune with tank-test data

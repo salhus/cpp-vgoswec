@@ -31,7 +31,7 @@ BodyConfig ParseBody(const YAML::Node& n) {
     BodyConfig b;
     b.mesh       = ReadOpt<std::string>(n, "mesh", "");
     b.mass       = ReadOpt<double>(n, "mass", 1.0);
-    b.inertia_yy = ReadOpt<double>(n, "inertia_yy", 0.489);
+    b.inertia_yy = ReadOpt<double>(n, "inertia_yy", 0.21);
     // inertia_xx and inertia_zz default to inertia_yy when not specified (isotropic fallback)
     b.inertia_xx = ReadOpt<double>(n, "inertia_xx", b.inertia_yy);
     b.inertia_zz = ReadOpt<double>(n, "inertia_zz", b.inertia_yy);
@@ -46,9 +46,9 @@ BodyConfig ParseBody(const YAML::Node& n) {
 
 PIDConfig ParsePID(const YAML::Node& n) {
     PIDConfig p;
-    p.kp    = ReadOpt<double>(n, "kp",    0.5);
-    p.ki    = ReadOpt<double>(n, "ki",    0.05);
-    p.kd    = ReadOpt<double>(n, "kd",    0.05);
+    p.kp    = ReadOpt<double>(n, "kp",    1.0);
+    p.ki    = ReadOpt<double>(n, "ki",    0.0);
+    p.kd    = ReadOpt<double>(n, "kd",    0.0);
     p.tau_d = ReadOpt<double>(n, "tau_d", 0.02);
     p.u_min = ReadOpt<double>(n, "u_min", -5.0);
     p.u_max = ReadOpt<double>(n, "u_max",  5.0);
@@ -77,9 +77,11 @@ ControllerConfig ParseController(const YAML::Node& n) {
     }
     if (n["exc_ff_pid"]) {
         const auto& p = n["exc_ff_pid"];
-        ctrl.exc_ff_pid.alpha     = ReadOpt<double>(p, "alpha",     1.0);
-        ctrl.exc_ff_pid.theta_ref = ReadOpt<double>(p, "theta_ref", 0.0);
-        if (p["pid"]) ctrl.exc_ff_pid.pid = ParsePID(p["pid"]);
+        ctrl.exc_ff_pid.B_ctrl       = ReadOpt<double>(p, "B_ctrl",       0.5);
+        ctrl.exc_ff_pid.alpha        = ReadOpt<double>(p, "alpha",        -2.0);
+        ctrl.exc_ff_pid.clip_torque  = ReadOpt<double>(p, "clip_torque",  5.0);
+        ctrl.exc_ff_pid.passive_safe = ReadOpt<bool>(p,   "passive_safe", true);
+        if (p["vel_pid"]) ctrl.exc_ff_pid.vel_pid = ParsePID(p["vel_pid"]);
     }
     return ctrl;
 }

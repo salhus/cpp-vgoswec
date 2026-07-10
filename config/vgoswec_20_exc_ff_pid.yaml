@@ -1,6 +1,6 @@
-# vgoswec_0_exc_ff_pid.yaml
-# Source: Ogden et al., ASME JOMAE 145(3):030905 (VGOSWEC-0 / VGM-0).
-# VGM-0 free-decay reference: ωn = 1.07 rad/s, Ts = 5.86 s.
+# vgoswec_20_exc_ff_pid.yaml
+# Source: Ogden et al., ASME JOMAE 145(3):030905 (VGOSWEC-20 / VGM-20).
+# VGM-20 free-decay reference: ωn = 1.57 rad/s, Ts = 4.01 s.
 # Active control: stabilized velocity-tracking absorber with passive-safety guard.
 #
 # τ = clamp( -B_ctrl · θ̇ + PID_vel(alpha · F_exc,pitch(t) - θ̇), -clip, clip )
@@ -12,7 +12,7 @@
 #               knee with max|pitch| < 0.8 rad at both band edges)
 #   ki    = 5   (fixed integral gain; integral wind-up is bounded by u_min/u_max)
 #
-# Tuned parameters (Kp×Kd sweep, band 3.5–7.0 s, see analysis/kpkd_sweep_VGM0.csv):
+# Tuned parameters (Kp×Kd sweep, band 2.5–6.0 s, see analysis/kpkd_sweep_VGM20.csv):
 #   kp = 4, kd = 1
 #
 # Known limitation: F_exc is the raw un-hinge-referred pitch moment (moment.y()
@@ -23,7 +23,7 @@
 # See docs/CONTROLLERS.md §Known limitations for full discussion.
 
 simulation:
-  duration: 236.0      # [s] ≥ 40 × T_res = 234 s at 5.86 s resonance
+  duration: 171.0      # [s] ≥ 40 × T_res ≈ 160 s at 4.01 s resonance
   timestep: 0.005
   wave_ramp: 10.0
 
@@ -45,13 +45,13 @@ hinge:
   external_stiffness: 6.57  # [N·m/rad] experimental hinge spring (Table 1), applied at all times
 
 hydro:
-  h5_file: hydroData/vgoswec_0.h5
+  h5_file: hydroData/vgoswec_20.h5
   rho: 1025.0
 
 wave:
   type: regular
   height: 0.05
-  period: 5.86          # [s]  VGM-0 resonance period (WEC-Sim free-decay reference)
+  period: 4.01          # [s]  VGM-20 resonance period (WEC-Sim free-decay reference)
   direction: 0.0
 
 controller:
@@ -62,10 +62,9 @@ controller:
     clip_torque: 10.0   # [N·m] output saturation (final torque)
     passive_safe: true  # replace injecting commands with dissipative floor -B_ctrl·vel
     vel_pid:
-      kp: 4.0           # [N·m per (rad/s)] tuned; optimal Kp×Kd from band-integrated sweep (3.5–7.0 s)
+      kp: 4.0           # [N·m per (rad/s)] tuned; optimal Kp×Kd from band-integrated sweep (2.5–6.0 s)
       ki: 5.0           # [N·m/(rad/s·s)] fixed (see header rationale)
       kd: 1.0           # [N·m·s/(rad/s)] tuned; improves off-resonance stability
       tau_d: 0.02       # [s] derivative filter time constant
       u_min: -10.0      # [N·m] clamp on PID term
       u_max: 10.0       # [N·m] clamp on PID term
-

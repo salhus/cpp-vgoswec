@@ -8,6 +8,8 @@
 // │   returned value = PTO torque about hinge Y-axis [N·m]                   │
 // │   Positive torque OPPOSES positive θ (restoring convention)              │
 // │   Absorbed power: P_abs = −τ_pto · ω   (positive = extracted from waves)│
+// │   Active control law: τ_pto = −B_ctrl·θ̇ + PID(alpha·F_exc − θ̇)         │
+// │                       (clamped; returned torque already uses restoring)   │
 // └──────────────────────────────────────────────────────────────────────────┘
 // =============================================================================
 #pragma once
@@ -69,30 +71,43 @@ class ComplexConjugateControl : public seastack::pto::IPTOModel {
 };
 
 // =============================================================================
-// (D) ExcitationFeedforwardPID — active WEC control
-//     τ = α · F_exc,pitch(t)  +  PID( θ_ref − θ )
+// (D) ExcitationVelocityController — stabilized velocity-tracking absorber
+//     τ_pto = −B_ctrl · θ̇ + PID(alpha · F_exc,pitch(t) − θ̇)   (clamped)
 //
-//   The feedforward term uses the actual wave excitation torque broadcast by
-//   ExcitationForceProvider (updated from HydroForces::Evaluate per_component).
-//   The PID term regulates the flap toward θ_ref (default = 0, upright).
+//   This is the Korde/Ringwood stabilized velocity-tracking structure:
+//   a guaranteed-dissipative damping floor −B_ctrl·θ̇ bounds the response,
+//   while an inner velocity PID drives flap velocity toward
+//   vel_ref = alpha · F_exc,pitch(t). alpha is SIGNED; the default negative
+//   value accounts for the current hinge-referred excitation sign mismatch.
 //
-//   This implements phase anticipation: α·F_exc advances the flap to absorb
-//   energy while the PID damps deviations from the reference trajectory.
+//   The older open-loop excitation feedforward term was removed because,
+//   empirically, it only approximated additional damping rather than genuine
+//   reactive control. Under this file's sign convention, the returned torque
+//   already follows the restoring convention; there is no outer negation.
+//
+//   passive_safe: when true, any candidate torque that would inject energy
+//   (tau * vel > 0) is replaced by the guaranteed-dissipative damping floor
+//   −B_ctrl · vel before applying the final clip. This guard allows alpha/PID
+//   gains to be tuned aggressively without risk of net energy injection.
 // =============================================================================
-class ExcitationFeedforwardPID : public seastack::pto::IPTOModel {
+class ExcitationVelocityController : public seastack::pto::IPTOModel {
  public:
-    ExcitationFeedforwardPID(std::shared_ptr<ExcitationForceProvider> src,
-                              double alpha,
-                              std::unique_ptr<PIDController> pid,
-                              double theta_ref = 0.0);
+    ExcitationVelocityController(std::shared_ptr<ExcitationForceProvider> src,
+                                 double B_ctrl,
+                                 double alpha,
+                                 std::unique_ptr<PIDController> pid,
+                                 double clip_torque = 5.0,
+                                 bool passive_safe = true);
 
     double ComputeForce(double disp, double vel, double t) override;
 
  private:
     std::shared_ptr<ExcitationForceProvider> f_exc_source_;
+    double B_ctrl_;
     double alpha_;
+    double clip_;
+    bool   passive_safe_;
     std::unique_ptr<PIDController> pid_;
-    double theta_ref_;
 };
 
 }  // namespace vgoswec

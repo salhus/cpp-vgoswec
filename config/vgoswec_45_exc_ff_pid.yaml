@@ -1,28 +1,41 @@
 # vgoswec_45_exc_ff_pid.yaml
 # Source: Ogden et al., ASME JOMAE 145(3):030905 (VGOSWEC-45 / VGM-45).
 # VGM-45 free-decay reference: ωn = 1.84 rad/s, Ts = 3.42 s.
-# Active control: Excitation-force feedforward + PID trajectory tracking.
+# Active control: stabilized velocity-tracking absorber with passive-safety guard.
 #
-# τ = α · F_exc,pitch(t)  +  PID( θ_ref(t) - θ(t) )
+# τ = clamp( -B_ctrl · θ̇ + PID_vel(alpha · F_exc,pitch(t) - θ̇), -clip, clip )
+# Passive-safety guard (passive_safe: true): if tau·θ̇ > 0 (would inject energy),
+#   replace tau with the dissipative floor: -B_ctrl · θ̇.
 #
-# The feedforward term uses the actual wave excitation torque (pitch DOF)
-# extracted from HydroForces::Evaluate per-component at each timestep.
-# This implements active WEC phase-anticipation.
+# Fixed parameters (empirically determined — see docs/CONTROLLERS.md):
+#   alpha = 11  (universal across all 5 flap angles; reaches diminishing-returns
+#               knee with max|pitch| < 0.8 rad at both band edges)
+#   ki    = 5   (fixed integral gain; integral wind-up is bounded by u_min/u_max)
 #
-# Default θ_ref = 0 (regulate flap to upright; feedforward does anticipation).
+# Tuned parameters (Kp×Kd sweep, band 2.0–6.0 s, see analysis/kpkd_sweep_VGM45.csv):
+#   kp = 4, kd = 2  (slightly higher Kd than VGM-0/10/20: VGM-45 has a shorter
+#                    resonance period and its band extends to T=2.0 s where high Kd
+#                    is needed to keep corr(tau,vel) < 0)
+#
+# Known limitation: F_exc is the raw un-hinge-referred pitch moment (moment.y()
+# from ExcitationForceProvider). alpha is signed positive to paper over the
+# resulting phase/sign mismatch. Empirically this yields positive capture but
+# the capture peak sits below each flap's resonance and the controller injects
+# energy at short periods — which the passive_safe guard is designed to contain.
+# See docs/CONTROLLERS.md §Known limitations for full discussion.
 
 simulation:
-  duration: 60.0
+  duration: 171.0      # [s] ≥ 50 × T_res = 171 s at 3.42 s resonance
   timestep: 0.005
   wave_ramp: 10.0
 
 body:
   flap:
     mesh: geometry/vgm45.obj
-    mass: 6.30
-    cog: [0.0, 0.0, -0.226]       # [m] hinge_z + r_g = -0.5 + 0.274
+    mass: 6.676
+    cog: [0.0, 0.0, -0.235]       # [m] hinge_z + r_g = -0.5 + 0.265
     inertia_xx: 0.32              # [kg·m²] CG roll inertia  (owner-provided, about CG)
-    inertia_yy: 0.489             # [kg·m²] CG pitch inertia derived from paper: I_cg = I_55(hinge) − m·r_g² = 0.962 − 6.30·0.274² = 0.489 kg·m²
+    inertia_yy: 0.21              # [kg·m²] CG pitch inertia (WEC-Sim validated). Hinge inertia = I_cg + m·r_g² = 0.21 + 6.676·0.265² (≈0.469) = 0.652
     inertia_zz: 0.12              # [kg·m²] CG yaw inertia   (owner-provided, about CG)
     # Geometry/properties from Table 1: w=0.40 m, H_p=0.50 m, t=0.076 m, V=7395 cm^3, r_b=0.293 m.
   base:
@@ -41,12 +54,12 @@ hydro:
 wave:
   type: regular
   height: 0.05
-  period: 1.5
+  period: 3.42          # [s]  VGM-45 resonance period (WEC-Sim free-decay reference)
   direction: 0.0
   # For irregular waves (JONSWAP):
   # type: jonswap
   # height: 0.05   # Hs [m]
-  # period: 1.5    # Tp [s]
+  # period: 3.42   # Tp [s]
   # gamma: 3.3
   # n_components: 200
   # seed: 42
@@ -54,12 +67,15 @@ wave:
 controller:
   type: exc_ff_pid
   exc_ff_pid:
-    alpha: 1.0          # feedforward gain on F_exc  TODO: tune with tank-test data
-    theta_ref: 0.0      # [rad]  reference angle (upright equilibrium)
-    pid:
-      kp: 0.5           # [N·m/rad]     TODO: tune with tank-test data
-      ki: 0.05          # [N·m/(rad·s)] TODO: tune with tank-test data
-      kd: 0.05          # [N·m·s/rad]   TODO: tune with tank-test data
-      tau_d: 0.02       # [s]  derivative filter time constant (≈ 3× dt)
-      u_min: -5.0       # [N·m]  output clamp
-      u_max:  5.0       # [N·m]  output clamp
+    B_ctrl: 0.5         # [N·m·s/rad] stability damping floor (always dissipative)
+    alpha: 11.0         # [(rad/s)/(N·m)] velocity-reference gain (empirically universal; see header)
+    clip_torque: 10.0   # [N·m] output saturation (final torque)
+    passive_safe: true  # replace injecting commands with dissipative floor -B_ctrl·vel
+    vel_pid:
+      kp: 4.0           # [N·m per (rad/s)] tuned; optimal Kp×Kd from band-integrated sweep (2.0–6.0 s)
+      ki: 5.0           # [N·m/(rad/s·s)] fixed (see header rationale)
+      kd: 2.0           # [N·m·s/(rad/s)] tuned; higher than VGM-0/10/20 for short-period stability
+      tau_d: 0.02       # [s] derivative filter time constant
+      u_min: -10.0      # [N·m] clamp on PID term
+      u_max: 10.0       # [N·m] clamp on PID term
+

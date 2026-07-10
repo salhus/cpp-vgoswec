@@ -42,18 +42,20 @@ struct CCConfig {
 };
 
 struct PIDConfig {
-    double kp{0.5};
-    double ki{0.05};
-    double kd{0.05};
+    double kp{1.0};
+    double ki{0.0};
+    double kd{0.0};
     double tau_d{0.02};             ///< [s] derivative filter time constant
     double u_min{-5.0};             ///< [N·m]
     double u_max{5.0};              ///< [N·m]
 };
 
 struct ExcFFPIDConfig {
-    double alpha{1.0};              ///< feedforward gain on F_exc
-    double theta_ref{0.0};          ///< [rad] reference angle
-    PIDConfig pid;
+    double B_ctrl{0.5};       ///< [N·m·s/rad] stability damping floor: tau += -B_ctrl*theta_dot (always dissipative)
+    double alpha{-2.0};       ///< [(rad/s)/(N·m)] SIGNED velocity-reference gain: vel_ref = alpha*F_exc (negative for hinge sign)
+    double clip_torque{5.0};  ///< [N·m] output saturation on the FINAL torque
+    bool   passive_safe{true};///< If true, replace any energy-injecting command (tau*vel > 0) with the dissipative floor -B_ctrl*vel
+    PIDConfig vel_pid;        ///< velocity-error PID (gains/clamp). Note vel_pid.u_min/u_max clamp the PID term only.
 };
 
 struct ControllerConfig {
@@ -75,10 +77,11 @@ struct BodyConfig {
     /// synthesises the parallel-axis term m·r_g² when the CG swings on its arc, so
     /// SetInertiaXX must receive the CG value (not the hinge value).
     /// Pitch about hinge Y-axis = body Iyy (body frame = world frame when upright).
-    /// Default 0.489 = I_55(hinge) − m·r_g² = 0.962 − 6.30·0.274²
-    ///   (Ogden et al., ASME JOMAE 145(3):030905, Table 1).
+    /// Default 0.21 kg·m² is the WEC-Sim-validated CG pitch inertia.
+    /// The hinge pitch inertia used by the analytic impedance formulas is
+    ///   I_hinge = I_cg + m·r_g² = 0.21 + 6.676·0.265² = 0.652 kg·m².
     double inertia_xx{0.32};        ///< [kg·m²] CG roll inertia  (about body X)
-    double inertia_yy{0.489};       ///< [kg·m²] CG pitch inertia (about body Y = hinge axis)
+    double inertia_yy{0.21};        ///< [kg·m²] CG pitch inertia (about body Y = hinge axis)
     double inertia_zz{0.12};        ///< [kg·m²] CG yaw inertia   (about body Z)
     double initial_pitch{0.0};      ///< [rad] initial pitch about hinge Y-axis
 };

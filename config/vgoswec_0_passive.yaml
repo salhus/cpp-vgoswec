@@ -14,10 +14,10 @@ simulation:
 body:
   flap:
     mesh: geometry/vgm45.obj  # same hull shape; geometry/vgm0.obj not required for BEM runs
-    mass: 6.30                    # [kg] Table 1 body mass (model scale)
-    cog: [0.0, 0.0, -0.226]       # [m] hinge_z + r_g = -0.5 + 0.274
+    mass: 6.676                    # [kg] Table 1 body mass (model scale)
+    cog: [0.0, 0.0, -0.235]       # [m] hinge_z + r_g = -0.5 + 0.265
     inertia_xx: 0.32              # [kg·m²] CG roll inertia  (owner-provided, about CG)
-    inertia_yy: 0.489             # [kg·m²] CG pitch inertia derived from paper: I_cg = I_55(hinge) − m·r_g² = 0.962 − 6.30·0.274² = 0.489 kg·m²
+    inertia_yy: 0.21             # [kg·m²] CG pitch inertia (WEC-Sim validated). Hinge inertia = I_cg + m·r_g² = 0.21 + 6.676·0.265² (≈0.469) = 0.652
     inertia_zz: 0.12              # [kg·m²] CG yaw inertia   (owner-provided, about CG)
     # Geometry/properties from Table 1 (same physical device, different angle).
   base:
@@ -36,7 +36,7 @@ hydro:
 wave:
   type: regular         # regular | jonswap
   height: 0.05          # [m]  H for regular, Hs for JONSWAP
-  period: 5.86          # [s]  VGM-0 resonance period (Table 2)
+  period: 5.86          # [s]  VGM-0 resonance period (WEC-Sim free-decay reference)
   direction: 0.0        # [rad]  wave direction (0 = +x)
 
 controller:

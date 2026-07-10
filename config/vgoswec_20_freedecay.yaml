@@ -1,17 +1,12 @@
-# vgoswec_45_freedecay.yaml
-# Source: Ogden et al., ASME JOMAE 145(3):030905 (VGOSWEC-45 / VGM-45).
-# Purpose: spring-only free-decay validation (no waves) to recover VGM-45 resonance:
-#   ωn ≈ 1.84 rad/s, Ts ≈ 3.42 s, ζ ≈ 3.5e-4.
+# vgoswec_20_freedecay.yaml
+# Source: Ogden et al., ASME JOMAE 145(3):030905 (VGOSWEC-20 / VGM-20).
+# Purpose: spring-only free-decay validation (no waves) to recover VGM-20 resonance:
+#   ωn ≈ 1.57 rad/s, Ts ≈ 4.01 s (paper); C++ free-decay ≈ 1.568 rad/s (zero-cross).
 # The external hinge spring (external_stiffness: 6.57 N·m/rad, Table 1) is the
-# sole restoring mechanism.  It is applied via a dedicated RSDA in the physics
-# (not via CC K_r_override) to avoid double-counting.
-# Controller: passive with B_pto=0 → zero PTO torque → pure free oscillation.
-# Only hydrodynamic radiation damping and the spring act; structural damping is
-# negligible at model scale, so the decay envelope is determined by B55 ≈ 0 at
-# the resonance notch — expect very low damping (high Q).
+# sole restoring mechanism.  Controller: passive with B_pto=0 → zero PTO torque.
 
 simulation:
-  duration: 40.0       # [s] >= 30 s to observe several free-decay cycles
+  duration: 60.0       # [s] >= 5×Ts ≈ 29 s to observe several free-decay cycles
   timestep: 0.005      # [s]
   wave_ramp: 0.0       # [s] no incident-wave forcing
 
@@ -24,7 +19,6 @@ body:
     inertia_yy: 0.21             # [kg·m²] CG pitch inertia (WEC-Sim validated). Hinge inertia = I_cg + m·r_g² = 0.21 + 6.676·0.265² (≈0.469) = 0.652
     inertia_zz: 0.12              # [kg·m²] CG yaw inertia   (owner-provided, about CG)
     initial_pitch: 0.15           # [rad] nonzero initial displacement for free decay
-    # Geometry/properties from Table 1: w=0.40 m, H_p=0.50 m, t=0.076 m, V=7395 cm^3, r_b=0.293 m.
   base:
     mesh: geometry/stl_files/center_beam_w_foundation_BEM.STL
     mass: 1.0e6
@@ -35,7 +29,7 @@ hinge:
   external_stiffness: 6.57  # [N·m/rad] experimental hinge spring (Table 1), single source of truth
 
 hydro:
-  h5_file: hydroData/vgoswec_45.h5
+  h5_file: hydroData/vgoswec_20.h5
   rho: 1025.0
 
 wave:

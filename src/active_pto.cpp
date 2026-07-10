@@ -33,25 +33,37 @@ double ComplexConjugateControl::ComputeForce(double disp, double vel, double /*t
     return std::clamp(-K_r_ * disp - B_r_ * vel, -clip_, clip_);
 }
 
-// ─── (D) ExcitationFeedforwardPID ────────────────────────────────────────────
+// ─── (D) ExcitationVelocityController ────────────────────────────────────────
 
-ExcitationFeedforwardPID::ExcitationFeedforwardPID(
+ExcitationVelocityController::ExcitationVelocityController(
     std::shared_ptr<ExcitationForceProvider> src,
+    double B_ctrl,
     double alpha,
     std::unique_ptr<PIDController> pid,
-    double theta_ref)
+    double clip_torque,
+    bool passive_safe)
     : f_exc_source_(std::move(src)),
+      B_ctrl_(B_ctrl),
       alpha_(alpha),
-      pid_(std::move(pid)),
-      theta_ref_(theta_ref) {
-    pid_->SetSetpoint(theta_ref_);
-}
+      clip_(clip_torque),
+      passive_safe_(passive_safe),
+      pid_(std::move(pid)) {}
 
-double ExcitationFeedforwardPID::ComputeForce(double disp, double vel, double t) {
-    (void)vel;
-    const double tau_ff  = alpha_ * f_exc_source_->GetLatestExcitationTorque();
-    const double tau_pid = pid_->Compute(disp, t);
-    return tau_ff + tau_pid;
+double ExcitationVelocityController::ComputeForce(double /*disp*/, double vel, double t) {
+    const double f_exc = f_exc_source_->GetLatestExcitationTorque();
+    const double vel_ref = alpha_ * f_exc;
+    pid_->SetSetpoint(vel_ref);
+    const double tau_pid = pid_->Compute(vel, t);
+    const double tau_damp = -B_ctrl_ * vel;
+    double tau = tau_damp + tau_pid;
+    // Passive-safety guard: if the candidate torque would inject energy into
+    // the system (tau * vel > 0 means torque acts in the direction of motion),
+    // replace it with the guaranteed-dissipative damping floor. The floor
+    // cannot inject energy because it always opposes velocity.
+    if (passive_safe_ && (tau * vel > 0.0)) {
+        tau = tau_damp;
+    }
+    return std::clamp(tau, -clip_, clip_);
 }
 
 }  // namespace vgoswec
