@@ -30,7 +30,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 PERIOD_GRID = np.array([2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0], dtype=float)
-WAVE_HEIGHT_M = 0.028
+WAVE_HEIGHT_M = 0.05
 WAVE_AMPLITUDE_M = WAVE_HEIGHT_M / 2.0
 DURATION_S = 171.0
 MASK_B55_THRESHOLD = 1e-4
@@ -141,6 +141,8 @@ def run_capture_sweep(repo: Path, demo: Path, flap_angle: int) -> dict[float, fl
                 "--no-viz",
                 "--wave-period",
                 f"{T:.2f}",
+                "--wave-height",
+                f"{WAVE_HEIGHT_M:.4f}",
                 "--duration",
                 f"{DURATION_S:.1f}",
             ]
