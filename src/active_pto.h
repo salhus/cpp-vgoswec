@@ -55,7 +55,8 @@ class OptimalPassive : public seastack::pto::IPTOModel {
 // =============================================================================
 // (C) ComplexConjugateControl — reactive CC control at ω₀
 //     Gains pre-computed by caller via impedance.h::ComputeCCGains():
-//       K_r =  ω₀²·(I_flap + A₅₅(ω₀)) − K_hs,55   (intrinsic pitch reactance to be cancelled)
+//       K_r =  ω₀²·(I_flap + A₅₅(ω₀)) − K_hs_eff  (K_hs_eff = K_hs,55 + C_ext;
+//                                                   intrinsic pitch reactance to be cancelled)
 //       B_r =  B_rad,55(ω₀)
 //     τ = −K_r · θ − B_r · ω
 // =============================================================================

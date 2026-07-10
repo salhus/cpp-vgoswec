@@ -117,6 +117,7 @@ SimConfig LoadConfig(const std::string& yaml_path) {
 
     if (root["hydro"]) {
         cfg.h5_file = ReadOpt<std::string>(root["hydro"], "h5_file", "");
+        cfg.impedance_h5_file = ReadOpt<std::string>(root["hydro"], "impedance_h5_file", "");
         cfg.rho     = ReadOpt<double>(root["hydro"], "rho", 1025.0);
     }
     if (cfg.h5_file.empty())
