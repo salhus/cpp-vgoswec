@@ -85,23 +85,46 @@ def _load_row(angle: int) -> dict[str, float] | None:
         return None
 
     with h5py.File(h5_path, "r") as h5:
-        w_a, mu55 = _read_two_col_dataset(h5, "body1/hydro_coeffs/added_mass/components/5_5")
-        w_b, lam55 = _read_two_col_dataset(h5, "body1/hydro_coeffs/radiation_damping/components/5_5")
-        w_f, mag = _read_two_col_dataset(h5, "body1/hydro_coeffs/excitation/components/mag/5_1")
-
         rho = float(np.asarray(h5["simulation_parameters/rho"]).squeeze())
         g = float(np.asarray(h5["simulation_parameters/g"]).squeeze())
 
+        # Use the authoritative angular-frequency axis from simulation_parameters/w.
+        # Component dataset col0 stores wave period T = 2π/ω, NOT angular frequency ω.
+        if "simulation_parameters/w" in h5:
+            w_raw = np.asarray(h5["simulation_parameters/w"], dtype=float).flatten()
+        else:
+            # Fallback: derive ω = 2π/T from col0 (with warning).
+            col0 = np.asarray(
+                h5["body1/hydro_coeffs/added_mass/components/5_5"], dtype=float
+            )[:, 0]
+            w_raw = 2.0 * math.pi / col0
+            print(
+                f"[warning] simulation_parameters/w missing in {h5_path}; "
+                "deriving ω = 2π/T from col0"
+            )
+
+        sort_idx = np.argsort(w_raw)
+        w = w_raw[sort_idx]
+
+        def _col1_sorted(path: str) -> np.ndarray:
+            """Return col1 of an Nx2 dataset sorted by ascending ω."""
+            data = np.asarray(h5[path], dtype=float)
+            return data[:, 1][sort_idx]
+
+        mu55 = _col1_sorted("body1/hydro_coeffs/added_mass/components/5_5")
+        lam55 = _col1_sorted("body1/hydro_coeffs/radiation_damping/components/5_5")
+        mag = _col1_sorted("body1/hydro_coeffs/excitation/components/mag/5_1")
+
     a55 = mu55 * rho
-    b55 = lam55 * rho * w_b
+    b55 = lam55 * rho * w
     fexc55 = mag * rho * g
 
     design_omega, cc_config_found = _read_design_omega(angle)
-    omega_n = _solve_omega_n(w_a, a55)
+    omega_n = _solve_omega_n(w, a55)
 
-    a55_w0 = _interp(w_a, a55, design_omega)
-    b55_w0 = _interp(w_b, b55, design_omega)
-    fexc55_w0 = _interp(w_f, fexc55, design_omega)
+    a55_w0 = _interp(w, a55, design_omega)
+    b55_w0 = _interp(w, b55, design_omega)
+    fexc55_w0 = _interp(w, fexc55, design_omega)
 
     if b55_w0 <= 0.0:
         raise ValueError(f"B55({design_omega:.3f}) <= 0 for angle {angle}: {b55_w0}")

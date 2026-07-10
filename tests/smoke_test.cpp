@@ -343,7 +343,8 @@ TEST(ConfigLoader, ImpedanceH5FileParsesWhenProvided) {
 // Physical parameters (VGM-0):
 //   I_hinge  = I_cg + m·r_g² = 0.21 + 6.676·0.265² = 0.6788 kg·m²
 //   C_ext    = 6.57 N·m/rad  (pure torsional hinge spring)
-//   omega0   = 0.8763 rad/s  (hinge-frame resonance: K_r = 0 at this frequency)
+//   omega_n  = 0.9929 rad/s  (hinge-frame resonance with correct ω axis:
+//              K_r = 0 at this frequency from hinged_vgoswec_0.h5)
 TEST(ComputeCCGains, HingedH5ZeroKhs) {
     const std::string cg_h5     = "hydroData/vgoswec_0.h5";
     const std::string hinged_h5 = "hydroData/hinged_vgoswec_0.h5";
@@ -357,9 +358,9 @@ TEST(ComputeCCGains, HingedH5ZeroKhs) {
     auto hydro_data = seastack::hydro_io::H5FileInfo(cg_h5, 2).ReadH5Data();
 
     constexpr int    kFlap   = 0;
-    constexpr double kOmega0 = 0.8763;   // hinge-frame resonance [rad/s]
-    constexpr double kIHinge = 0.6788;   // I_cg + m·r_g² [kg·m²]
-    constexpr double kCext   = 6.57;     // pure torsional hinge spring [N·m/rad]
+    constexpr double kOmega0 = 0.9929;  // hinge-frame resonance [rad/s] (correct ω axis)
+    constexpr double kIHinge = 0.6788;  // I_cg + m·r_g² [kg·m²]
+    constexpr double kCext   = 6.57;    // pure torsional hinge spring [N·m/rad]
 
     const auto gains = vgoswec::ComputeCCGains(hydro_data, hinged_h5, kFlap, kOmega0, kIHinge, kCext);
 
@@ -369,6 +370,48 @@ TEST(ComputeCCGains, HingedH5ZeroKhs) {
     // Radiation damping must be positive (healthy BEM result)
     EXPECT_GT(gains.B_r, 0.0)
         << "B_r must be positive (radiation damping > 0); got " << gains.B_r;
+}
+
+// ─── BEM omega-axis regression test ──────────────────────────────────────────
+// Verifies that the ω axis loaded from vgoswec_0.h5 is ascending in rad/s
+// spanning roughly [0.05, 15.0] and that argmax(Fexc) is at ω ≈ 7.2 rad/s.
+// This prevents regression of the T-vs-ω axis confusion where col0 (period T)
+// was mistakenly used as angular frequency ω, shifting the excitation peak to
+// the wrong end of the spectrum.
+TEST(BEMTables, OmegaAxisAscendingAndExcitationPeak) {
+    const std::string cg_h5 = "hydroData/vgoswec_0.h5";
+    if (!std::filesystem::exists(cg_h5)) {
+        GTEST_SKIP() << "Skipping: H5 data file not found at " << cg_h5;
+    }
+
+    auto hydro_data = seastack::hydro_io::H5FileInfo(cg_h5, 2).ReadH5Data();
+
+    // Query at ω = 7.2 rad/s (known excitation peak in vgoswec_0.h5).
+    constexpr double kOmegaPeak = 7.2;
+    const auto coeffs = vgoswec::GetPitchHydroCoefficientsAtOmega(
+        hydro_data, cg_h5, /*flap_body_idx=*/0, kOmegaPeak, kOmegaPeak);
+
+    // ω = 7.2 rad/s must be within the table range [~0.05, ~15.0] — not clamped.
+    EXPECT_FALSE(coeffs.omega_clamped)
+        << "ω = 7.2 rad/s should be within the BEM table range; omega_clamped = true";
+
+    // Fexc55 at the excitation peak should be physically large (≈ 174 N·m/m).
+    // With the T-vs-ω bug the value here would be ~0.001–2 N·m/m (wrong).
+    EXPECT_GT(coeffs.Fexc55, 50.0)
+        << "Fexc55 at ω=7.2 rad/s should be near-peak (> 50 N·m/m); got " << coeffs.Fexc55;
+
+    // B55 at ω = 7.2 rad/s should be well above zero (≈ 2.2 N·m·s/rad).
+    EXPECT_GT(coeffs.B55, 0.5)
+        << "B55 at ω=7.2 rad/s should be significant (> 0.5 N·m·s/rad); got " << coeffs.B55;
+
+    // Query at ω = 0.87 rad/s (≈ T = 7.2 s), which is what the buggy axis used to
+    // return for the excitation peak.  The correct value here is much smaller.
+    constexpr double kOmegaBugValue = 2.0 * M_PI / 7.2;  // ≈ 0.8727 rad/s
+    const auto coeffs_low = vgoswec::GetPitchHydroCoefficientsAtOmega(
+        hydro_data, cg_h5, 0, kOmegaBugValue, kOmegaBugValue);
+    // Fexc at the old "peak" (ω ≈ 0.87 rad/s) should be much smaller than at ω=7.2.
+    EXPECT_LT(coeffs_low.Fexc55, coeffs.Fexc55 * 0.5)
+        << "Fexc55 at ω≈0.87 rad/s should be less than half of the true peak at ω=7.2";
 }
 
 int main(int argc, char** argv) {

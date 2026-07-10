@@ -110,7 +110,17 @@ double ReadScalarDatasetOrDefault(H5::H5File& file,
     }
 }
 
-FrequencyTable ReadTwoColumnDataset(H5::H5File& file, const std::string& dataset_path) {
+// Read a BEM component dataset (Nx2: col0 = wave period T [s], col1 = normalised coefficient).
+//
+// If omega_axis is non-empty and its length matches the row count, it is used as the
+// angular-frequency axis (rad/s), index-aligned with col1.  A sanity check verifies that
+// col0[i] ≈ 2π/omega_axis[i] (i.e. col0 really is T).  If the check fails, the function
+// falls back to deriving ω = 2π/col0 for that dataset with a warning.
+//
+// If omega_axis is empty (e.g. simulation_parameters/w was absent in the H5 file), the
+// function derives ω = 2π/col0 and emits a one-time warning per call.
+FrequencyTable ReadTwoColumnDataset(H5::H5File& file, const std::string& dataset_path,
+                                    const std::vector<double>& omega_axis = {}) {
     H5::DataSet dataset     = file.openDataSet(dataset_path);
     H5::DataSpace filespace = dataset.getSpace();
     hsize_t dims[2]         = {0, 0};
@@ -125,12 +135,62 @@ FrequencyTable ReadTwoColumnDataset(H5::H5File& file, const std::string& dataset
     std::vector<double> buffer(static_cast<size_t>(rows * cols), 0.0);
     dataset.read(buffer.data(), H5::PredType::NATIVE_DOUBLE);
 
+    constexpr double kTwoPi = 2.0 * M_PI;
+
     std::vector<std::pair<double, double>> pairs;
     pairs.reserve(static_cast<size_t>(rows));
-    for (hsize_t row = 0; row < rows; ++row) {
-        pairs.emplace_back(buffer[static_cast<size_t>(row * cols)],
-                           buffer[static_cast<size_t>(row * cols + 1)]);
+
+    const bool use_omega_axis =
+        (!omega_axis.empty() && omega_axis.size() == static_cast<size_t>(rows));
+
+    if (use_omega_axis) {
+        // Verify that col0 ≈ 2π/ω (col0 should store wave period T = 2π/ω).
+        bool aligned = true;
+        for (hsize_t row = 0; row < rows && aligned; ++row) {
+            const double w    = omega_axis[row];
+            const double col0 = buffer[static_cast<size_t>(row * cols)];
+            if (w > 0.0) {
+                const double T_expected = kTwoPi / w;
+                // Allow 0.1% relative tolerance plus a small absolute floor
+                if (std::abs(col0 - T_expected) > 1e-3 * T_expected + 1e-8) {
+                    aligned = false;
+                }
+            }
+        }
+
+        if (!aligned) {
+            std::cerr << "[impedance] WARNING: col0 of '" << dataset_path
+                      << "' does not match 2pi/omega from simulation_parameters/w -- "
+                         "falling back to omega = 2pi/col0 for this table.\n";
+            for (hsize_t row = 0; row < rows; ++row) {
+                const double col0 = buffer[static_cast<size_t>(row * cols)];
+                const double val  = buffer[static_cast<size_t>(row * cols + 1)];
+                if (col0 > 0.0) {
+                    pairs.emplace_back(kTwoPi / col0, val);
+                }
+            }
+        } else {
+            // Use the authoritative omega axis; col1 is index-aligned with omega_axis.
+            for (hsize_t row = 0; row < rows; ++row) {
+                pairs.emplace_back(omega_axis[row],
+                                   buffer[static_cast<size_t>(row * cols + 1)]);
+            }
+        }
+    } else {
+        // Fallback: col0 stores wave period T; derive ω = 2π/T.
+        if (omega_axis.empty()) {
+            std::cerr << "[impedance] WARNING: no simulation_parameters/w axis available for '"
+                      << dataset_path << "'; deriving ω = 2π/T from col0.\n";
+        }
+        for (hsize_t row = 0; row < rows; ++row) {
+            const double col0 = buffer[static_cast<size_t>(row * cols)];
+            const double val  = buffer[static_cast<size_t>(row * cols + 1)];
+            if (col0 > 0.0) {
+                pairs.emplace_back(kTwoPi / col0, val);
+            }
+        }
     }
+
     std::sort(pairs.begin(), pairs.end(),
               [](const auto& lhs, const auto& rhs) { return lhs.first < rhs.first; });
 
@@ -155,13 +215,43 @@ const PitchBEMTables& LoadPitchBEMTables(const std::string& h5_file, int flap_bo
     }
 
     H5::H5File file(h5_file, H5F_ACC_RDONLY);
+
+    // ── Read the authoritative angular-frequency axis from simulation_parameters/w ──────
+    // The component datasets store wave period T (= 2π/ω) in col0, NOT ω.
+    // We read the ω grid from simulation_parameters/w and use it as the frequency axis so
+    // that interpolation is performed in rad/s, not in seconds.
+    std::vector<double> w_axis;
+    try {
+        H5::DataSet w_ds    = file.openDataSet("simulation_parameters/w");
+        H5::DataSpace w_sp  = w_ds.getSpace();
+        hsize_t w_dims[2]   = {0, 0};
+        const int w_rank    = w_sp.getSimpleExtentDims(w_dims);
+        const hsize_t n_rows = (w_rank >= 1) ? w_dims[0] : 0;
+        const hsize_t n_cols = (w_rank >= 2) ? w_dims[1] : 1;
+        const hsize_t n_elem = n_rows * n_cols;
+        if (n_elem > 0) {
+            std::vector<double> w_buf(static_cast<size_t>(n_elem));
+            w_ds.read(w_buf.data(), H5::PredType::NATIVE_DOUBLE);
+            // Flatten Nx1 (or 1-D) layout: pick column 0 from each row.
+            w_axis.resize(static_cast<size_t>(n_rows));
+            for (hsize_t i = 0; i < n_rows; ++i) {
+                w_axis[i] = w_buf[static_cast<size_t>(i * n_cols)];
+            }
+        }
+    } catch (const H5::Exception&) {
+        H5Eclear2(H5E_DEFAULT);
+        std::cerr << "[impedance] WARNING: '" << h5_file
+                  << "' lacks simulation_parameters/w; "
+                     "deriving ω = 2π/T from col0 of each dataset (fallback).\n";
+    }
+
     PitchBEMTables tables;
     tables.added_mass_55 = ReadTwoColumnDataset(
-        file, body_name + "/hydro_coeffs/added_mass/components/5_5");
+        file, body_name + "/hydro_coeffs/added_mass/components/5_5", w_axis);
     tables.radiation_damping_55 = ReadTwoColumnDataset(
-        file, body_name + "/hydro_coeffs/radiation_damping/components/5_5");
+        file, body_name + "/hydro_coeffs/radiation_damping/components/5_5", w_axis);
     tables.excitation_mag_51 = ReadTwoColumnDataset(
-        file, body_name + "/hydro_coeffs/excitation/components/mag/5_1");
+        file, body_name + "/hydro_coeffs/excitation/components/mag/5_1", w_axis);
     tables.h5_rho = ReadScalarDatasetOrDefault(file, "simulation_parameters/rho",
                                                std::numeric_limits<double>::quiet_NaN());
     tables.g      = ReadScalarDatasetOrDefault(file, "simulation_parameters/g", 9.81);
@@ -191,6 +281,40 @@ const PitchBEMTables& LoadPitchBEMTables(const std::string& h5_file, int flap_bo
     } catch (const H5::Exception&) {
         H5Eclear2(H5E_DEFAULT);
         // Dataset absent: K_hs55 = 0.0.
+    }
+
+    // ── Startup diagnostic: print ω range and BEM coefficient peaks ──────────────────────
+    // This verifies the frequency axis is in rad/s (not period) and peaks are physically sane.
+    {
+        const auto& ex_omega = tables.excitation_mag_51.omega;
+        const auto& ex_value = tables.excitation_mag_51.value;
+        const auto& rd_omega = tables.radiation_damping_55.omega;
+        const auto& rd_value = tables.radiation_damping_55.value;
+
+        std::cerr << "[impedance] Loaded BEM tables from '" << h5_file << "' (" << body_name << ")"
+                  << ": ω ∈ [" << (ex_omega.empty() ? 0.0 : ex_omega.front())
+                  << ", "       << (ex_omega.empty() ? 0.0 : ex_omega.back())
+                  << "] rad/s, N=" << ex_omega.size() << "\n";
+
+        // Excitation peak (raw normalised values; max raw ↔ max de-normed since rho·g > 0)
+        if (!ex_value.empty()) {
+            const auto it = std::max_element(ex_value.begin(), ex_value.end());
+            const size_t idx = static_cast<size_t>(std::distance(ex_value.begin(), it));
+            std::cerr << "[impedance]   Excitation peak: ω = " << ex_omega[idx]
+                      << " rad/s  (ex_norm = " << *it << ")\n";
+        }
+
+        // B55 peak in de-normalised units: B55 = lambda · rho · ω
+        if (!rd_value.empty() && !std::isnan(tables.h5_rho)) {
+            double b55_max = 0.0;
+            double b55_omega = 0.0;
+            for (size_t i = 0; i < rd_value.size(); ++i) {
+                const double b55 = std::max(0.0, rd_value[i]) * tables.h5_rho * rd_omega[i];
+                if (b55 > b55_max) { b55_max = b55; b55_omega = rd_omega[i]; }
+            }
+            std::cerr << "[impedance]   B55 peak: ω = " << b55_omega
+                      << " rad/s  (B55 = " << b55_max << " N·m·s/rad)\n";
+        }
     }
 
     return cache.emplace(cache_key, std::move(tables)).first->second;

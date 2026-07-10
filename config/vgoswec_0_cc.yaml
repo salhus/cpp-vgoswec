@@ -1,6 +1,6 @@
 # vgoswec_0_cc.yaml
 # Source: Ogden et al., ASME JOMAE 145(3):030905 (VGOSWEC-0 / VGM-0).
-# VGM-0 hinge-frame resonance: ωn = 0.8763 rad/s (I_hinge=0.6788 kg·m², K_eff=6.57 N·m/rad).
+# VGM-0 hinge-frame resonance: ωn = 0.9929 rad/s (I_hinge=0.6788 kg·m², K_eff=6.57 N·m/rad).
 # Complex-conjugate (CC) reactive control at design frequency ω₀ = ωn (impedance match).
 #
 # τ = -K_r · θ  -  B_r · θ̇
@@ -16,6 +16,10 @@
 #
 # WARNING: CC control requires bidirectional power flow (reactive);
 #   a physical PTO must support this (e.g., active hydraulic or electric).
+#
+# NOTE: design_omega was corrected from 0.8763 to 0.9929 rad/s after fixing the
+# T-vs-ω axis bug (col0 of BEM tables stores period T, not ω).  The correct
+# resonance is computed from simulation_parameters/w in hinged_vgoswec_0.h5.
 
 simulation:
   duration: 60.0
@@ -47,7 +51,7 @@ hydro:
 wave:
   type: regular
   height: 0.05
-  period: 5.86          # [s]  VGM-0 resonance period (WEC-Sim free-decay reference)
+  period: 6.33          # [s]  VGM-0 hinge resonance period (correct ω axis: T = 2π/0.9929)
   direction: 0.0
 
 controller:
@@ -55,7 +59,7 @@ controller:
   # BuildController uses opt_passive.design_omega as the shared tuning frequency for
   # opt_passive/cc impedance-based gain calculations.
   opt_passive:
-    design_omega: 0.8763   # [rad/s] hinge-frame resonance ω_n (K_r→0 at impedance match)
+    design_omega: 0.9929   # [rad/s] hinge-frame resonance ω_n (K_r→0 at impedance match)
   cc:
     # K_r and B_r are computed automatically; override only if needed:
     # K_r_override: 0.0  # [N·m/rad]
