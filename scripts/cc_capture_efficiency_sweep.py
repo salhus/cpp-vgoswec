@@ -37,8 +37,10 @@ WAVE_AMPLITUDE_M = 0.025
 DURATION_S = 171.0
 MASK_B55_THRESHOLD = 1e-4
 THETA_LIMIT_RAD = 1.0
+DECOMP_RTOL = 1e-6
+DECOMP_ATOL = 1e-8
 PITCH_DOF_INDEX = 4  # 0-based DOF5
-MASK_NOTE = f"B55 <= {MASK_B55_THRESHOLD:.0e}"
+MASK_NOTE = f"B55 <= {MASK_B55_THRESHOLD:.0e} N·m·s/rad"
 
 FLAPS = {
     0: {"label": "VGM-0", "config": "config/vgoswec_0_cc.yaml", "h5": "hydroData/vgoswec_0.h5"},
@@ -63,21 +65,23 @@ def run_cmd(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, cwd=str(cwd), text=True, capture_output=True, check=False)
 
 
-def _replace_yaml_scalar(text: str, key: str, value: str) -> str:
+def _replace_yaml_scalar(text: str, key: str, value: str, context: str = "") -> str:
     pattern = re.compile(rf"^(\s*{re.escape(key)}:\s*).*$", re.MULTILINE)
     out, n = pattern.subn(rf"\g<1>{value}", text, count=1)
     if n != 1:
-        raise RuntimeError(f"Could not update key '{key}' in scratch config")
+        suffix = f" in {context}" if context else ""
+        raise RuntimeError(f"Could not update key '{key}' in scratch config{suffix}")
     return out
 
 
 def prepare_scratch_config(template: Path, scratch: Path, period_s: float) -> None:
     omega = 2.0 * math.pi / period_s
     txt = template.read_text()
-    txt = _replace_yaml_scalar(txt, "height", f"{WAVE_HEIGHT_M}")
-    txt = _replace_yaml_scalar(txt, "period", f"{period_s}")
-    txt = _replace_yaml_scalar(txt, "duration", f"{DURATION_S}")
-    txt = _replace_yaml_scalar(txt, "design_omega", f"{omega:.10f}")
+    context = str(template)
+    txt = _replace_yaml_scalar(txt, "height", f"{WAVE_HEIGHT_M}", context)
+    txt = _replace_yaml_scalar(txt, "period", f"{period_s}", context)
+    txt = _replace_yaml_scalar(txt, "duration", f"{DURATION_S}", context)
+    txt = _replace_yaml_scalar(txt, "design_omega", f"{omega:.10f}", context)
     scratch.write_text(txt)
 
 
@@ -158,8 +162,8 @@ def _infer_velocity_column(fieldnames: list[str]) -> str | None:
 def _steady_state_arrays(csv_path: Path) -> dict[str, np.ndarray]:
     with csv_path.open(newline="") as fh:
         reader = csv.DictReader(fh)
-        rows = list(reader)
         headers = list(reader.fieldnames or [])
+        rows = list(reader)
     if not rows:
         raise RuntimeError(f"No rows in output CSV: {csv_path}")
 
@@ -173,9 +177,10 @@ def _steady_state_arrays(csv_path: Path) -> dict[str, np.ndarray]:
     if vel_col is not None:
         vel = np.array([float(r[vel_col]) for r in s], dtype=float)
     else:
+        # Guard against malformed output before finite differencing.
         dt = np.diff(t)
         if np.any(dt <= 0.0):
-            raise RuntimeError(f"Non-increasing time_s in {csv_path}")
+            raise RuntimeError(f"Non-monotonically increasing time_s in {csv_path}")
         vel = np.gradient(pitch, t)
 
     return {
@@ -198,11 +203,13 @@ def decomposition_from_csv(csv_path: Path) -> dict[str, float | list[str]]:
     p_csv = float(np.mean(arr["power_csv_w"]))
     pitch_amp = float(np.max(np.abs(arr["pitch_rad"])))
 
-    if not np.isclose(p_net, p_converted + p_injected, rtol=1e-6, atol=1e-8):
+    # Tight tolerances are expected here because all three values are computed
+    # from the same sampled p(t) in one pass.
+    if not np.isclose(p_net, p_converted + p_injected, rtol=DECOMP_RTOL, atol=DECOMP_ATOL):
         raise RuntimeError(
             f"Decomposition mismatch in {csv_path}: net={p_net:.8e}, conv+inj={(p_converted + p_injected):.8e}"
         )
-    if not np.isclose(p_net, p_csv, rtol=1e-6, atol=1e-8):
+    if not np.isclose(p_net, p_csv, rtol=DECOMP_RTOL, atol=DECOMP_ATOL):
         raise RuntimeError(
             f"power_w mismatch in {csv_path}: p_net={p_net:.8e}, mean(power_w)={p_csv:.8e}"
         )
@@ -307,6 +314,7 @@ def load_efficiency_csv(csv_path: Path) -> list[dict]:
 
 def _masked_spans(periods: np.ndarray, masked: np.ndarray) -> list[tuple[float, float]]:
     spans: list[tuple[float, float]] = []
+    # Need at least two period points to infer half-step span width.
     if len(periods) < 2:
         return spans
     half_step = float(np.median(np.diff(periods))) / 2.0
@@ -356,7 +364,7 @@ def plot_capture_efficiency(rows: list[dict], flap_angle: int, out_png: Path) ->
     ax0.legend(loc="best", fontsize=8)
     ax1.legend(loc="best", fontsize=8)
 
-    fig.text(0.01, 0.01, f"Mask rule: {MASK_NOTE} N·m·s/rad", fontsize=7, color="0.35")
+    fig.text(0.01, 0.01, f"Mask rule: {MASK_NOTE}", fontsize=7, color="0.35")
     fig.tight_layout(rect=[0, 0.03, 1, 1])
     out_png.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_png)

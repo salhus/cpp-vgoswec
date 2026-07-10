@@ -81,7 +81,7 @@ CC control requires bidirectional power flow. A physical PTO must support reacti
 
 For active controllers, small-angle validity is enforced with a pitch guard (default `theta_clip_rad = 1.0` rad):
 
-- if `disp >= +theta_clip_rad` and commanded torque would increase `theta` further (`tau < 0`), torque is set to `0`.
+- if `disp >= theta_clip_rad` and commanded torque would increase `theta` further (`tau < 0`), torque is set to `0`.
 - if `disp <= -theta_clip_rad` and commanded torque would decrease `theta` further (`tau > 0`), torque is set to `0`.
 
 This rule prevents controller-driven motion deeper into the limit while still allowing torque that drives back toward center.

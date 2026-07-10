@@ -8,6 +8,8 @@ namespace vgoswec {
 
 namespace {
 
+// Enforce the small-angle pitch envelope by suppressing commanded torque that
+// would drive farther beyond ±theta_clip_rad. theta_clip_rad <= 0 disables it.
 double ApplyThetaLimit(double tau, double disp, double theta_clip_rad) {
     if (theta_clip_rad <= 0.0) {
         return tau;
