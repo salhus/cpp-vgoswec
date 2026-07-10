@@ -17,14 +17,14 @@ OUTPUT_CSV = OUTPUT_DIR / "cc_impedance_hinge_summary.csv"
 
 ANGLES = [0, 10, 20, 45, 90]
 DEFAULT_DESIGN_OMEGA = 1.07
-I_HINGE = 0.658
+I_HINGE = 0.6788  # I_cg + m*r_g^2 = 0.21 + 6.676*0.265^2 = 0.6788 kg*m^2 (hinge-referenced)
 C_EXT = 6.57
-K_HS = 0.0
+K_HS = 0.0  # hinged H5 files have empty LRS; hydrostatic restoring = 0 in hinge frame
 K_EFF = K_HS + C_EXT
 WAVE_HEIGHT = 0.05
 WAVE_AMPLITUDE = 0.5 * WAVE_HEIGHT
 NEAR_RESONANCE_TOL = 0.25
-K_R_NEAR_ZERO_TOL = 3.0
+K_R_NEAR_ZERO_TOL = 0.5  # |K_r| [N·m/rad] — tightened: design_omega set to hinge ω_n
 
 
 def _read_two_col_dataset(h5: h5py.File, path: str) -> tuple[np.ndarray, np.ndarray]:
@@ -61,15 +61,21 @@ def _solve_omega_n(w: np.ndarray, a55: np.ndarray) -> float:
     return omega
 
 
-def _read_design_omega(angle: int) -> float:
+def _read_design_omega(angle: int) -> tuple[float, bool]:
+    """Return (design_omega, config_found) for the given flap angle.
+
+    config_found is True only when a vgoswec_{angle}_cc.yaml file exists and
+    contains an explicit design_omega entry.  The near-zero K_r assertion is
+    enforced only for flaps where config_found is True.
+    """
     cfg = REPO_ROOT / "config" / f"vgoswec_{angle}_cc.yaml"
     if not cfg.exists():
-        return DEFAULT_DESIGN_OMEGA
+        return DEFAULT_DESIGN_OMEGA, False
     text = cfg.read_text(encoding="utf-8")
     match = re.search(r"^\s*design_omega\s*:\s*([+-]?[0-9]*\.?[0-9]+(?:[eE][+-]?\d+)?)", text, re.MULTILINE)
     if not match:
-        return DEFAULT_DESIGN_OMEGA
-    return float(match.group(1))
+        return DEFAULT_DESIGN_OMEGA, False
+    return float(match.group(1)), True
 
 
 def _load_row(angle: int) -> dict[str, float] | None:
@@ -90,7 +96,7 @@ def _load_row(angle: int) -> dict[str, float] | None:
     b55 = lam55 * rho * w_b
     fexc55 = mag * rho * g
 
-    design_omega = _read_design_omega(angle)
+    design_omega, cc_config_found = _read_design_omega(angle)
     omega_n = _solve_omega_n(w_a, a55)
 
     a55_w0 = _interp(w_a, a55, design_omega)
@@ -111,6 +117,7 @@ def _load_row(angle: int) -> dict[str, float] | None:
     return {
         "flap_angle": angle,
         "design_omega": design_omega,
+        "cc_config_found": cc_config_found,
         "omega_n": omega_n,
         "I_hinge": I_HINGE,
         "A55_w0": a55_w0,
@@ -152,20 +159,23 @@ def main() -> int:
     for r in rows:
         near_resonance = abs(r["design_omega"] - r["omega_n"]) <= NEAR_RESONANCE_TOL
         near_zero = abs(r["K_r"]) <= K_R_NEAR_ZERO_TOL
+        # Enforce K_r ≈ 0 only when a CC config explicitly sets design_omega to ωn.
+        enforce_check = r["cc_config_found"] and near_resonance
         print(
             f"  VGM-{int(r['flap_angle'])}: |K_r|={abs(r['K_r']):.4f}"
             f" ({'OK' if near_zero else 'not-near-zero'}),"
             f" B_r={r['B_r']:.6f} (OK)"
         )
         print(
-            f"           w0={r['design_omega']:.3f}, wn={r['omega_n']:.3f},"
+            f"           w0={r['design_omega']:.4f}, wn={r['omega_n']:.3f},"
+            f" cc_config={'yes' if r['cc_config_found'] else 'no (default w0)'},"
             f" P_opt_unit_amp={r['P_opt_unit_amp_W']:.6f} W,"
             f" P_opt@H=0.05={r['P_opt_W']:.6f} W"
         )
-        if near_resonance and not near_zero:
+        if enforce_check and not near_zero:
             raise AssertionError(
                 f"VGM-{int(r['flap_angle'])}: expected |K_r| <= {K_R_NEAR_ZERO_TOL} "
-                f"when w0~wn (w0={r['design_omega']:.3f}, wn={r['omega_n']:.3f}); "
+                f"when w0~wn (w0={r['design_omega']:.4f}, wn={r['omega_n']:.3f}); "
                 f"got {r['K_r']:.4f}"
             )
 

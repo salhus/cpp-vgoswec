@@ -42,13 +42,17 @@
 //   The VGOSWEC experimental apparatus includes an external torsional spring of
 //   C_ext = 6.57 N·m/rad at the hinge.  Because it is a pure torsional spring
 //   (couple), its CG-referred value equals the hinge value exactly — no
-//   parallel-axis transformation is required.  The effective CG-referenced
+//   parallel-axis transformation is required.  The effective hinge-referenced
 //   hydrostatic + spring stiffness is therefore:
-//     K_hs,eff = K_hs55_cg + C_ext
-//   which for VGM-45/VGM-0 gives K_hs,eff ≈ +5.37 N·m/rad (stable).
+//     K_hs,eff = K_hs55 + C_ext
+//   For the hinge-referenced impedance files (hinged_vgoswec_*.h5) the
+//   linear_restoring_stiffness dataset is empty (K_hs55 = 0), so
+//     K_hs,eff = 0 + 6.57 = 6.57 N·m/rad.
 //   PitchImpedanceMagnitude and ComputeCCGains both accept a C_ext_cg argument
-//   so they use K_hs,eff correctly.  The physical spring is applied separately
-//   in the Chrono simulation via a dedicated RSDA link.
+//   so they use K_hs,eff correctly.  K_hs55 is read from the impedance H5 file
+//   (not from the CG HydroData object) so the reference frame is consistent.
+//   The physical spring is applied separately in the Chrono simulation via a
+//   dedicated RSDA link.
 // =============================================================================
 #ifndef VGOSWEC_IMPEDANCE_H
 #define VGOSWEC_IMPEDANCE_H
@@ -63,6 +67,8 @@ struct PitchHydroCoefficients {
     double A55;           ///< Pitch added mass [kg·m²]
     double B55;           ///< Pitch radiation damping [N·m·s/rad], clamped >= 0
     double Fexc55;        ///< Pitch excitation magnitude [N·m per unit wave amplitude]
+    double K_hs55;        ///< Hydrostatic stiffness [N·m/rad] from the impedance H5 LRS table
+                          ///<   0.0 if the LRS dataset is absent or empty (hinged-frame files)
     double rho_eff;       ///< rho used for de-normalization (= stored H5 rho)
     double rho_eff_match; ///< Legacy RIRF-derived rho (diagnostic only, not used)
     double h5_rho;        ///< Raw rho stored in the H5

@@ -8,6 +8,7 @@ __pycache__/
 
 # Committed analysis data — allow sweep CSVs and figures
 !analysis/*.csv
+!analysis/cc_hinge/*.csv
 !analysis/figures/
 !analysis/figures/*.png
 

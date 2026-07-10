@@ -36,6 +36,7 @@ struct PitchBEMTables {
     FrequencyTable added_mass_55;
     FrequencyTable radiation_damping_55;
     FrequencyTable excitation_mag_51;
+    double K_hs55 = 0.0;  ///< Pitch/pitch hydrostatic stiffness from LRS [4][4]; 0 if absent/empty
     double h5_rho = std::numeric_limits<double>::quiet_NaN();
     double g      = 9.81;
 };
@@ -165,6 +166,33 @@ const PitchBEMTables& LoadPitchBEMTables(const std::string& h5_file, int flap_bo
                                                std::numeric_limits<double>::quiet_NaN());
     tables.g      = ReadScalarDatasetOrDefault(file, "simulation_parameters/g", 9.81);
 
+    // Read hydrostatic stiffness K_hs55 from linear_restoring_stiffness [4][4].
+    // For hinge-referenced impedance files, this dataset is empty or absent → K_hs55 = 0.
+    constexpr hsize_t kPitchIdx = 4;  // 0-based pitch DOF index in BEMIO convention
+    tables.K_hs55 = 0.0;
+    try {
+        H5::DataSet lrs_ds       = file.openDataSet(body_name + "/hydro_coeffs/linear_restoring_stiffness");
+        H5::DataSpace lrs_space  = lrs_ds.getSpace();
+        hsize_t lrs_dims[2]      = {0, 0};
+        const int lrs_rank       = lrs_space.getSimpleExtentDims(lrs_dims);
+        const hsize_t n_elem     = (lrs_rank >= 2) ? lrs_dims[0] * lrs_dims[1] : 0;
+        if (n_elem > 0 && lrs_dims[0] > kPitchIdx && lrs_dims[1] > kPitchIdx) {
+            std::vector<double> lrs_buf(static_cast<size_t>(n_elem), 0.0);
+            lrs_ds.read(lrs_buf.data(), H5::PredType::NATIVE_DOUBLE);
+            // Row-major layout: element [row][col] = buf[row * cols + col]
+            tables.K_hs55 = lrs_buf[static_cast<size_t>(kPitchIdx * lrs_dims[1] + kPitchIdx)];
+        } else if (n_elem > 0) {
+            std::cerr << "[impedance] NOTE: " << body_name
+                      << "/hydro_coeffs/linear_restoring_stiffness is smaller than 5x5 "
+                      << "(shape " << lrs_dims[0] << "x" << lrs_dims[1]
+                      << "); K_hs55 set to 0.0\n";
+        }
+        // If n_elem == 0 (empty dataset, shape (0,0)), K_hs55 stays 0.0 — correct for hinged files.
+    } catch (const H5::Exception&) {
+        H5Eclear2(H5E_DEFAULT);
+        // Dataset absent: K_hs55 = 0.0.
+    }
+
     return cache.emplace(cache_key, std::move(tables)).first->second;
 }
 
@@ -262,6 +290,7 @@ PitchHydroCoefficients GetPitchHydroCoefficientsAtOmega(
     coeffs.A55          = mu55 * rho_eff;
     coeffs.B55          = std::max(0.0, lambda55 * rho_eff * omega0);
     coeffs.Fexc55       = ex55 * rho_eff * tables.g;
+    coeffs.K_hs55       = tables.K_hs55;
     coeffs.rho_eff      = rho_eff;
     coeffs.rho_eff_match = rho_eff_match;
     coeffs.h5_rho       = tables.h5_rho;
@@ -296,12 +325,11 @@ double PitchImpedanceMagnitude(const seastack::hydro::HydroData& data,
                                 double omega0,
                                 double I_flap_kgm2,
                                 double C_ext_cg) {
-    constexpr int kPitchDOF = 4;  // DOF index 4 = pitch about Y (BEMIO convention)
-
     const auto coeffs =
         GetPitchHydroCoefficientsAtOmega(data, h5_file, flap_body_idx, omega0, omega0);
-    const double K_hs55   = data.GetHydrostaticStiffnessVal(flap_body_idx, kPitchDOF, kPitchDOF);
-    const double K_hs_eff = K_hs55 + C_ext_cg;
+    // K_hs55 is read from the impedance H5 (not the CG HydroData object) so the
+    // reference frame matches the BEM tables.  For hinge-referenced files, K_hs55 = 0.
+    const double K_hs_eff = coeffs.K_hs55 + C_ext_cg;
 
     // Z_intrinsic = B_rad + i·(ω·(I + A(ω)) − K_hs_eff/ω)
     const double Z_real = coeffs.B55;
@@ -315,12 +343,11 @@ CCGains ComputeCCGains(const seastack::hydro::HydroData& data,
                         double omega0,
                         double I_flap_kgm2,
                         double C_ext_cg) {
-    constexpr int kPitchDOF = 4;
-
     const auto coeffs =
         GetPitchHydroCoefficientsAtOmega(data, h5_file, flap_body_idx, omega0, omega0);
-    const double K_hs55   = data.GetHydrostaticStiffnessVal(flap_body_idx, kPitchDOF, kPitchDOF);
-    const double K_hs_eff = K_hs55 + C_ext_cg;
+    // K_hs55 is read from the impedance H5 (not the CG HydroData object) so the
+    // reference frame matches the BEM tables.  For hinge-referenced files, K_hs55 = 0.
+    const double K_hs_eff = coeffs.K_hs55 + C_ext_cg;
 
     CCGains gains;
     // K_r is the intrinsic pitch reactance to be cancelled by CC.
