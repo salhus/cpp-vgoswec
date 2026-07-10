@@ -64,4 +64,5 @@ controller:
     # K_r and B_r are computed automatically; override only if needed:
     # K_r_override: 0.0  # [N·m/rad]
     # B_r_override: 0.0  # [N·m·s/rad]
-    clip_torque: 5.0    # [N·m]  TODO: tune with tank-test data
+    theta_clip_rad: 1.0          # [rad] pitch clip; sweep keeps this fixed
+    clip_torque: 1000000.0       # [N·m] effectively disabled; use theta_clip_rad instead

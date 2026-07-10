@@ -1,16 +1,14 @@
-# vgoswec_45_cc.yaml
-# Source: Ogden et al., ASME JOMAE 145(3):030905 (VGOSWEC-45 / VGM-45).
-# VGM-45 hinge-frame resonance: ωn = 1.6396 rad/s (I_hinge=0.6788 kg·m², K_eff=6.57 N·m/rad).
-# Complex-conjugate (CC) reactive control at design frequency ω₀ = ωn (impedance match).
+# vgoswec_10_cc.yaml
+# Source: Ogden et al., ASME JOMAE 145(3):030905 (VGOSWEC-10 / VGM-10).
+# Complex-conjugate (CC) reactive control for VGM-10.
+# NOTE: design_omega below is a nominal default and is overridden per-period by
+# scripts/cc_capture_efficiency_sweep.py (design_omega = 2π/T at each sweep point).
 #
 # τ = -K_r · θ  -  B_r · θ̇
 #
 # Gains computed from HydroData at startup (impedance.h):
 #   K_r = ω₀² · (I_flap + A₅₅(ω₀)) - K_hs,55
 #   B_r =  B_rad,55(ω₀)
-#
-# WARNING: CC control requires bidirectional power flow (reactive);
-#   a physical PTO must support this (e.g., active hydraulic or electric).
 
 simulation:
   duration: 60.0
@@ -19,7 +17,7 @@ simulation:
 
 body:
   flap:
-    mesh: geometry/vgm45.obj
+    mesh: geometry/vgm45.obj        # shared flap mesh across VGOSWEC angle variants
     mass: 6.676
     cog: [0.0, 0.0, -0.235]       # [m] hinge_z + r_g = -0.5 + 0.265
     inertia_xx: 0.32              # [kg·m²] CG roll inertia  (owner-provided, about CG)
@@ -36,8 +34,8 @@ hinge:
   external_stiffness: 6.57  # [N·m/rad] experimental hinge spring (Table 1), applied at all times
 
 hydro:
-  h5_file: hydroData/vgoswec_45.h5
-  impedance_h5_file: hydroData/hinged_vgoswec_45.h5
+  h5_file: hydroData/vgoswec_10.h5
+  impedance_h5_file: hydroData/hinged_vgoswec_10.h5
   rho: 1025.0
 
 wave:
@@ -51,10 +49,10 @@ controller:
   # BuildController uses opt_passive.design_omega as the shared tuning frequency for
   # opt_passive/cc impedance-based gain calculations.
   opt_passive:
-    design_omega: 1.6396   # [rad/s] hinge-frame resonance ω_n (K_r→0 at impedance match)
+    design_omega: 1.6396   # [rad/s] nominal default (overridden by cc capture-efficiency sweep)
   cc:
     # K_r and B_r are computed automatically; override only if needed:
     # K_r_override: 0.0  # [N·m/rad]
     # B_r_override: 0.0  # [N·m·s/rad]
-    theta_clip_rad: 1.0          # [rad] pitch clip; sweep keeps this fixed
+    theta_clip_rad: 1.0          # [rad] pitch clip from CC pitch-clip update
     clip_torque: 1000000.0       # [N·m] effectively disabled; use theta_clip_rad instead
