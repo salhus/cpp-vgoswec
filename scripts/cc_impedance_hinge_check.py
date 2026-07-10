@@ -46,7 +46,8 @@ def _interp(x: np.ndarray, y: np.ndarray, xq: float) -> float:
 
 
 def _solve_omega_n(w: np.ndarray, a55: np.ndarray) -> float:
-    # Fixed-point solve: omega = sqrt(K_eff / (I_hinge + A55(omega)))
+    # Fixed-point solve: omega = sqrt(K_eff / (I_hinge + A55(omega))).
+    # Stop at 1e-10 rad/s change or after 100 iterations.
     omega = 1.0
     for _ in range(100):
         a = _interp(w, a55, omega)
@@ -102,6 +103,8 @@ def _load_row(angle: int) -> dict[str, float] | None:
     k_r = design_omega * design_omega * (I_HINGE + a55_w0) - K_EFF
     b_r = b55_w0
 
+    # Hinge-frame Budal bound at design frequency:
+    # P_opt = |Fexc55|^2 / (8 * B55), first per unit wave amplitude.
     p_opt_unit_amp = (fexc55_w0 * fexc55_w0) / (8.0 * b55_w0)
     p_opt_wave = p_opt_unit_amp * (WAVE_AMPLITUDE * WAVE_AMPLITUDE)
 
