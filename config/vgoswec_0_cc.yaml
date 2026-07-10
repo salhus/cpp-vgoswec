@@ -17,9 +17,8 @@
 # WARNING: CC control requires bidirectional power flow (reactive);
 #   a physical PTO must support this (e.g., active hydraulic or electric).
 #
-# NOTE: design_omega was corrected from 0.8763 to 0.9929 rad/s after fixing the
-# T-vs-ω axis bug (col0 of BEM tables stores period T, not ω).  The correct
-# resonance is computed from simulation_parameters/w in hinged_vgoswec_0.h5.
+# NOTE: design_omega=4.0 rad/s is the empirical CC power peak within the
+# |pitch| <= 1.0 rad small-angle envelope (T ≈ 1.57 s).
 
 simulation:
   duration: 60.0
@@ -59,9 +58,11 @@ controller:
   # BuildController uses opt_passive.design_omega as the shared tuning frequency for
   # opt_passive/cc impedance-based gain calculations.
   opt_passive:
-    design_omega: 0.9929   # [rad/s] hinge-frame resonance ω_n (K_r→0 at impedance match)
+    design_omega: 4.0   # [rad/s] empirical peak within ±1 rad envelope (T≈1.57 s)
   cc:
     # K_r and B_r are computed automatically; override only if needed:
     # K_r_override: 0.0  # [N·m/rad]
     # B_r_override: 0.0  # [N·m·s/rad]
-    clip_torque: 5.0    # [N·m]  TODO: tune with tank-test data
+    theta_clip_rad: 1.0
+    torque_clip_enabled: false
+    clip_torque: 5.0    # [N·m] legacy field (used only when torque_clip_enabled=true)

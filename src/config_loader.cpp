@@ -71,16 +71,20 @@ ControllerConfig ParseController(const YAML::Node& n) {
     }
     if (n["cc"]) {
         const auto& p = n["cc"];
-        ctrl.cc.K_r_override = ReadOpt<double>(p, "K_r_override", 0.0);
-        ctrl.cc.B_r_override = ReadOpt<double>(p, "B_r_override", 0.0);
-        ctrl.cc.clip_torque  = ReadOpt<double>(p, "clip_torque",  5.0);
+        ctrl.cc.K_r_override        = ReadOpt<double>(p, "K_r_override", 0.0);
+        ctrl.cc.B_r_override        = ReadOpt<double>(p, "B_r_override", 0.0);
+        ctrl.cc.clip_torque         = ReadOpt<double>(p, "clip_torque",  5.0);
+        ctrl.cc.torque_clip_enabled = ReadOpt<bool>(p, "torque_clip_enabled", false);
+        ctrl.cc.theta_clip_rad      = ReadOpt<double>(p, "theta_clip_rad", 1.0);
     }
     if (n["exc_ff_pid"]) {
         const auto& p = n["exc_ff_pid"];
-        ctrl.exc_ff_pid.B_ctrl       = ReadOpt<double>(p, "B_ctrl",       0.5);
-        ctrl.exc_ff_pid.alpha        = ReadOpt<double>(p, "alpha",        -2.0);
-        ctrl.exc_ff_pid.clip_torque  = ReadOpt<double>(p, "clip_torque",  5.0);
-        ctrl.exc_ff_pid.passive_safe = ReadOpt<bool>(p,   "passive_safe", true);
+        ctrl.exc_ff_pid.B_ctrl              = ReadOpt<double>(p, "B_ctrl",       0.5);
+        ctrl.exc_ff_pid.alpha               = ReadOpt<double>(p, "alpha",        -2.0);
+        ctrl.exc_ff_pid.clip_torque         = ReadOpt<double>(p, "clip_torque",  5.0);
+        ctrl.exc_ff_pid.torque_clip_enabled = ReadOpt<bool>(p, "torque_clip_enabled", false);
+        ctrl.exc_ff_pid.theta_clip_rad      = ReadOpt<double>(p, "theta_clip_rad", 1.0);
+        ctrl.exc_ff_pid.passive_safe        = ReadOpt<bool>(p,   "passive_safe", true);
         if (p["vel_pid"]) ctrl.exc_ff_pid.vel_pid = ParsePID(p["vel_pid"]);
     }
     return ctrl;

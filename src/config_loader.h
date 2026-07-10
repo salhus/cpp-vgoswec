@@ -38,7 +38,9 @@ struct OptPassiveConfig {
 struct CCConfig {
     double K_r_override{0.0};       ///< [N·m/rad]   0 = compute from HydroData
     double B_r_override{0.0};       ///< [N·m·s/rad] 0 = compute from HydroData
-    double clip_torque{5.0};        ///< [N·m]
+    double clip_torque{5.0};        ///< [N·m] optional legacy torque clip magnitude
+    bool   torque_clip_enabled{false}; ///< default false: rely on theta clip safety
+    double theta_clip_rad{1.0};     ///< [rad] small-angle pitch guard
 };
 
 struct PIDConfig {
@@ -53,7 +55,9 @@ struct PIDConfig {
 struct ExcFFPIDConfig {
     double B_ctrl{0.5};       ///< [N·m·s/rad] stability damping floor: tau += -B_ctrl*theta_dot (always dissipative)
     double alpha{-2.0};       ///< [(rad/s)/(N·m)] SIGNED velocity-reference gain: vel_ref = alpha*F_exc (negative for hinge sign)
-    double clip_torque{5.0};  ///< [N·m] output saturation on the FINAL torque
+    double clip_torque{5.0};  ///< [N·m] optional legacy output saturation magnitude
+    bool   torque_clip_enabled{false}; ///< default false: rely on theta clip safety
+    double theta_clip_rad{1.0};  ///< [rad] small-angle pitch guard
     bool   passive_safe{true};///< If true, replace any energy-injecting command (tau*vel > 0) with the dissipative floor -B_ctrl*vel
     PIDConfig vel_pid;        ///< velocity-error PID (gains/clamp). Note vel_pid.u_min/u_max clamp the PID term only.
 };

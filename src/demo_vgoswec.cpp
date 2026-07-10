@@ -191,7 +191,9 @@ static std::shared_ptr<seastack::pto::IPTOModel> BuildController(
       K_r = gains.K_r;
       B_r = gains.B_r;
     }
-    return std::make_shared<vgoswec::ComplexConjugateControl>(K_r, B_r, cfg.controller.cc.clip_torque);
+    return std::make_shared<vgoswec::ComplexConjugateControl>(
+        K_r, B_r, cfg.controller.cc.clip_torque, cfg.controller.cc.theta_clip_rad,
+        cfg.controller.cc.torque_clip_enabled);
   }
 
   if (type == "exc_ff_pid") {
@@ -206,7 +208,8 @@ static std::shared_ptr<seastack::pto::IPTOModel> BuildController(
     pid_params.dt_expected = cfg.timestep;
     auto pid = std::make_unique<vgoswec::PIDController>(pid_params);
     return std::make_shared<vgoswec::ExcitationVelocityController>(
-        exc_provider, e.B_ctrl, e.alpha, std::move(pid), e.clip_torque, e.passive_safe);
+        exc_provider, e.B_ctrl, e.alpha, std::move(pid), e.clip_torque, e.passive_safe,
+        e.theta_clip_rad, e.torque_clip_enabled);
   }
 
   throw std::runtime_error("Unknown controller type: " + type);

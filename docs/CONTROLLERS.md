@@ -75,7 +75,16 @@ At ω₀, CC control achieves maximum power absorption for a single-frequency wa
 `K_r_override` and `B_r_override` (both zero = auto-compute from H5).
 
 ### Warning
-CC control requires bidirectional power flow. A physical PTO must support reactive operation (e.g., active motor/generator). Add conservative `clip_torque`.
+CC control requires bidirectional power flow. A physical PTO must support reactive operation (e.g., active motor/generator). Use `theta_clip_rad` to enforce the small-angle envelope; keep legacy torque clipping disabled unless a hard PTO limit is required.
+
+### Active pitch-limit guard (`theta_clip_rad`)
+
+For active controllers, small-angle validity is enforced with a pitch guard (default `theta_clip_rad = 1.0` rad):
+
+- if `disp >= +theta_clip_rad` and commanded torque would increase `theta` further (`tau < 0`), torque is set to `0`.
+- if `disp <= -theta_clip_rad` and commanded torque would decrease `theta` further (`tau > 0`), torque is set to `0`.
+
+This rule prevents controller-driven motion deeper into the limit while still allowing torque that drives back toward center.
 
 ---
 
@@ -91,7 +100,9 @@ if passive_safe AND (tau_raw · θ̇ > 0):   # would inject energy
 else:
     tau_out = tau_raw
 
-τ_pto = clamp( tau_out, -clip_torque, clip_torque )
+τ_pto = theta_limit_guard(tau_out, θ)
+if torque_clip_enabled:
+    τ_pto = clamp(τ_pto, -clip_torque, clip_torque)
 ```
 
 ### Sub-components
@@ -106,7 +117,9 @@ else:
 |------|---------|-------|-------|
 | `B_ctrl` | 0.5 | N·m·s/rad | Stability damping floor (always dissipative). |
 | `alpha` | 11.0 | (rad/s)/(N·m) | SIGNED velocity-reference gain, `vel_ref = alpha·F_exc`. Fixed empirically (see §Fixed parameters). |
-| `clip_torque` | 10.0 | N·m | Final output saturation clamp. |
+| `theta_clip_rad` | 1.0 | rad | Active pitch guard; blocks controller torque that would drive farther beyond ±limit. |
+| `torque_clip_enabled` | false | — | Legacy torque clamp toggle (disabled by default). |
+| `clip_torque` | 10.0 | N·m | Legacy final output clamp magnitude when `torque_clip_enabled=true`. |
 | `passive_safe` | true | — | Enable/disable the passive-safety guard. |
 | `vel_pid.kp` | varies | N·m per (rad/s) | Velocity-error proportional gain (per-flap tuned). |
 | `vel_pid.ki` | 5.0 | N·m/(rad/s·s) | Velocity-error integral gain. Fixed empirically (see §Fixed parameters). |
@@ -178,6 +191,24 @@ Reactive-limited masking is mandatory: periods with `B55 <= 1e-4` are reported a
 
 ---
 
+## CC capture-efficiency sweep
+
+Use `scripts/cc_capture_efficiency_sweep.py` for CC configs (`config/vgoswec_<angle>_cc.yaml`):
+
+- Per test period `T`, the script sets `opt_passive.design_omega = 2π/T` in scratch YAML so CC is tuned to the evaluated frequency.
+- `P_opt(T)` uses the H5 `simulation_parameters/w` axis and Budal bound `F_exc²/(8·B55)` with mask `B55 <= 1e-4`.
+- CSV output includes `pitch_amp_rad` (`max|pitch|` over steady-state) and `pitch_over_limit` (`max|pitch| > 1.0`).
+- Decomposition from steady-state:
+  - `p(t) = -τ(t)·θ̇(t)`
+  - `P_converted_W = mean(max(p,0))`
+  - `P_injected_W = mean(min(p,0))`
+  - `P_net_W = mean(p)` (validated against CSV `power_w`)
+- Figures include per-flap `injected_converted_VGM<angle>.png` and summary plots when multiple CC configs are available.
+
+For VGM-0, the empirical CC power peak is near `ω ≈ 4.0 rad/s` (`T ≈ 1.57 s`) within the ±1 rad envelope.
+
+---
+
 ## Known limitations (carried forward to a later follow-up)
 
 **Un-hinge-referred F_exc (current session limitation — NOT fixed in this PR):**
@@ -221,7 +252,7 @@ To replace any controller with a hardware-in-the-loop (HIL) implementation, deri
 
 1. **Start with PassiveDamper**. Verify flap motion is physical (no divergence).
 2. **OptimalPassive**: theoretical maximum for passive control. Compare with step 1.
-3. **CC control**: compare peak torque vs clip. Reduce clip until stable.
+3. **CC control**: use `theta_clip_rad` as the primary small-angle guard (±1 rad default). Enable torque clipping only if a physical PTO limit must be enforced.
 4. **ExcFF+PID**: Use `passive_safe: true` (guard enabled). Set `alpha=11`, `Ki=5` (fixed).
    Sweep `Kp ∈ {2..6}` × `Kd ∈ {0..3}` over the flap's physical band using
    `scripts/sweep_kpkd_vgoswec.sh`. Pick the (Kp, Kd) that maximises band-integrated

@@ -88,6 +88,16 @@ TEST(ComplexConjugateControl, SpringDamper) {
     EXPECT_NEAR(cc.ComputeForce(2.0, 1.0, 0.0), -5.0, 1e-12);
 }
 
+TEST(ComplexConjugateControl, ThetaClipBlocksFurtherOutwardDriveAtLimit) {
+    // At +theta_clip, negative torque drives further +theta and must be suppressed.
+    vgoswec::ComplexConjugateControl cc(
+        /*K_r=*/1.0, /*B_r=*/0.0, /*clip=*/100.0, /*theta_clip=*/1.0, /*torque_clip_enabled=*/false);
+
+    EXPECT_NEAR(cc.ComputeForce(/*disp=*/0.9, /*vel=*/0.0, 0.0), -0.9, 1e-12);
+    EXPECT_NEAR(cc.ComputeForce(/*disp=*/1.0, /*vel=*/0.0, 0.0), 0.0, 1e-12);
+    EXPECT_NEAR(cc.ComputeForce(/*disp=*/-1.0, /*vel=*/0.0, 0.0), 0.0, 1e-12);
+}
+
 // ─── OptimalPassive tests ─────────────────────────────────────────────────────
 
 TEST(OptimalPassive, BasicDamping) {
@@ -252,6 +262,8 @@ TEST(ConfigLoader, ExcitationVelocityControllerSchema) {
            "    B_ctrl: 0.75\n"
            "    alpha: -1.5\n"
            "    clip_torque: 4.0\n"
+           "    torque_clip_enabled: true\n"
+           "    theta_clip_rad: 0.8\n"
            "    passive_safe: false\n"
            "    vel_pid:\n"
            "      kp: 2.0\n"
@@ -267,6 +279,8 @@ TEST(ConfigLoader, ExcitationVelocityControllerSchema) {
     EXPECT_DOUBLE_EQ(loaded.controller.exc_ff_pid.B_ctrl, 0.75);
     EXPECT_DOUBLE_EQ(loaded.controller.exc_ff_pid.alpha, -1.5);
     EXPECT_DOUBLE_EQ(loaded.controller.exc_ff_pid.clip_torque, 4.0);
+    EXPECT_EQ(loaded.controller.exc_ff_pid.torque_clip_enabled, true);
+    EXPECT_DOUBLE_EQ(loaded.controller.exc_ff_pid.theta_clip_rad, 0.8);
     EXPECT_EQ(loaded.controller.exc_ff_pid.passive_safe, false);
     EXPECT_DOUBLE_EQ(loaded.controller.exc_ff_pid.vel_pid.kp, 2.0);
     EXPECT_DOUBLE_EQ(loaded.controller.exc_ff_pid.vel_pid.ki, 0.1);
@@ -300,6 +314,39 @@ TEST(ConfigLoader, ExcitationVelocityControllerPassiveSafeDefaultsTrue) {
 
     const auto loaded = vgoswec::LoadConfig(cfg_path);
     EXPECT_EQ(loaded.controller.exc_ff_pid.passive_safe, true);
+    EXPECT_EQ(loaded.controller.exc_ff_pid.torque_clip_enabled, false);
+    EXPECT_DOUBLE_EQ(loaded.controller.exc_ff_pid.theta_clip_rad, 1.0);
+
+    std::filesystem::remove(cfg_path);
+}
+
+TEST(ConfigLoader, ComplexConjugateControllerThetaClipSchema) {
+    const auto cfg_path =
+        (std::filesystem::temp_directory_path() / "vgoswec_cc_schema_test.yaml").string();
+    std::ofstream cfg(cfg_path);
+    ASSERT_TRUE(cfg.is_open());
+    cfg << "hydro:\n"
+           "  h5_file: hydroData/test.h5\n"
+           "controller:\n"
+           "  type: cc\n"
+           "  opt_passive:\n"
+           "    design_omega: 4.0\n"
+           "  cc:\n"
+           "    K_r_override: 1.5\n"
+           "    B_r_override: 2.5\n"
+           "    clip_torque: 3.5\n"
+           "    torque_clip_enabled: true\n"
+           "    theta_clip_rad: 0.9\n";
+    cfg.close();
+
+    const auto loaded = vgoswec::LoadConfig(cfg_path);
+    EXPECT_EQ(loaded.controller.type, "cc");
+    EXPECT_DOUBLE_EQ(loaded.controller.opt_passive.design_omega, 4.0);
+    EXPECT_DOUBLE_EQ(loaded.controller.cc.K_r_override, 1.5);
+    EXPECT_DOUBLE_EQ(loaded.controller.cc.B_r_override, 2.5);
+    EXPECT_DOUBLE_EQ(loaded.controller.cc.clip_torque, 3.5);
+    EXPECT_EQ(loaded.controller.cc.torque_clip_enabled, true);
+    EXPECT_DOUBLE_EQ(loaded.controller.cc.theta_clip_rad, 0.9);
 
     std::filesystem::remove(cfg_path);
 }

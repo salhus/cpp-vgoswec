@@ -62,13 +62,19 @@ class OptimalPassive : public seastack::pto::IPTOModel {
 // =============================================================================
 class ComplexConjugateControl : public seastack::pto::IPTOModel {
  public:
-    ComplexConjugateControl(double K_r, double B_r, double clip_torque = 5.0);
+    ComplexConjugateControl(double K_r,
+                            double B_r,
+                            double clip_torque = 5.0,
+                            double theta_clip_rad = 1.0,
+                            bool torque_clip_enabled = false);
     double ComputeForce(double disp, double vel, double t) override;
 
  private:
     double K_r_;
     double B_r_;
     double clip_;
+    double theta_clip_rad_;
+    bool   torque_clip_enabled_;
 };
 
 // =============================================================================
@@ -98,7 +104,9 @@ class ExcitationVelocityController : public seastack::pto::IPTOModel {
                                  double alpha,
                                  std::unique_ptr<PIDController> pid,
                                  double clip_torque = 5.0,
-                                 bool passive_safe = true);
+                                 bool passive_safe = true,
+                                 double theta_clip_rad = 1.0,
+                                 bool torque_clip_enabled = false);
 
     double ComputeForce(double disp, double vel, double t) override;
 
@@ -108,6 +116,8 @@ class ExcitationVelocityController : public seastack::pto::IPTOModel {
     double alpha_;
     double clip_;
     bool   passive_safe_;
+    double theta_clip_rad_;
+    bool   torque_clip_enabled_;
     std::unique_ptr<PIDController> pid_;
 };
 

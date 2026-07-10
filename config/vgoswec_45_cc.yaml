@@ -57,4 +57,6 @@ controller:
     # K_r and B_r are computed automatically; override only if needed:
     # K_r_override: 0.0  # [N·m/rad]
     # B_r_override: 0.0  # [N·m·s/rad]
-    clip_torque: 5.0    # [N·m]  TODO: tune with tank-test data
+    theta_clip_rad: 1.0
+    torque_clip_enabled: false
+    clip_torque: 5.0    # [N·m] legacy field (used only when torque_clip_enabled=true)
