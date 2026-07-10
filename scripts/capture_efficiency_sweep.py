@@ -29,7 +29,11 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-PERIOD_GRID = np.array([2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0], dtype=float)
+# Wave-tank-scale device: physically active pitch-radiation band is w~6-11 rad/s
+# (see BEMRosetta B55 plot). H5 native w covers 0.05..15 rad/s. Sweep uniformly in
+# frequency across w=4..12 rad/s (drops the noisy near-zero-B55 low-w edge).
+OMEGA_GRID = np.linspace(4.0, 12.0, 17)          # rad/s (0.5 rad/s steps)
+PERIOD_GRID = 2.0 * np.pi / OMEGA_GRID            # -> T ~ 0.52..1.57 s (descending; sorted on write)
 WAVE_HEIGHT_M = 0.05
 WAVE_AMPLITUDE_M = WAVE_HEIGHT_M / 2.0
 DURATION_S = 171.0
@@ -42,36 +46,26 @@ FLAPS = {
         "label": "VGM-0",
         "config": "config/vgoswec_0_exc_ff_pid.yaml",
         "h5": "hydroData/vgoswec_0.h5",
-        "res_period": 5.86,
-        "res_omega": 1.07,
     },
     10: {
         "label": "VGM-10",
         "config": "config/vgoswec_10_exc_ff_pid.yaml",
         "h5": "hydroData/vgoswec_10.h5",
-        "res_period": 4.29,
-        "res_omega": 1.46,
     },
     20: {
         "label": "VGM-20",
         "config": "config/vgoswec_20_exc_ff_pid.yaml",
         "h5": "hydroData/vgoswec_20.h5",
-        "res_period": 4.01,
-        "res_omega": 1.57,
     },
     45: {
         "label": "VGM-45",
         "config": "config/vgoswec_45_exc_ff_pid.yaml",
         "h5": "hydroData/vgoswec_45.h5",
-        "res_period": 3.42,
-        "res_omega": 1.84,
     },
     90: {
         "label": "VGM-90",
         "config": "config/vgoswec_90_exc_ff_pid.yaml",
         "h5": "hydroData/vgoswec_90.h5",
-        "res_period": 2.99,
-        "res_omega": 2.10,
     },
 }
 
@@ -292,7 +286,6 @@ def plot_per_flap(rows: list[dict], flap_angle: int, out_png: Path) -> None:
     for ax in (ax0, ax1):
         for x0, x1 in _masked_spans(T, masked):
             ax.axvspan(x0, x1, facecolor="0.9", edgecolor="0.5", hatch="//", alpha=0.8)
-        ax.axvline(meta["res_period"], color="0.5", linestyle=":", linewidth=1.2)
         ax.grid(True, alpha=0.3, linestyle="--")
 
     ax0.set_ylabel("Power [W]")
@@ -302,26 +295,8 @@ def plot_per_flap(rows: list[dict], flap_angle: int, out_png: Path) -> None:
     ax0.legend(loc="best", fontsize=8)
     ax1.legend(loc="best", fontsize=8)
 
-    title = (
-        f"{meta['label']} capture efficiency ($\\omega_n$={meta['res_omega']:.2f} rad/s, "
-        f"$T_{{res}}$={meta['res_period']:.2f} s)"
-    )
+    title = f"{meta['label']} capture efficiency"
     ax0.set_title(title)
-
-    if flap_angle == 0:
-        finite_eta_pct = eta_pct[np.isfinite(eta_pct)]
-        eta_ceiling = float(np.max(finite_eta_pct)) if finite_eta_pct.size > 0 else 0.0
-        text_x = max(float(np.min(T)), meta["res_period"] - 1.8)
-        text_y = eta_ceiling + 5.0
-        ax1.annotate(
-            "P_opt undefined near resonance:\nreactive-limited pitch mode ($B_{55}\\rightarrow 0$)",
-            xy=(meta["res_period"], 0.0),
-            xytext=(text_x, text_y),
-            arrowprops=dict(arrowstyle="->", color="0.35", lw=0.9),
-            fontsize=8,
-            color="0.25",
-            ha="left",
-        )
 
     fig.text(
         0.01,
@@ -396,7 +371,7 @@ def compute_and_write_csvs(repo: Path, demo: Path, run_sim: bool) -> dict[int, P
                 }
             )
 
-        out_csv = repo / "analysis" / f"capture_efficiency_VGM{angle}.csv"
+        out_csv = repo / "analysis" / "passive_guarded" / f"capture_efficiency_VGM{angle}.csv"
         write_efficiency_csv(out_csv, rows)
         csv_map[angle] = out_csv
         print(f"[ok] wrote {out_csv}")
@@ -407,11 +382,11 @@ def compute_and_write_csvs(repo: Path, demo: Path, run_sim: bool) -> dict[int, P
 def regenerate_plots_from_csv(repo: Path, csv_map: dict[int, Path]) -> None:
     for angle, csv_path in csv_map.items():
         rows = load_efficiency_csv(csv_path)
-        out_png = repo / "analysis" / "figures" / f"capture_efficiency_VGM{angle}.png"
+        out_png = repo / "analysis" / "passive_guarded" / "figures" / f"capture_efficiency_VGM{angle}.png"
         plot_per_flap(rows, angle, out_png)
         print(f"[ok] wrote {out_png}")
 
-    summary_png = repo / "analysis" / "figures" / "capture_efficiency_summary.png"
+    summary_png = repo / "analysis" / "passive_guarded" / "figures" / "capture_efficiency_summary.png"
     plot_summary(csv_map, summary_png)
     print(f"[ok] wrote {summary_png}")
 
@@ -434,7 +409,7 @@ def main() -> int:
         demo = repo / demo
 
     if args.plot_only:
-        csv_map = {angle: repo / "analysis" / f"capture_efficiency_VGM{angle}.csv" for angle in FLAPS}
+        csv_map = {angle: repo / "analysis" / "passive_guarded" / f"capture_efficiency_VGM{angle}.csv" for angle in FLAPS}
         missing = [p for p in csv_map.values() if not p.exists()]
         if missing:
             print("ERROR: Missing CSV(s) for --plot-only mode:")
