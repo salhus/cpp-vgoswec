@@ -402,10 +402,13 @@ int main(int argc, char* argv[]) {
                               ? cfg.controller.opt_passive.design_omega
                               : 2.0 * M_PI / cfg.wave.period;
     constexpr int kBody = 0;
-    const double K_hs55   = hydro_data.GetHydrostaticStiffnessVal(kBody, 4, 4);
     const double A55_inf  = hydro_data.GetInfAddedMassMatrix(kBody)(4, 4);
+    // Impedance-file coefficients: A55, B55, Fexc55, K_hs55, rho all from the
+    // hinge-referenced H5 (impedance_h5_file), not from the CG HydroData object.
+    // This keeps the diagnostic consistent with the gains actually applied to the controller.
     const auto coeffs_h5  = vgoswec::GetPitchHydroCoefficientsAtOmega(
-        hydro_data, h5_file, kBody, omega0, omega0);
+        hydro_data, impedance_h5_file, kBody, omega0, omega0);
+    const double K_hs55   = coeffs_h5.K_hs55;
     const auto [A55, B55] = std::pair<double, double>{coeffs_h5.A55, coeffs_h5.B55};
     const double I_cg   = cfg.flap.inertia_yy;
     // Hinge-referenced inertia for the natural-frequency prediction.
@@ -416,14 +419,13 @@ int main(int argc, char* argv[]) {
     const double I_hinge    = I_cg + cfg.flap.mass * r_g_diag * r_g_diag;
     // C_ext: external hinge spring from config (all controllers, all times).
     const double C_ext = cfg.hinge_external_stiffness;
-    // K_hs_eff: combined hydrostatic + external spring restoring stiffness (CG-referenced).
-    // C_ext is a pure torsional spring so its CG-referred value equals the hinge value.
+    // K_hs_eff: combined hydrostatic + external spring restoring stiffness.
+    // K_hs55 comes from the impedance H5 (hinged-frame); for hinged files K_hs55 = 0,
+    // so K_hs_eff = C_ext = 6.57 N·m/rad.
+    // C_ext is a pure torsional spring so its hinge value equals its CG-referred value.
     const double K_hs_eff = K_hs55 + C_ext;
     // Guarded natural-frequency prediction (two estimates: A55_inf and A55(omega0)).
-    // Uses I_hinge so the denominator is (I_hinge + A55) ≈ (0.652 + 0.904) = 1.556 kg·m²
-    // → ωn ≈ sqrt(5.37/1.556) ≈ 1.86 rad/s for VGM-45 (WEC-Sim free-decay: 1.84 rad/s).
-    // VGM-0 analytic single-DOF prediction is ~7% high vs WEC-Sim free-decay (1.07 rad/s);
-    // this is expected and acceptable — the authoritative value is the WEC-Sim free-decay.
+    // Uses I_hinge so the denominator is (I_hinge + A55); A55 from impedance H5.
     const double num_pred     = K_hs_eff;
     const double den_pred_inf = I_hinge + A55_inf;
     const double den_pred_lf  = I_hinge + A55;    // A55 = A55(omega0) already computed above

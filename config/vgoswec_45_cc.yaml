@@ -1,7 +1,7 @@
 # vgoswec_45_cc.yaml
 # Source: Ogden et al., ASME JOMAE 145(3):030905 (VGOSWEC-45 / VGM-45).
-# VGM-45 free-decay reference: ωn = 1.84 rad/s, Ts = 3.42 s.
-# Complex-conjugate (CC) reactive control at design frequency ω₀ = 1.84 rad/s.
+# VGM-45 hinge-frame resonance: ωn ≈ 1.6396 rad/s (I_hinge=0.6788 kg·m², K_eff=6.57 N·m/rad).
+# Complex-conjugate (CC) reactive control at design frequency ω₀ = ωn (impedance match).
 #
 # τ = -K_r · θ  -  B_r · θ̇
 #
@@ -52,7 +52,7 @@ controller:
   # BuildController uses opt_passive.design_omega as the shared tuning frequency for
   # opt_passive/cc impedance-based gain calculations.
   opt_passive:
-    design_omega: 1.84   # [rad/s] VGM-45 resonance (WEC-Sim free-decay reference, equiv. T = 3.42 s)
+    design_omega: 1.6396   # [rad/s] hinge-frame resonance ω_n (K_r→0 at impedance match)
   cc:
     # K_r and B_r are computed automatically; override only if needed:
     # K_r_override: 0.0  # [N·m/rad]

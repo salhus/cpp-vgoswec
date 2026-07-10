@@ -2,6 +2,8 @@
 // =============================================================================
 // Smoke tests for vgoswec_core / vgoswec_chrono libraries.
 // Does NOT require Chrono or SEA-Stack runtime data files — tests pure math.
+// Exception: ComputeCCGainsHingedH5 loads hydroData/*.h5 if present; skips
+// gracefully when the files are absent.
 // =============================================================================
 
 #include <gtest/gtest.h>
@@ -12,6 +14,9 @@
 #include "config_loader.h"
 #include "pid_controller.h"
 #include "active_pto.h"
+#include "impedance.h"
+
+#include <seastack/hydro_io/h5_reader.h>
 
 // ─── PID controller tests ─────────────────────────────────────────────────────
 
@@ -328,6 +333,42 @@ TEST(ConfigLoader, ImpedanceH5FileParsesWhenProvided) {
     EXPECT_EQ(loaded.impedance_h5_file, "hydroData/hinged_test.h5");
 
     std::filesystem::remove(cfg_path);
+}
+
+// ─── ComputeCCGains hinged-H5 integration test ────────────────────────────────
+// Guards: skips when the HDF5 files are absent (e.g., minimal CI checkouts).
+// When present, verifies that K_hs55 is read from the impedance H5 (= 0 for
+// hinged-frame files) so that K_r ≈ 0 at the hinge resonance and B_r > 0.
+//
+// Physical parameters (VGM-0):
+//   I_hinge  = I_cg + m*r_g^2 = 0.21 + 6.676*0.265^2 = 0.6788 kg*m^2
+//   C_ext    = 6.57 N*m/rad  (pure torsional hinge spring)
+//   omega0   = 0.8763 rad/s  (hinge-frame resonance: K_r = 0 at this frequency)
+TEST(ComputeCCGains, HingedH5ZeroKhs) {
+    const std::string cg_h5     = "hydroData/vgoswec_0.h5";
+    const std::string hinged_h5 = "hydroData/hinged_vgoswec_0.h5";
+
+    if (!std::filesystem::exists(cg_h5) || !std::filesystem::exists(hinged_h5)) {
+        GTEST_SKIP() << "Skipping: H5 data files not found at " << cg_h5
+                     << " / " << hinged_h5;
+    }
+
+    // Load CG HydroData (used for legacy RIRF diagnostic inside impedance.cpp)
+    auto hydro_data = seastack::hydro_io::H5FileInfo(cg_h5, 2).ReadH5Data();
+
+    constexpr int    kFlap   = 0;
+    constexpr double kOmega0 = 0.8763;   // hinge-frame resonance [rad/s]
+    constexpr double kIHinge = 0.6788;   // I_cg + m*r_g^2 [kg*m^2]
+    constexpr double kCext   = 6.57;     // pure torsional hinge spring [N*m/rad]
+
+    const auto gains = vgoswec::ComputeCCGains(hydro_data, hinged_h5, kFlap, kOmega0, kIHinge, kCext);
+
+    // At hinge resonance with K_hs55=0 (hinged file): K_r = omega0^2*(I+A55) - K_eff ≈ 0
+    EXPECT_LE(std::abs(gains.K_r), 0.5)
+        << "K_r should be near zero at hinge resonance; got " << gains.K_r;
+    // Radiation damping must be positive (healthy BEM result)
+    EXPECT_GT(gains.B_r, 0.0)
+        << "B_r must be positive (radiation damping > 0); got " << gains.B_r;
 }
 
 int main(int argc, char** argv) {

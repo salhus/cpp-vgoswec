@@ -1,7 +1,7 @@
 # vgoswec_0_cc.yaml
 # Source: Ogden et al., ASME JOMAE 145(3):030905 (VGOSWEC-0 / VGM-0).
-# VGM-0 free-decay reference: ωn = 1.07 rad/s, Ts = 5.86 s.
-# Complex-conjugate (CC) reactive control at design frequency ω₀ = 1.07 rad/s.
+# VGM-0 hinge-frame resonance: ωn ≈ 0.8763 rad/s (I_hinge=0.6788 kg·m², K_eff=6.57 N·m/rad).
+# Complex-conjugate (CC) reactive control at design frequency ω₀ = ωn (impedance match).
 #
 # τ = -K_r · θ  -  B_r · θ̇
 #
@@ -9,10 +9,10 @@
 #   K_r = ω₀² · (I_flap + A₅₅(ω₀)) - K_hs_eff  (K_hs_eff = K_hs55 + C_ext)
 #   B_r =  B_rad,55(ω₀)
 #
-# NOTE: VGM-0 has meaningful radiation damping B55(1.07) ≈ 0.055 N·m·s/rad
-# (healthy, not notch-limited), so CC is expected to absorb positive net power
-# at its design frequency — unlike VGM-45 where the B55 notch renders CC
-# reactive-limited at ω = 1.84 rad/s.
+# At ω₀ = ωn (hinge resonance): K_r ≈ 0, B_r = B55(ωn) > 0 (pure absorption).
+#
+# NOTE: VGM-0 has meaningful radiation damping B55(ωn) at hinge resonance,
+# so CC is expected to absorb positive net power at its design frequency.
 #
 # WARNING: CC control requires bidirectional power flow (reactive);
 #   a physical PTO must support this (e.g., active hydraulic or electric).
@@ -55,7 +55,7 @@ controller:
   # BuildController uses opt_passive.design_omega as the shared tuning frequency for
   # opt_passive/cc impedance-based gain calculations.
   opt_passive:
-    design_omega: 1.07   # [rad/s] VGM-0 resonance (WEC-Sim free-decay reference, equiv. T = 5.86 s)
+    design_omega: 0.8763   # [rad/s] hinge-frame resonance ω_n (K_r→0 at impedance match)
   cc:
     # K_r and B_r are computed automatically; override only if needed:
     # K_r_override: 0.0  # [N·m/rad]
