@@ -151,7 +151,7 @@ FrequencyTable ReadTwoColumnDataset(H5::H5File& file, const std::string& dataset
             const double col0 = buffer[static_cast<size_t>(row * cols)];
             if (w > 0.0) {
                 const double T_expected = kTwoPi / w;
-                // Allow 0.1 % relative tolerance plus a small absolute floor
+                // Allow 0.1% relative tolerance plus a small absolute floor
                 if (std::abs(col0 - T_expected) > 1e-3 * T_expected + 1e-8) {
                     aligned = false;
                 }
@@ -160,8 +160,8 @@ FrequencyTable ReadTwoColumnDataset(H5::H5File& file, const std::string& dataset
 
         if (!aligned) {
             std::cerr << "[impedance] WARNING: col0 of '" << dataset_path
-                      << "' does not match 2π/ω from simulation_parameters/w — "
-                         "falling back to ω = 2π/col0 for this table.\n";
+                      << "' does not match 2pi/omega from simulation_parameters/w -- "
+                         "falling back to omega = 2pi/col0 for this table.\n";
             for (hsize_t row = 0; row < rows; ++row) {
                 const double col0 = buffer[static_cast<size_t>(row * cols)];
                 const double val  = buffer[static_cast<size_t>(row * cols + 1)];

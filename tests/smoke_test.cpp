@@ -406,7 +406,7 @@ TEST(BEMTables, OmegaAxisAscendingAndExcitationPeak) {
 
     // Query at ω = 0.87 rad/s (≈ T = 7.2 s), which is what the buggy axis used to
     // return for the excitation peak.  The correct value here is much smaller.
-    constexpr double kOmegaBugValue = 2.0 * M_PI / 7.2;  // ≈ 0.873 rad/s
+    constexpr double kOmegaBugValue = 2.0 * M_PI / 7.2;  // ≈ 0.8727 rad/s
     const auto coeffs_low = vgoswec::GetPitchHydroCoefficientsAtOmega(
         hydro_data, cg_h5, 0, kOmegaBugValue, kOmegaBugValue);
     // Fexc at the old "peak" (ω ≈ 0.87 rad/s) should be much smaller than at ω=7.2.
