@@ -47,7 +47,6 @@ FLAP_LABELS = {0: "VGM-0", 10: "VGM-10", 20: "VGM-20", 45: "VGM-45", 90: "VGM-90
 # Threshold above which CC reactive ratio is flagged as "reactive-heavy (impractical)".
 REACTIVE_HEAVY_THRESHOLD = 0.5
 ETA_GT1_TOL = 1e-6
-ETA_INVALID_LABEL = "η > 1: linear $P_{opt}$ invalid (short-period)"
 
 # Vertical offset (in axis-fraction units) for the "reactive-heavy" label above the threshold line.
 REACTIVE_LABEL_OFFSET = 0.03
@@ -155,7 +154,7 @@ def _style_period_axis(ax) -> None:
 
 
 def _style_power_axis(ax) -> None:
-    ax.yaxis.set_major_locator(MaxNLocator(nbins=6, min_n_ticks=4))
+    ax.yaxis.set_major_locator(MultipleLocator(0.25))
     ax.yaxis.set_minor_locator(AutoMinorLocator(2))
 
 
@@ -171,8 +170,8 @@ def _style_ratio_axis(ax) -> None:
 
 def _style_common_axes(ax) -> None:
     ax.set_axisbelow(True)
-    ax.grid(True, which="major", alpha=0.55, linestyle="--")
-    ax.grid(True, which="minor", alpha=0.30, linestyle="--")
+    ax.grid(True, which="major", alpha=0.7, linestyle="--", color="0.45")
+    ax.grid(True, which="minor", alpha=0.5, linestyle="--", color="0.6")
 
 
 def _add_masked_spans(ax, periods: np.ndarray, masked: np.ndarray) -> None:
@@ -187,6 +186,41 @@ def _add_masked_spans(ax, periods: np.ndarray, masked: np.ndarray) -> None:
             linewidth=0.0,
             zorder=0.1,
         )
+
+
+def _ceil_to_step(value: float, step: float) -> float:
+    if (not math.isfinite(value)) or value <= 0.0:
+        return step
+    return float(math.ceil(value / step) * step)
+
+
+def _compute_power_ceiling(cc_csv_map: dict[int, Path], fp_csv_map: dict[int, Path]) -> float:
+    maxima: list[float] = []
+    for csv_map, loader in ((cc_csv_map, _load_cc_csv), (fp_csv_map, _load_ffpid_csv)):
+        for path in csv_map.values():
+            if not path.exists():
+                continue
+            rows = loader(path)
+            for r in rows:
+                for key in ("P_capture_W", "P_opt_W"):
+                    v = r.get(key, float("nan"))
+                    if math.isfinite(v):
+                        maxima.append(float(v))
+    return _ceil_to_step(max(maxima) if maxima else float("nan"), 0.25)
+
+
+def _compute_efficiency_ceiling(cc_csv_map: dict[int, Path], fp_csv_map: dict[int, Path]) -> float:
+    maxima: list[float] = []
+    for csv_map, loader in ((cc_csv_map, _load_cc_csv), (fp_csv_map, _load_ffpid_csv)):
+        for path in csv_map.values():
+            if not path.exists():
+                continue
+            rows = loader(path)
+            for r in rows:
+                eta, _ = _eta_with_flag(r)
+                if (not r["masked"]) and math.isfinite(eta):
+                    maxima.append(float(eta * 100.0))
+    return _ceil_to_step(max(maxima) if maxima else float("nan"), 5.0)
 
 
 # ---------------------------------------------------------------------------
@@ -228,6 +262,7 @@ def plot_per_flap_comparison(
     fp_rows: list[dict],
     flap_angle: int,
     out_png: Path,
+    power_ceiling: float,
 ) -> None:
     label = FLAP_LABELS[flap_angle]
 
@@ -235,6 +270,7 @@ def plot_per_flap_comparison(
     p_cc = np.array([r["P_capture_W"] for r in cc_rows], dtype=float)
     p_conv = np.array([r["P_converted_W"] for r in cc_rows], dtype=float)
     p_inj = np.array([r["P_injected_W"] for r in cc_rows], dtype=float)
+    p_opt = np.array([r["P_opt_W"] for r in cc_rows], dtype=float)
     masked_cc = np.array([r["masked"] for r in cc_rows], dtype=bool)
 
     T_fp = np.array([r["T_s"] for r in fp_rows], dtype=float)
@@ -258,6 +294,9 @@ def plot_per_flap_comparison(
     ax0.plot(T_fp, p_fp, marker="s", color="tab:orange", linewidth=1.8,
              zorder=3,
              label="ff+PID captured")
+    finite_popt = np.isfinite(p_opt)
+    if np.any(finite_popt):
+        ax0.plot(T_cc[finite_popt], p_opt[finite_popt], marker="^", color="k", linestyle="--", linewidth=1.4, zorder=3, label="$P_{opt}$")
 
     # Masked shading for both controllers
     all_T = np.union1d(T_cc, T_fp)
@@ -299,6 +338,7 @@ def plot_per_flap_comparison(
     ax0.set_title(f"{label} — CC vs ff+PID capture power on shared T axis")
     ax0.legend(loc="best", fontsize=8)
     _style_power_axis(ax0)
+    ax0.set_ylim(0.0, power_ceiling)
 
     # --- Bottom panel: CC reactive ratio ---
     ax1.plot(T_cc, react_ratio, marker="o", color="tab:red", linewidth=1.8,
@@ -343,6 +383,7 @@ def plot_summary_comparison(
     cc_csv_map: dict[int, Path],
     fp_csv_map: dict[int, Path],
     out_png: Path,
+    power_ceiling: float,
 ) -> None:
     fig, ax = plt.subplots(figsize=(9.0, 5.0))
     cmap = plt.cm.viridis(np.linspace(0.15, 0.9, len(FLAP_ANGLES)))
@@ -368,6 +409,7 @@ def plot_summary_comparison(
     _style_period_axis(ax)
     _style_power_axis(ax)
     _style_common_axes(ax)
+    ax.set_ylim(0.0, power_ceiling)
     ax.legend(loc="best", fontsize=7, ncol=2)
 
     fig.tight_layout()
@@ -382,49 +424,24 @@ def plot_per_flap_efficiency_comparison(
     fp_rows: list[dict],
     flap_angle: int,
     out_png: Path,
+    efficiency_ceiling: float,
 ) -> None:
     label = FLAP_LABELS[flap_angle]
     T_cc = np.array([r["T_s"] for r in cc_rows], dtype=float)
     masked_cc = np.array([r["masked"] for r in cc_rows], dtype=bool)
     eta_cc_info = [_eta_with_flag(r) for r in cc_rows]
     eta_cc = np.array([v[0] for v in eta_cc_info], dtype=float) * 100.0
-    invalid_cc = np.array([v[1] for v in eta_cc_info], dtype=bool)
 
     T_fp = np.array([r["T_s"] for r in fp_rows], dtype=float)
     masked_fp = np.array([r["masked"] for r in fp_rows], dtype=bool)
     eta_fp_info = [_eta_with_flag(r) for r in fp_rows]
     eta_fp = np.array([v[0] for v in eta_fp_info], dtype=float) * 100.0
-    invalid_fp = np.array([v[1] for v in eta_fp_info], dtype=bool)
 
     fig, ax = plt.subplots(figsize=(8.4, 4.8))
     valid_cc = (~masked_cc) & np.isfinite(eta_cc)
     valid_fp = (~masked_fp) & np.isfinite(eta_fp)
     ax.plot(T_cc[valid_cc], eta_cc[valid_cc], marker="o", color="tab:blue", linewidth=1.8, label="CC $\\eta$", zorder=3)
     ax.plot(T_fp[valid_fp], eta_fp[valid_fp], marker="s", color="tab:orange", linewidth=1.8, linestyle="--", label="ff+PID $\\eta$", zorder=3)
-
-    if np.any(valid_cc & invalid_cc):
-        ax.plot(
-            T_cc[valid_cc & invalid_cc],
-            eta_cc[valid_cc & invalid_cc],
-            marker="o",
-            linestyle="None",
-            markerfacecolor="none",
-            markeredgecolor="tab:blue",
-            markeredgewidth=1.4,
-            label=ETA_INVALID_LABEL,
-            zorder=3,
-        )
-    if np.any(valid_fp & invalid_fp):
-        ax.plot(
-            T_fp[valid_fp & invalid_fp],
-            eta_fp[valid_fp & invalid_fp],
-            marker="s",
-            linestyle="None",
-            markerfacecolor="none",
-            markeredgecolor="tab:orange",
-            markeredgewidth=1.4,
-            zorder=3,
-        )
 
     all_T = np.union1d(T_cc, T_fp)
     cc_mask_map = {round(T_cc[i], 6): masked_cc[i] for i in range(len(T_cc))}
@@ -441,15 +458,8 @@ def plot_per_flap_efficiency_comparison(
     ax.set_xlabel("Wave period $T$ [s]")
     ax.set_ylabel("Efficiency [%]")
     ax.set_title(f"{label} — CC vs ff+PID efficiency on shared T axis")
+    ax.set_ylim(0.0, efficiency_ceiling)
     ax.legend(loc="best", fontsize=8)
-    ax.text(
-        0.01,
-        0.02,
-        "η > 100% is shown and flagged; this indicates linear $P_{opt}$ underestimates the true optimum in that regime.",
-        transform=ax.transAxes,
-        fontsize=7,
-        color="0.35",
-    )
 
     fig.tight_layout()
     out_png.parent.mkdir(parents=True, exist_ok=True)
@@ -473,41 +483,17 @@ def plot_summary_efficiency_comparison(
             T_cc = np.array([r["T_s"] for r in cc_rows], dtype=float)
             eta_cc_info = [_eta_with_flag(r) for r in cc_rows]
             eta_cc = np.array([v[0] for v in eta_cc_info], dtype=float) * 100.0
-            invalid_cc = np.array([v[1] for v in eta_cc_info], dtype=bool)
             masked_cc = np.array([r["masked"] for r in cc_rows], dtype=bool)
             valid_cc = (~masked_cc) & np.isfinite(eta_cc)
             ax.plot(T_cc[valid_cc], eta_cc[valid_cc], marker="o", linewidth=1.6, color=color, linestyle="-", label=f"{lbl} CC", zorder=3)
-            if np.any(valid_cc & invalid_cc):
-                ax.plot(
-                    T_cc[valid_cc & invalid_cc],
-                    eta_cc[valid_cc & invalid_cc],
-                    marker="o",
-                    linestyle="None",
-                    markerfacecolor="none",
-                    markeredgecolor=color,
-                    markeredgewidth=1.4,
-                    zorder=3,
-                )
         if angle in fp_csv_map and fp_csv_map[angle].exists():
             fp_rows = _load_ffpid_csv(fp_csv_map[angle])
             T_fp = np.array([r["T_s"] for r in fp_rows], dtype=float)
             eta_fp_info = [_eta_with_flag(r) for r in fp_rows]
             eta_fp = np.array([v[0] for v in eta_fp_info], dtype=float) * 100.0
-            invalid_fp = np.array([v[1] for v in eta_fp_info], dtype=bool)
             masked_fp = np.array([r["masked"] for r in fp_rows], dtype=bool)
             valid_fp = (~masked_fp) & np.isfinite(eta_fp)
             ax.plot(T_fp[valid_fp], eta_fp[valid_fp], marker="s", linewidth=1.4, color=color, linestyle="--", label=f"{lbl} ff+PID", alpha=0.85, zorder=3)
-            if np.any(valid_fp & invalid_fp):
-                ax.plot(
-                    T_fp[valid_fp & invalid_fp],
-                    eta_fp[valid_fp & invalid_fp],
-                    marker="s",
-                    linestyle="None",
-                    markerfacecolor="none",
-                    markeredgecolor=color,
-                    markeredgewidth=1.4,
-                    zorder=3,
-                )
 
     ax.set_xlabel("Wave period $T$ [s]")
     ax.set_ylabel("Efficiency [%]")
@@ -516,14 +502,6 @@ def plot_summary_efficiency_comparison(
     _style_efficiency_axis(ax)
     _style_common_axes(ax)
     ax.legend(loc="best", fontsize=7, ncol=2)
-    ax.text(
-        0.01,
-        0.02,
-        "Open markers: η > 1 (linear $P_{opt}$ invalid). η > 100% points are shown and flagged.",
-        transform=ax.transAxes,
-        fontsize=7,
-        color="0.35",
-    )
 
     fig.tight_layout()
     out_png.parent.mkdir(parents=True, exist_ok=True)
@@ -578,6 +556,8 @@ def main() -> int:
         print("[warn] No ff+PID CSVs found — comparison figures will show CC only.")
 
     angles_available = sorted(set(cc_present.keys()) | set(fp_present.keys()))
+    power_ceiling = _compute_power_ceiling(cc_present, fp_present)
+    efficiency_ceiling = _compute_efficiency_ceiling(cc_present, fp_present)
 
     for angle in angles_available:
         lbl = FLAP_LABELS[angle]
@@ -592,13 +572,13 @@ def main() -> int:
         fp_rows = _load_ffpid_csv(fp_path)
 
         out_png = out_dir / f"cc_vs_ffpid_VGM{angle}.png"
-        plot_per_flap_comparison(cc_rows, fp_rows, angle, out_png)
+        plot_per_flap_comparison(cc_rows, fp_rows, angle, out_png, power_ceiling)
         out_eta_png = out_dir / f"cc_vs_ffpid_efficiency_VGM{angle}.png"
-        plot_per_flap_efficiency_comparison(cc_rows, fp_rows, angle, out_eta_png)
+        plot_per_flap_efficiency_comparison(cc_rows, fp_rows, angle, out_eta_png, efficiency_ceiling)
 
     # Cross-flap summary
     summary_png = out_dir / "cc_vs_ffpid_summary.png"
-    plot_summary_comparison(cc_present, fp_present, summary_png)
+    plot_summary_comparison(cc_present, fp_present, summary_png, power_ceiling)
     summary_eta_png = out_dir / "cc_vs_ffpid_efficiency_summary.png"
     plot_summary_efficiency_comparison(cc_present, fp_present, summary_eta_png)
 
