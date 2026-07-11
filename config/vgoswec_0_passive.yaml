@@ -42,5 +42,7 @@ wave:
 controller:
   type: passive
   passive:
-    B_pto: 0.5          # [N·m·s/rad]  TODO: tune with tank-test data
+    # B_pto = B55(ω₀) = 3.1908e-7 N·m·s/rad (radiation damping at free-decay resonance ω₀=1.07 rad/s)
+    # Computed: λ55(ω₀)·ρ_h5·ω₀ = 2.9820e-10 · 1000.0 · 1.07 (from hydroData/vgoswec_0.h5)
+    B_pto: 3.1908e-7    # [N·m·s/rad]  radiation damping at resonance (very small: VGM-0 pitch notch)
     clip_torque: 5.0    # [N·m]  output saturation limit
