@@ -17,8 +17,12 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-OMEGA_RADS_GRID = np.linspace(4.0, 12.0, 17)
-PERIOD_GRID = 2.0 * np.pi / OMEGA_RADS_GRID
+# Shared period grid T = 0.5 … 7.0 s (uniform in T, 0.5 s steps) — identical to the
+# ff+PID sweep grid so both controllers' curves share x-values point-for-point.
+# Note: above T≈3–4 s CC becomes reactive-heavy (|inj|/conv → ~0.9). These are
+# expected regime limits (CC is theoretically correct but practically demanding at
+# long periods), not errors; the reactive ratio is plotted explicitly in the comparison.
+PERIOD_GRID = np.arange(0.5, 7.01, 0.5)  # T = 0.5, 1.0, 1.5, …, 7.0 s (14 points)
 WAVE_HEIGHT_M = 0.05
 WAVE_AMPLITUDE_M = WAVE_HEIGHT_M / 2.0
 # Match the existing capture sweep duration to keep settling/steady-state windows comparable.
