@@ -39,6 +39,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.ticker import AutoMinorLocator, MaxNLocator, MultipleLocator
 
 FLAP_ANGLES = [0, 10, 20, 45, 90]
 FLAP_LABELS = {0: "VGM-0", 10: "VGM-10", 20: "VGM-20", 45: "VGM-45", 90: "VGM-90"}
@@ -148,6 +149,46 @@ def _masked_spans(periods: np.ndarray, masked: np.ndarray) -> list[tuple[float, 
     return spans
 
 
+def _style_period_axis(ax) -> None:
+    ax.xaxis.set_major_locator(MultipleLocator(0.5))
+    ax.xaxis.set_minor_locator(AutoMinorLocator(2))
+
+
+def _style_power_axis(ax) -> None:
+    ax.yaxis.set_major_locator(MaxNLocator(nbins=8, min_n_ticks=6))
+    ax.yaxis.set_minor_locator(AutoMinorLocator(2))
+
+
+def _style_efficiency_axis(ax) -> None:
+    ax.yaxis.set_major_locator(MultipleLocator(5.0))
+    ax.yaxis.set_minor_locator(AutoMinorLocator(2))
+
+
+def _style_ratio_axis(ax) -> None:
+    ax.yaxis.set_major_locator(MaxNLocator(nbins=8, min_n_ticks=6))
+    ax.yaxis.set_minor_locator(AutoMinorLocator(2))
+
+
+def _style_common_axes(ax) -> None:
+    ax.set_axisbelow(True)
+    ax.grid(True, which="major", alpha=0.3, linestyle="--")
+    ax.grid(True, which="minor", alpha=0.15, linestyle="--")
+
+
+def _add_masked_spans(ax, periods: np.ndarray, masked: np.ndarray) -> None:
+    for x0, x1 in _masked_spans(periods, masked):
+        ax.axvspan(
+            x0,
+            x1,
+            facecolor="0.96",
+            edgecolor="0.70",
+            hatch="//",
+            alpha=0.35,
+            linewidth=0.0,
+            zorder=0.1,
+        )
+
+
 # ---------------------------------------------------------------------------
 # Per-flap comparison figure
 # ---------------------------------------------------------------------------
@@ -212,8 +253,10 @@ def plot_per_flap_comparison(
 
     # --- Top panel: P_capture comparison ---
     ax0.plot(T_cc, p_cc, marker="o", color="tab:blue", linewidth=1.8,
+             zorder=3,
              label="CC captured")
     ax0.plot(T_fp, p_fp, marker="s", color="tab:orange", linewidth=1.8,
+             zorder=3,
              label="ff+PID captured")
 
     # Masked shading for both controllers
@@ -228,8 +271,9 @@ def plot_per_flap_comparison(
         for t in all_T
     ], dtype=bool)
     for ax in (ax0, ax1):
-        for x0, x1 in _masked_spans(all_T, combined_masked):
-            ax.axvspan(x0, x1, facecolor="0.9", edgecolor="0.5", hatch="//", alpha=0.6)
+        _style_period_axis(ax)
+        _add_masked_spans(ax, all_T, combined_masked)
+        _style_common_axes(ax)
 
     if crossover_T is not None:
         ax0.axvline(crossover_T, color="gray", linestyle="--", linewidth=1.2,
@@ -254,10 +298,11 @@ def plot_per_flap_comparison(
     ax0.set_ylabel("captured power [W]")
     ax0.set_title(f"{label} — CC vs ff+PID capture power on shared T axis")
     ax0.legend(loc="best", fontsize=8)
-    ax0.grid(True, alpha=0.3, linestyle="--")
+    _style_power_axis(ax0)
 
     # --- Bottom panel: CC reactive ratio ---
     ax1.plot(T_cc, react_ratio, marker="o", color="tab:red", linewidth=1.8,
+             zorder=3,
              label="CC reactive ratio $|P_{inj}|/P_{conv}$")
     ax1.axhline(REACTIVE_HEAVY_THRESHOLD, color="0.4", linestyle=":", linewidth=1.2)
 
@@ -281,7 +326,7 @@ def plot_per_flap_comparison(
     ax1.set_xlabel("Wave period $T$ [s]")
     ax1.set_ylim(bottom=0.0)
     ax1.legend(loc="best", fontsize=8)
-    ax1.grid(True, alpha=0.3, linestyle="--")
+    _style_ratio_axis(ax1)
 
     fig.tight_layout()
     out_png.parent.mkdir(parents=True, exist_ok=True)
@@ -309,18 +354,20 @@ def plot_summary_comparison(
             T_cc = np.array([r["T_s"] for r in cc_rows], dtype=float)
             p_cc = np.array([r["P_capture_W"] for r in cc_rows], dtype=float)
             ax.plot(T_cc, p_cc, marker="o", linewidth=1.6, color=color,
-                    linestyle="-", label=f"{lbl} CC")
+                    linestyle="-", label=f"{lbl} CC", zorder=3)
         if angle in fp_csv_map and fp_csv_map[angle].exists():
             fp_rows = _load_ffpid_csv(fp_csv_map[angle])
             T_fp = np.array([r["T_s"] for r in fp_rows], dtype=float)
             p_fp = np.array([r["P_capture_W"] for r in fp_rows], dtype=float)
             ax.plot(T_fp, p_fp, marker="s", linewidth=1.4, color=color,
-                    linestyle="--", label=f"{lbl} ff+PID", alpha=0.85)
+                    linestyle="--", label=f"{lbl} ff+PID", alpha=0.85, zorder=3)
 
     ax.set_xlabel("Wave period $T$ [s]")
     ax.set_ylabel("captured power [W]")
     ax.set_title("CC vs ff+PID captured power — all VGOSWEC flap variants (shared T axis)")
-    ax.grid(True, alpha=0.3, linestyle="--")
+    _style_period_axis(ax)
+    _style_power_axis(ax)
+    _style_common_axes(ax)
     ax.legend(loc="best", fontsize=7, ncol=2)
 
     fig.tight_layout()
@@ -352,8 +399,8 @@ def plot_per_flap_efficiency_comparison(
     fig, ax = plt.subplots(figsize=(8.4, 4.8))
     valid_cc = (~masked_cc) & np.isfinite(eta_cc)
     valid_fp = (~masked_fp) & np.isfinite(eta_fp)
-    ax.plot(T_cc[valid_cc], eta_cc[valid_cc], marker="o", color="tab:blue", linewidth=1.8, label="CC $\\eta$")
-    ax.plot(T_fp[valid_fp], eta_fp[valid_fp], marker="s", color="tab:orange", linewidth=1.8, linestyle="--", label="ff+PID $\\eta$")
+    ax.plot(T_cc[valid_cc], eta_cc[valid_cc], marker="o", color="tab:blue", linewidth=1.8, label="CC $\\eta$", zorder=3)
+    ax.plot(T_fp[valid_fp], eta_fp[valid_fp], marker="s", color="tab:orange", linewidth=1.8, linestyle="--", label="ff+PID $\\eta$", zorder=3)
 
     if np.any(valid_cc & invalid_cc):
         ax.plot(
@@ -365,6 +412,7 @@ def plot_per_flap_efficiency_comparison(
             markeredgecolor="tab:blue",
             markeredgewidth=1.4,
             label=ETA_INVALID_LABEL,
+            zorder=3,
         )
     if np.any(valid_fp & invalid_fp):
         ax.plot(
@@ -375,6 +423,7 @@ def plot_per_flap_efficiency_comparison(
             markerfacecolor="none",
             markeredgecolor="tab:orange",
             markeredgewidth=1.4,
+            zorder=3,
         )
 
     all_T = np.union1d(T_cc, T_fp)
@@ -384,13 +433,14 @@ def plot_per_flap_efficiency_comparison(
         [cc_mask_map.get(round(t, 6), False) or fp_mask_map.get(round(t, 6), False) for t in all_T],
         dtype=bool,
     )
-    for x0, x1 in _masked_spans(all_T, combined_masked):
-        ax.axvspan(x0, x1, facecolor="0.9", edgecolor="0.5", hatch="//", alpha=0.6)
+    _style_period_axis(ax)
+    _style_efficiency_axis(ax)
+    _add_masked_spans(ax, all_T, combined_masked)
+    _style_common_axes(ax)
 
     ax.set_xlabel("Wave period $T$ [s]")
     ax.set_ylabel("Efficiency [%]")
     ax.set_title(f"{label} — CC vs ff+PID efficiency on shared T axis")
-    ax.grid(True, alpha=0.3, linestyle="--")
     ax.legend(loc="best", fontsize=8)
     ax.text(
         0.01,
@@ -426,7 +476,7 @@ def plot_summary_efficiency_comparison(
             invalid_cc = np.array([v[1] for v in eta_cc_info], dtype=bool)
             masked_cc = np.array([r["masked"] for r in cc_rows], dtype=bool)
             valid_cc = (~masked_cc) & np.isfinite(eta_cc)
-            ax.plot(T_cc[valid_cc], eta_cc[valid_cc], marker="o", linewidth=1.6, color=color, linestyle="-", label=f"{lbl} CC")
+            ax.plot(T_cc[valid_cc], eta_cc[valid_cc], marker="o", linewidth=1.6, color=color, linestyle="-", label=f"{lbl} CC", zorder=3)
             if np.any(valid_cc & invalid_cc):
                 ax.plot(
                     T_cc[valid_cc & invalid_cc],
@@ -436,6 +486,7 @@ def plot_summary_efficiency_comparison(
                     markerfacecolor="none",
                     markeredgecolor=color,
                     markeredgewidth=1.4,
+                    zorder=3,
                 )
         if angle in fp_csv_map and fp_csv_map[angle].exists():
             fp_rows = _load_ffpid_csv(fp_csv_map[angle])
@@ -445,7 +496,7 @@ def plot_summary_efficiency_comparison(
             invalid_fp = np.array([v[1] for v in eta_fp_info], dtype=bool)
             masked_fp = np.array([r["masked"] for r in fp_rows], dtype=bool)
             valid_fp = (~masked_fp) & np.isfinite(eta_fp)
-            ax.plot(T_fp[valid_fp], eta_fp[valid_fp], marker="s", linewidth=1.4, color=color, linestyle="--", label=f"{lbl} ff+PID", alpha=0.85)
+            ax.plot(T_fp[valid_fp], eta_fp[valid_fp], marker="s", linewidth=1.4, color=color, linestyle="--", label=f"{lbl} ff+PID", alpha=0.85, zorder=3)
             if np.any(valid_fp & invalid_fp):
                 ax.plot(
                     T_fp[valid_fp & invalid_fp],
@@ -455,12 +506,15 @@ def plot_summary_efficiency_comparison(
                     markerfacecolor="none",
                     markeredgecolor=color,
                     markeredgewidth=1.4,
+                    zorder=3,
                 )
 
     ax.set_xlabel("Wave period $T$ [s]")
     ax.set_ylabel("Efficiency [%]")
     ax.set_title("CC vs ff+PID efficiency — all VGOSWEC flap variants (shared T axis)")
-    ax.grid(True, alpha=0.3, linestyle="--")
+    _style_period_axis(ax)
+    _style_efficiency_axis(ax)
+    _style_common_axes(ax)
     ax.legend(loc="best", fontsize=7, ncol=2)
     ax.text(
         0.01,
