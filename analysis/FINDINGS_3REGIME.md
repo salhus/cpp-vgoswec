@@ -98,7 +98,7 @@ See `analysis/three_regime/figures/operating_envelope.png` and
 - **Short T (≲2 s):** CC + VGM-0 (closed flap, Budal-bound tracking, up to 2.34 W)
 - **Resonance band (≈2.5–5 s):** opt_passive or ff+PID + the flap whose T₀ matches
   the wave period (90° at T≈2.5 s, marching down to 0° at T≈4.75 s)
-- **Long tail (≳5 s):** opt_passive + VGM-0 (large excitation despite pitch-radiation notch)
+- **Long tail (T ≥ 4.5 s):** opt_passive + VGM-0 (large raw excitation force even in the pitch-radiation notch where P_opt is undefined)
 
 No single controller or flap reaches this envelope alone.
 

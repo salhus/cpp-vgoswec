@@ -791,10 +791,12 @@ def _build_efficiency_envelope(
                 rows = loader(path)
                 for r in rows:
                     if abs(r["T_s"] - T) < 1e-6:
-                        # Apply masks
-                        if r.get("masked", False):
-                            break
-                        if r.get("linear_popt_invalid", False):
+                        # Found the row for this T; apply masks and update best_eta.
+                        # break exits the row loop; the outer (angle, ctrl) loops
+                        # continue to the next candidate regardless of whether this
+                        # row is valid or masked.
+                        if (r.get("masked", False)
+                                or r.get("linear_popt_invalid", False)):
                             break
                         eta, invalid = _eta_valid(r, is_cc)
                         if invalid or not math.isfinite(eta):
@@ -873,15 +875,9 @@ def plot_operating_envelope_efficiency(
         # Overlay per-controller scatter with distinct colours
         ctrl_colors = {"CC": "tab:blue", "opt_passive": "tab:green", "ff+PID": "tab:orange"}
         ctrl_markers = {"CC": "o", "opt_passive": "s", "ff+PID": "^"}
-        labeled: set[tuple] = set()
 
         for d in valid:
             ctrl = d["controller"]
-            flap = d["flap_angle"]
-            key = (ctrl, flap)
-            lbl = f"{ctrl} (VGM-{flap})" if key not in labeled else None
-            if lbl:
-                labeled.add(key)
             ax.scatter(d["T_s"], d["eta_max"] * 100.0,
                        marker=ctrl_markers.get(ctrl, "x"),
                        color=ctrl_colors.get(ctrl, "gray"),
@@ -903,7 +899,7 @@ def plot_operating_envelope_efficiency(
                 "CC + best flap", transform=ax.get_xaxis_transform(),
                 ha="center", fontsize=8, color="tab:blue", alpha=0.8)
         ax.text(cc_end + (res_end - cc_end) / 2.0, 0.95,
-                "opt_p / ff+PID + T₀-matched flap",
+                "opt_passive / ff+PID + T₀-matched flap",
                 transform=ax.get_xaxis_transform(),
                 ha="center", fontsize=8, color="tab:green", alpha=0.8)
         ax.text(res_end + (T_max - res_end) / 2.0, 0.95,
