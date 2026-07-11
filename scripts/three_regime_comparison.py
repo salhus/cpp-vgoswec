@@ -67,6 +67,9 @@ CC_PRACTICAL_LIMIT_T = 2.0
 
 ETA_GT1_TOL = 1e-6
 
+# y-position (axis-transform fraction) for regime-band annotation labels
+REGIME_LABEL_Y = 0.95
+
 JOURNAL_STYLE = {
     "font.family": "serif",
     "font.size": 10,
@@ -697,18 +700,18 @@ def plot_operating_envelope(
     # Band: CC wins at short T
     cc_end = 2.0
     ax.axvline(cc_end, color="tab:blue", linestyle=":", linewidth=1.0, alpha=0.7)
-    ax.text(T_min + (cc_end - T_min) / 2.0, 0.95,
+    ax.text(T_min + (cc_end - T_min) / 2.0, REGIME_LABEL_Y,
             "CC + best flap", transform=ax.get_xaxis_transform(),
             ha="center", fontsize=8, color="tab:blue", alpha=0.8)
 
     # Band: resonance humps
     res_end = 4.0
     ax.axvline(res_end, color="tab:green", linestyle=":", linewidth=1.0, alpha=0.7)
-    ax.text(cc_end + (res_end - cc_end) / 2.0, 0.95,
+    ax.text(cc_end + (res_end - cc_end) / 2.0, REGIME_LABEL_Y,
             "opt_p / ff+PID + T₀-matched flap",
             transform=ax.get_xaxis_transform(),
             ha="center", fontsize=8, color="tab:green", alpha=0.8)
-    ax.text(res_end + (T_max - res_end) / 2.0, 0.95,
+    ax.text(res_end + (T_max - res_end) / 2.0, REGIME_LABEL_Y,
             "ff+PID + low-angle flap",
             transform=ax.get_xaxis_transform(),
             ha="center", fontsize=8, color="tab:orange", alpha=0.8)
@@ -791,10 +794,9 @@ def _build_efficiency_envelope(
                 rows = loader(path)
                 for r in rows:
                     if abs(r["T_s"] - T) < 1e-6:
-                        # Found the row for this T; apply masks and update best_eta.
-                        # break exits the row loop; the outer (angle, ctrl) loops
-                        # continue to the next candidate regardless of whether this
-                        # row is valid or masked.
+                        # Found the unique row for this T (rows are sorted; at most
+                        # one row matches per T). break exits the row loop; the outer
+                        # (angle, ctrl) loops continue to the next candidate.
                         if (r.get("masked", False)
                                 or r.get("linear_popt_invalid", False)):
                             break
@@ -895,14 +897,14 @@ def plot_operating_envelope_efficiency(
         res_end = 4.0
         ax.axvline(cc_end, color="tab:blue", linestyle=":", linewidth=1.0, alpha=0.7)
         ax.axvline(res_end, color="tab:green", linestyle=":", linewidth=1.0, alpha=0.7)
-        ax.text(T_min + (cc_end - T_min) / 2.0, 0.95,
+        ax.text(T_min + (cc_end - T_min) / 2.0, REGIME_LABEL_Y,
                 "CC + best flap", transform=ax.get_xaxis_transform(),
                 ha="center", fontsize=8, color="tab:blue", alpha=0.8)
-        ax.text(cc_end + (res_end - cc_end) / 2.0, 0.95,
+        ax.text(cc_end + (res_end - cc_end) / 2.0, REGIME_LABEL_Y,
                 "opt_passive / ff+PID + T₀-matched flap",
                 transform=ax.get_xaxis_transform(),
                 ha="center", fontsize=8, color="tab:green", alpha=0.8)
-        ax.text(res_end + (T_max - res_end) / 2.0, 0.95,
+        ax.text(res_end + (T_max - res_end) / 2.0, REGIME_LABEL_Y,
                 "ff+PID + low-angle flap",
                 transform=ax.get_xaxis_transform(),
                 ha="center", fontsize=8, color="tab:orange", alpha=0.8)
