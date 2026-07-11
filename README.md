@@ -41,6 +41,9 @@ Reproduce all figures from committed CSVs (no solver needed):
 python3 scripts/three_regime_comparison.py --plot-only
 ```
 
+- Plant-validation foundation: [`docs/freedecay_validation.md`](docs/freedecay_validation.md)
+- Simulation-data regeneration index: [`docs/REPRODUCTION.md`](docs/REPRODUCTION.md)
+
 ## Repository structure
 
 ```
