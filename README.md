@@ -13,6 +13,22 @@ Project Chrono for multi-body dynamics.
 - **Wave default**: Regular waves, H = 0.05 m, T = 1.5 s
 - **Four pluggable PTO controllers**: passive, optimal-passive, complex-conjugate, excitation-FF+PID
 
+## Controller / flap-config co-design
+
+Across the full VGOSWEC flap-vent sweep (VGM-0 = vents closed → VGM-90 = vents fully
+open), the two active controllers occupy complementary period bands: **complex-conjugate
+(CC) control dominates short wave periods**, while **excitation-FF+PID dominates long
+periods**. The flap configuration acts as a design knob that shifts the CC→ff+PID
+crossover, so the optimal controller is *configuration-dependent*.
+
+![CC vs ff+PID capture power across VGOSWEC flap variants](analysis/comparison/figures/cc_vs_ffpid_summary.png)
+
+*Capture power for complex-conjugate (solid) vs excitation-FF+PID (dashed) control across
+all flap variants on a shared wave-period axis. CC peaks at short T; ff+PID peaks at long
+T; the flap vent configuration tunes where each controller's peak — and the crossover
+between them — lands. See [`analysis/comparison/`](analysis/comparison/) for the
+per-variant comparison figures.*
+
 ## Repository structure
 
 ```
