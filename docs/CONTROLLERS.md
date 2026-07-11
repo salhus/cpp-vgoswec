@@ -193,18 +193,23 @@ produce per-flap and cross-flap overlay figures on the shared T = 0.5–7 s axis
 | T≈3 s | Crossover | Both controllers produce comparable net power |
 | T≳4 s | **ff+PID** | CC becomes reactive-heavy and net power drops; ff+PID in its tuned band |
 
-Terminal comparison table (VGM-0, H = 0.05 m):
+Terminal comparison table (VGM-0, H = 0.05 m). "Winner" = higher **net** P_capture; notes in
+parentheses indicate practical constraints that qualify the raw-watts result:
 
 | T [s] | CC P_cap [W] | CC react | ff+PID P_cap [W] | winner |
 |-------|-------------|---------|-----------------|--------|
 | 0.50  | 0.279       | 0.30    | 0.010           | CC     |
 | 0.70  | 0.466       | 0.06    | 0.081           | CC (low reactive) |
 | 0.90  | 0.498       | 0.31    | 0.180           | CC     |
-| 2.00  | 0.133       | 0.86    | 0.012           | CC (reactive-heavy) |
-| 3.00  | 0.234       | 0.94    | 0.138           | CC (crossover region) |
+| 2.00  | 0.133       | 0.86    | 0.012           | CC (reactive-heavy: high PTO burden) |
+| 3.00  | 0.234       | 0.94    | 0.138           | CC (crossover region; reactive-heavy) |
 | 4.00  | 0.065       | 0.92    | 0.380           | ff+PID |
 | 5.00  | 0.023       | 0.90    | 0.430           | ff+PID |
 | 7.00  | 0.003       | 0.92    | 0.112           | ff+PID |
+
+CC "wins" at T=2–3 s in raw net watts but only by circulating large amounts of reactive
+power (ratio → 0.86–0.94). A practical PTO cannot economically deliver this reactive
+burden; those wins are effectively impractical at the model scale.
 
 ### CC validation against Budal bound
 

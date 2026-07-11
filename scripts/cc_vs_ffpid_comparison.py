@@ -42,6 +42,9 @@ FLAP_LABELS = {0: "VGM-0", 10: "VGM-10", 20: "VGM-20", 45: "VGM-45", 90: "VGM-90
 # Threshold above which CC reactive ratio is flagged as "reactive-heavy (impractical)".
 REACTIVE_HEAVY_THRESHOLD = 0.5
 
+# Vertical offset (in axis-fraction units) for the "reactive-heavy" label above the threshold line.
+REACTIVE_LABEL_OFFSET = 0.03
+
 JOURNAL_STYLE = {
     "font.family": "serif",
     "font.size": 10,
@@ -243,7 +246,7 @@ def plot_per_flap_comparison(
         alpha=0.18, color="tab:red", label="Reactive-heavy (impractical)",
     )
     ax1.text(
-        0.99, REACTIVE_HEAVY_THRESHOLD + 0.03,
+        0.99, REACTIVE_HEAVY_THRESHOLD + REACTIVE_LABEL_OFFSET,
         "reactive-heavy (impractical)",
         transform=ax1.get_yaxis_transform(), ha="right", va="bottom",
         fontsize=7, color="0.4",
