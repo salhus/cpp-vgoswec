@@ -58,9 +58,9 @@
 | `P_opt_W` | Theoretical optimum power [W], blank when masked |
 | `B55_Nmsrad` | De-normalized pitch radiation damping `B55` [N·m·s/rad] |
 | `F_exc_Nm` | De-normalized pitch excitation moment magnitude `|F_exc|` for `A=0.025 m` [N·m] |
-| `eta` | Capture efficiency `η = P_capture / P_opt`, blank when masked |
+| `eta` | Capture efficiency `η = P_capture / P_opt`; only blank when `masked=true` (`B55 <= 1e-4`) |
 | `masked` | `true` where `B55 <= 1e-4` (reactive-limited / undefined `P_opt`, including non-positive `B55`) |
-| `linear_popt_invalid` *(CC sweep)* | `true` where `η > 1 + 1e-6`; short-period point (typically `T < 1 s`) flagged as outside linear single-DOF `P_opt` validity, so `η` is intentionally blank |
+| `linear_popt_invalid` | `true` where `η > 1 + 1e-6`; flagged as outside linear single-DOF `P_opt` validity in the short-period regime. These points are reported and plotted distinctly (not blanked). |
 
 ## Capture-efficiency method (tuned `exc_ff_pid`)
 
@@ -76,7 +76,13 @@
   - Wave amplitude fixed to `A = 0.025 m` (`H = 0.05 m`) for both sim and `P_opt`.
 - Masking/flagging (essential):
   - `B55 <= 1e-4` => `P_opt` undefined (reactive-limited notch), so `η` is not reported/plotted (`masked=true`).
-  - `η > 1 + 1e-6` => linear single-DOF `P_opt` locally invalid (short-period nonlinear regime, typically `T < 1 s`), so `η` is not reported and row is flagged (`linear_popt_invalid=true`).
+  - `η > 1 + 1e-6` => linear single-DOF `P_opt` locally invalid (short-period nonlinear regime, typically `T < 1 s`); points are still reported/plotted and flagged (`linear_popt_invalid=true`).
+  - `η > 100%` is shown and flagged (not hidden); this indicates linear `P_opt` underestimates the true optimum in that regime, not super-optimal capture.
+- Active-controller figures generated from committed CSVs:
+  - `analysis/passive_guarded/figures/capture_efficiency_VGM*.png` and `capture_efficiency_summary.png` (ff+PID efficiency).
+  - `analysis/cc/figures/capture_efficiency_VGM*.png` and `capture_efficiency_summary.png` (CC efficiency).
+  - `analysis/cc/figures/power_breakdown_VGM*.png` showing **injected**, **converted**, and **captured** (`captured = converted - injected`).
+  - `analysis/comparison/figures/cc_vs_ffpid_efficiency_VGM*.png` and `cc_vs_ffpid_efficiency_summary.png` (CC vs ff+PID efficiency comparisons).
 - **VGM-0 finding (not a failure):** across `T ≈ 3.0–7.0 s`, VGM-0's pitch `B55` is ~10⁻⁷ N·m·s/rad
   (four orders below the other flaps), so the linear complex-conjugate `P_opt` is physically
   undefined and the band is masked. Notably, VGM-0's *captured* power peaks (~0.14 W at T≈4.5 s)
@@ -106,4 +112,6 @@ python3 scripts/capture_efficiency_sweep.py
 
 # 4. Re-plot only, from committed capture-efficiency CSVs
 python3 scripts/capture_efficiency_sweep.py --plot-only
+python3 scripts/cc_capture_efficiency_sweep.py --plot-only
+python3 scripts/cc_vs_ffpid_comparison.py --plot-only
 ```

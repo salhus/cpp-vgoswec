@@ -32,16 +32,7 @@ ETA_GT1_TOL = 1e-6
 PITCH_DOF_INDEX = 4
 MASK_NOTE = f"B55 <= {MASK_B55_THRESHOLD:.0e}"
 ETA_GT1_NOTE = f"eta > {1.0 + ETA_GT1_TOL:.6f}"
-LINEAR_INVALID_HATCH = "xx"
-LINEAR_INVALID_MARKER_SIZE = 24
-LINEAR_INVALID_MARKER_ALPHA = 0.9
-
-
-def _compute_invalid_marker_y_position(eta_pct: np.ndarray) -> float:
-    finite_eta = eta_pct[np.isfinite(eta_pct)]
-    if finite_eta.size == 0:
-        return 100.0
-    return float(np.clip(np.nanmax(finite_eta) + 2.0, 0.0, 100.0))
+ETA_INVALID_LABEL = "η > 1: linear $P_{opt}$ invalid (short-period)"
 
 FLAPS = {
     0: {"label": "VGM-0", "config": "config/vgoswec_0_cc.yaml", "h5": "hydroData/vgoswec_0.h5"},
@@ -232,6 +223,18 @@ def load_efficiency_csv(csv_path: Path) -> list[dict]:
                     "linear_popt_invalid": str(r.get("linear_popt_invalid", "false")).strip().lower() == "true",
                 }
             )
+    for row in rows:
+        if (
+            (not row["masked"])
+            and (not np.isfinite(row["eta"]))
+            and np.isfinite(row["P_capture_W"])
+            and np.isfinite(row["P_opt_W"])
+            and row["P_opt_W"] > 0.0
+        ):
+            row["eta"] = row["P_capture_W"] / row["P_opt_W"]
+        row["linear_popt_invalid"] = bool(
+            row["linear_popt_invalid"] or (np.isfinite(row["eta"]) and row["eta"] > (1.0 + ETA_GT1_TOL))
+        )
     rows.sort(key=lambda d: d["T_s"])
     return rows
 
@@ -266,14 +269,26 @@ def plot_per_flap(rows: list[dict], flap_angle: int, out_png: Path) -> None:
     masked = np.array([r["masked"] for r in rows], dtype=bool)
     linear_invalid = np.array([r["linear_popt_invalid"] for r in rows], dtype=bool)
     fig, (ax0, ax1) = plt.subplots(2, 1, figsize=(8.2, 6.0), sharex=True)
-    ax0.plot(T, p_cap, marker="o", color="tab:blue", linewidth=1.8, label="$P_{capture}$")
+    ax0.plot(T, p_cap, marker="o", color="tab:blue", linewidth=1.8, label="captured")
     ax0.plot(T, p_opt, marker="s", color="k", linestyle="--", linewidth=1.4, label="$P_{opt}$")
-    ax1.plot(T, eta, marker="o", color="tab:green", linewidth=1.8, label="$\\eta$")
+    normal_eta = (~masked) & np.isfinite(eta) & (~linear_invalid)
+    invalid_eta = (~masked) & np.isfinite(eta) & linear_invalid
+    if np.any(normal_eta):
+        ax1.plot(T[normal_eta], eta[normal_eta], marker="o", color="tab:green", linewidth=1.8, label="$\\eta$")
+    if np.any(invalid_eta):
+        ax1.plot(
+            T[invalid_eta],
+            eta[invalid_eta],
+            marker="o",
+            linestyle="None",
+            markerfacecolor="none",
+            markeredgecolor="tab:red",
+            markeredgewidth=1.4,
+            label=ETA_INVALID_LABEL,
+        )
     for ax in (ax0, ax1):
         for x0, x1 in _masked_spans(T, masked):
             ax.axvspan(x0, x1, facecolor="0.9", edgecolor="0.5", hatch="//", alpha=0.8)
-        for x0, x1 in _masked_spans(T, linear_invalid):
-            ax.axvspan(x0, x1, facecolor="#f9d9d9", edgecolor="#b44d4d", hatch=LINEAR_INVALID_HATCH, alpha=0.55)
         ax.grid(True, alpha=0.3, linestyle="--")
     ax0.set_ylabel("Power [W]")
     ax1.set_ylabel("Efficiency [%]")
@@ -286,7 +301,8 @@ def plot_per_flap(rows: list[dict], flap_angle: int, out_png: Path) -> None:
         0.01,
         (
             f"Mask rules: {MASK_NOTE} N·m·s/rad (reactive-limited notch); "
-            f"{ETA_GT1_NOTE} => linear single-DOF $P_{{opt}}$ invalid in short-period regime (typically T < 1 s), $\\eta$ not reported."
+            f"{ETA_GT1_NOTE} => linear single-DOF $P_{{opt}}$ invalid in short-period regime (typically T < 1 s); "
+            "$\\eta$ is shown and flagged. η > 100% indicates linear $P_{opt}$ underestimates the true optimum in that regime."
         ),
         fontsize=7,
         color="0.35",
@@ -307,17 +323,20 @@ def plot_summary(csv_map: dict[int, Path], out_png: Path) -> None:
         linear_invalid = np.array([r["linear_popt_invalid"] for r in rows], dtype=bool)
         p_conv = np.array([r["P_converted_W"] for r in rows], dtype=float)
         p_inj = np.array([r["P_injected_W"] for r in rows], dtype=float)
+        masked = np.array([r["masked"] for r in rows], dtype=bool)
         label = FLAPS[angle]["label"]
-        ax0.plot(T, eta, marker="o", linewidth=1.8, color=color, label=label)
-        if np.any(linear_invalid):
-            marker_y = _compute_invalid_marker_y_position(eta)
-            ax0.scatter(
-                T[linear_invalid],
-                np.full(np.count_nonzero(linear_invalid), marker_y),
-                marker="x",
-                s=LINEAR_INVALID_MARKER_SIZE,
-                color=color,
-                alpha=LINEAR_INVALID_MARKER_ALPHA,
+        normal_eta = (~masked) & np.isfinite(eta) & (~linear_invalid)
+        invalid_eta = (~masked) & np.isfinite(eta) & linear_invalid
+        ax0.plot(T[normal_eta], eta[normal_eta], marker="o", linewidth=1.8, color=color, label=label)
+        if np.any(invalid_eta):
+            ax0.plot(
+                T[invalid_eta],
+                eta[invalid_eta],
+                marker="o",
+                linestyle="None",
+                markerfacecolor="none",
+                markeredgecolor=color,
+                markeredgewidth=1.4,
             )
         ax1.plot(T, p_conv, marker="o", linewidth=1.6, color=color, label=f"{label} converted")
         ax1.plot(T, p_inj, marker="x", linewidth=1.4, linestyle="--", color=color, alpha=0.8, label=f"{label} injected")
@@ -328,7 +347,11 @@ def plot_summary(csv_map: dict[int, Path], out_png: Path) -> None:
     ax0.text(
         0.01,
         0.02,
-        f"X marks: {ETA_GT1_NOTE} (linear single-DOF $P_{{opt}}$ invalid; $\\eta$ hidden).",
+        (
+            f"Open markers: {ETA_GT1_NOTE} "
+            "(linear single-DOF $P_{opt}$ invalid in short-period regime). "
+            "η > 100% is shown and flagged."
+        ),
         transform=ax0.transAxes,
         fontsize=7,
         color="#8a2d2d",
@@ -338,6 +361,39 @@ def plot_summary(csv_map: dict[int, Path], out_png: Path) -> None:
     ax1.set_title("Injected vs converted power summary (cc)")
     ax1.grid(True, alpha=0.3, linestyle="--")
     ax1.legend(loc="best", fontsize=7, ncol=2)
+    fig.tight_layout()
+    out_png.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_png)
+    plt.close(fig)
+
+
+def plot_power_breakdown(rows: list[dict], flap_angle: int, out_png: Path) -> None:
+    meta = FLAPS[flap_angle]
+    T = np.array([r["T_s"] for r in rows], dtype=float)
+    masked = np.array([r["masked"] for r in rows], dtype=bool)
+    converted = np.array([r["P_converted_W"] for r in rows], dtype=float)
+    injected = np.array([r["P_injected_W"] for r in rows], dtype=float)
+    captured = np.array([r["P_capture_W"] for r in rows], dtype=float)
+
+    fig, ax = plt.subplots(figsize=(8.4, 4.8))
+    ax.plot(T, injected, marker="x", linestyle="--", linewidth=1.5, color="tab:orange", label="injected")
+    ax.plot(T, converted, marker="o", linewidth=1.8, color="tab:blue", label="converted")
+    ax.plot(T, captured, marker="s", linewidth=1.8, color="tab:green", label="captured")
+    for x0, x1 in _masked_spans(T, masked):
+        ax.axvspan(x0, x1, facecolor="0.9", edgecolor="0.5", hatch="//", alpha=0.8)
+    ax.set_xlabel("Wave period $T$ [s]")
+    ax.set_ylabel("Power [W]")
+    ax.set_title(f"{meta['label']} CC power breakdown")
+    ax.grid(True, alpha=0.3, linestyle="--")
+    ax.legend(loc="best", fontsize=8)
+    ax.text(
+        0.01,
+        0.02,
+        "captured = converted − injected",
+        transform=ax.transAxes,
+        fontsize=8,
+        color="0.35",
+    )
     fig.tight_layout()
     out_png.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_png)
@@ -371,8 +427,7 @@ def compute_and_write_csvs(repo: Path, demo: Path, run_sim: bool) -> dict[int, P
                 eta_candidate = p_capture / p_opt[i]
                 if eta_candidate > (1.0 + ETA_GT1_TOL):
                     linear_popt_invalid = True
-                else:
-                    eta = eta_candidate
+                eta = eta_candidate
             rows.append(
                 {
                     "T_s": f"{T:.2f}",
@@ -383,7 +438,7 @@ def compute_and_write_csvs(repo: Path, demo: Path, run_sim: bool) -> dict[int, P
                     "F_exc_Nm": f"{fexc[i]:.8e}",
                     "P_converted_W": f"{p_converted:.8e}",
                     "P_injected_W": f"{p_injected:.8e}",
-                    "eta": "" if masked[i] or linear_popt_invalid or not np.isfinite(eta) else f"{eta:.8e}",
+                    "eta": "" if masked[i] or not np.isfinite(eta) else f"{eta:.8e}",
                     "masked": "true" if masked[i] else "false",
                     "linear_popt_invalid": "true" if linear_popt_invalid else "false",
                 }
@@ -401,6 +456,9 @@ def regenerate_plots_from_csv(repo: Path, csv_map: dict[int, Path]) -> None:
         out_png = repo / "analysis" / "cc" / "figures" / f"capture_efficiency_VGM{angle}.png"
         plot_per_flap(rows, angle, out_png)
         print(f"[ok] wrote {out_png}")
+        power_png = repo / "analysis" / "cc" / "figures" / f"power_breakdown_VGM{angle}.png"
+        plot_power_breakdown(rows, angle, power_png)
+        print(f"[ok] wrote {power_png}")
     summary_png = repo / "analysis" / "cc" / "figures" / "capture_efficiency_summary.png"
     plot_summary(csv_map, summary_png)
     print(f"[ok] wrote {summary_png}")

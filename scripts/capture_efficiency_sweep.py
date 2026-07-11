@@ -41,8 +41,11 @@ WAVE_HEIGHT_M = 0.05
 WAVE_AMPLITUDE_M = WAVE_HEIGHT_M / 2.0
 DURATION_S = 171.0
 MASK_B55_THRESHOLD = 1e-4
+ETA_GT1_TOL = 1e-6
 PITCH_DOF_INDEX = 4  # 0-based, DOF5 (pitch)
 MASK_NOTE = f"B55 <= {MASK_B55_THRESHOLD:.0e}"
+ETA_GT1_NOTE = f"eta > {1.0 + ETA_GT1_TOL:.6f}"
+ETA_INVALID_LABEL = "η > 1: linear $P_{opt}$ invalid (short-period)"
 
 FLAPS = {
     0: {
@@ -242,7 +245,17 @@ def load_efficiency_csv(csv_path: Path) -> list[dict]:
                 "F_exc_Nm": float(r["F_exc_Nm"]),
                 "eta": float(r["eta"]) if r["eta"].strip() else float("nan"),
                 "masked": str(r["masked"]).strip().lower() == "true",
+                "linear_popt_invalid": str(r.get("linear_popt_invalid", "false")).strip().lower() == "true",
             }
+            if (
+                (not out["masked"])
+                and (not np.isfinite(out["eta"]))
+                and np.isfinite(out["P_capture_W"])
+                and np.isfinite(out["P_opt_W"])
+                and out["P_opt_W"] > 0.0
+            ):
+                out["eta"] = out["P_capture_W"] / out["P_opt_W"]
+            out["linear_popt_invalid"] = bool(out["linear_popt_invalid"] or (np.isfinite(out["eta"]) and out["eta"] > (1.0 + ETA_GT1_TOL)))
             rows.append(out)
     rows.sort(key=lambda d: d["T_s"])
     return rows
@@ -277,6 +290,7 @@ def plot_per_flap(rows: list[dict], flap_angle: int, out_png: Path) -> None:
     p_opt = np.array([r["P_opt_W"] for r in rows], dtype=float)
     eta = np.array([r["eta"] for r in rows], dtype=float)
     masked = np.array([r["masked"] for r in rows], dtype=bool)
+    linear_invalid = np.array([r["linear_popt_invalid"] for r in rows], dtype=bool)
 
     eta_pct = eta * 100.0
 
@@ -284,7 +298,21 @@ def plot_per_flap(rows: list[dict], flap_angle: int, out_png: Path) -> None:
 
     ax0.plot(T, p_cap, marker="o", color="tab:blue", linewidth=1.8, label="$P_{capture}$")
     ax0.plot(T, p_opt, marker="s", color="k", linestyle="--", linewidth=1.4, label="$P_{opt}$")
-    ax1.plot(T, eta_pct, marker="o", color="tab:green", linewidth=1.8, label="$\\eta$")
+    normal_eta = (~masked) & np.isfinite(eta_pct) & (~linear_invalid)
+    invalid_eta = (~masked) & np.isfinite(eta_pct) & linear_invalid
+    if np.any(normal_eta):
+        ax1.plot(T[normal_eta], eta_pct[normal_eta], marker="o", color="tab:green", linewidth=1.8, label="$\\eta$")
+    if np.any(invalid_eta):
+        ax1.plot(
+            T[invalid_eta],
+            eta_pct[invalid_eta],
+            marker="o",
+            linestyle="None",
+            markerfacecolor="none",
+            markeredgecolor="tab:red",
+            markeredgewidth=1.4,
+            label=ETA_INVALID_LABEL,
+        )
 
     for ax in (ax0, ax1):
         for x0, x1 in _masked_spans(T, masked):
@@ -304,7 +332,10 @@ def plot_per_flap(rows: list[dict], flap_angle: int, out_png: Path) -> None:
     fig.text(
         0.01,
         0.01,
-        f"Mask rule: {MASK_NOTE} N·m·s/rad (reactive-limited)",
+        (
+            f"Mask rule: {MASK_NOTE} N·m·s/rad (reactive-limited). "
+            "η > 100% points are shown and flagged; this indicates linear $P_{opt}$ underestimates the true optimum in that regime."
+        ),
         fontsize=7,
         color="0.35",
     )
@@ -323,7 +354,21 @@ def plot_summary(csv_map: dict[int, Path], out_png: Path) -> None:
         rows = load_efficiency_csv(csv_map[angle])
         T = np.array([r["T_s"] for r in rows], dtype=float)
         eta = np.array([r["eta"] for r in rows], dtype=float) * 100.0
-        ax.plot(T, eta, marker="o", linewidth=1.8, color=color, label=FLAPS[angle]["label"])
+        masked = np.array([r["masked"] for r in rows], dtype=bool)
+        linear_invalid = np.array([r["linear_popt_invalid"] for r in rows], dtype=bool)
+        normal_eta = (~masked) & np.isfinite(eta) & (~linear_invalid)
+        invalid_eta = (~masked) & np.isfinite(eta) & linear_invalid
+        ax.plot(T[normal_eta], eta[normal_eta], marker="o", linewidth=1.8, color=color, label=FLAPS[angle]["label"])
+        if np.any(invalid_eta):
+            ax.plot(
+                T[invalid_eta],
+                eta[invalid_eta],
+                marker="o",
+                linestyle="None",
+                markerfacecolor="none",
+                markeredgecolor=color,
+                markeredgewidth=1.4,
+            )
 
     ax.set_xlabel("Wave period $T$ [s]")
     ax.set_ylabel("Capture efficiency $\\eta$ [%]")
@@ -333,7 +378,10 @@ def plot_summary(csv_map: dict[int, Path], out_png: Path) -> None:
     ax.text(
         0.01,
         0.02,
-        f"Masked points omitted where {MASK_NOTE} (reactive-limited)",
+        (
+            f"Masked points omitted where {MASK_NOTE}. "
+            f"Flagged markers indicate {ETA_GT1_NOTE}: linear $P_{{opt}}$ invalid (short-period)."
+        ),
         transform=ax.transAxes,
         fontsize=7,
         color="0.35",
