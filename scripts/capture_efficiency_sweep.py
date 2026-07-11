@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 """Compute and plot capture efficiency for tuned VGOSWEC exc_ff_pid controllers.
 
-For each flap angle variant (VGM-0,10,20,45,90) across T=2.0..7.0 s:
+For each flap angle variant (VGM-0,10,20,45,90) across T=0.5..7.0 s:
   - Run tuned controller headless and compute steady-state mean absorbed power
     (second half of run) => P_capture(T)
   - Compute P_opt(T) from body1 pitch hydrodynamics in H5
     (radiation_damping/components/5_5 + excitation/mag[dof=5,dir=0], de-normalized)
   - Mask reactive-limited points where B55 <= 1e-4
-  - Write per-flap CSVs under analysis/
-  - Generate per-flap and cross-flap figures under analysis/figures/
+  - Write per-flap CSVs under analysis/passive_guarded/
+  - Generate per-flap and cross-flap figures under analysis/passive_guarded/figures/
 
 Figures are regenerable from CSV with --plot-only.
+
+Note: below T≈1.5 s, exc_ff_pid is outside its tuned band (designed for T=2–7 s);
+expected low power capture in the short-period region is not an error.
 """
 
 from __future__ import annotations
@@ -29,11 +32,11 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-# Wave-tank-scale device: physically active pitch-radiation band is w~6-11 rad/s
-# (see BEMRosetta B55 plot). H5 native w covers 0.05..15 rad/s. Sweep uniformly in
-# frequency across w=4..12 rad/s (drops the noisy near-zero-B55 low-w edge).
-OMEGA_GRID = np.linspace(4.0, 12.0, 17)          # rad/s (0.5 rad/s steps)
-PERIOD_GRID = 2.0 * np.pi / OMEGA_GRID            # -> T ~ 0.52..1.57 s (descending; sorted on write)
+# Shared period grid T = 0.5 … 7.0 s (uniform in T, 0.5 s steps) — identical to the
+# CC sweep grid so both controllers' curves share x-values point-for-point.
+# Note: below T≈1.5 s, exc_ff_pid is outside its tuned band (designed for T=2–7 s);
+# expected low power capture in the short-period region is not an error.
+PERIOD_GRID = np.arange(0.5, 7.01, 0.5)  # T = 0.5, 1.0, 1.5, …, 7.0 s (14 points)
 WAVE_HEIGHT_M = 0.05
 WAVE_AMPLITUDE_M = WAVE_HEIGHT_M / 2.0
 DURATION_S = 171.0
@@ -233,7 +236,7 @@ def load_efficiency_csv(csv_path: Path) -> list[dict]:
             out = {
                 "T_s": float(r["T_s"]),
                 "omega_rads": float(r["omega_rads"]),
-                "P_capture_W": float(r["P_capture_W"]),
+                "P_capture_W": float(r["P_capture_W"]) if r["P_capture_W"].strip() else float("nan"),
                 "P_opt_W": float(r["P_opt_W"]) if r["P_opt_W"].strip() else float("nan"),
                 "B55_Nmsrad": float(r["B55_Nmsrad"]),
                 "F_exc_Nm": float(r["F_exc_Nm"]),

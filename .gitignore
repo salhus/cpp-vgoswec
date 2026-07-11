@@ -9,8 +9,16 @@ __pycache__/
 # Committed analysis data — allow sweep CSVs and figures
 !analysis/*.csv
 !analysis/cc_hinge/*.csv
+!analysis/cc/*.csv
+!analysis/passive_guarded/*.csv
 !analysis/figures/
 !analysis/figures/*.png
+!analysis/cc/figures/
+!analysis/cc/figures/*.png
+!analysis/passive_guarded/figures/
+!analysis/passive_guarded/figures/*.png
+!analysis/comparison/figures/
+!analysis/comparison/figures/*.png
 
 # CMake
 CMakeCache.txt
