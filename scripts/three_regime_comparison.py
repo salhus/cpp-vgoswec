@@ -734,6 +734,204 @@ def plot_operating_envelope(
 
 
 # ---------------------------------------------------------------------------
+# Efficiency operating-envelope (companion to power envelope)
+# ---------------------------------------------------------------------------
+
+def _build_efficiency_envelope(
+    cc_map: dict[int, Path],
+    op_map: dict[int, Path],
+    fp_map: dict[int, Path],
+) -> list[dict]:
+    """Compute per-period efficiency upper hull across all controllers and flap angles.
+
+    Rules (CRITICAL — mask-respecting):
+    - Skip any (flap, controller, T) where:
+        * masked == True
+        * linear_popt_invalid == True (if column exists)
+        * eta is NaN / empty
+        * eta > 1 + ETA_GT1_TOL  (inflated-efficiency / P_opt-undefined spike)
+    - If ALL candidates at a given T are masked/invalid, emit a row with
+      eta_max=NaN, controller="", flap_angle=-1, masked=True.
+
+    Returns list of dicts:
+      T_s, eta_max, controller, flap_angle, masked
+    """
+    # Collect T grid from all available CSVs
+    all_T_sets: list[np.ndarray] = []
+    loaders = [(cc_map, _load_cc_csv), (op_map, _load_opt_passive_csv),
+               (fp_map, _load_ffpid_csv)]
+    for cmap, loader in loaders:
+        for path in cmap.values():
+            if path.exists():
+                rows = loader(path)
+                all_T_sets.append(np.array([r["T_s"] for r in rows]))
+
+    if not all_T_sets:
+        return []
+
+    T_grid = np.unique(np.concatenate(all_T_sets))
+    T_grid = np.round(T_grid, 6)
+
+    hull: list[dict] = []
+    for T in T_grid:
+        best_eta = float("-inf")
+        best_ctrl = ""
+        best_flap = -1
+        any_valid = False
+
+        for angle in FLAP_ANGLES:
+            for ctrl_name, cmap, loader, is_cc in [
+                ("CC", cc_map, _load_cc_csv, True),
+                ("opt_passive", op_map, _load_opt_passive_csv, False),
+                ("ff+PID", fp_map, _load_ffpid_csv, False),
+            ]:
+                path = cmap.get(angle)
+                if path is None or not path.exists():
+                    continue
+                rows = loader(path)
+                for r in rows:
+                    if abs(r["T_s"] - T) < 1e-6:
+                        # Apply masks
+                        if r.get("masked", False):
+                            break
+                        if r.get("linear_popt_invalid", False):
+                            break
+                        eta, invalid = _eta_valid(r, is_cc)
+                        if invalid or not math.isfinite(eta):
+                            break
+                        any_valid = True
+                        if eta > best_eta:
+                            best_eta = eta
+                            best_ctrl = ctrl_name
+                            best_flap = angle
+                        break
+
+        if any_valid and best_flap >= 0:
+            hull.append({
+                "T_s": float(T),
+                "eta_max": float(best_eta),
+                "controller": best_ctrl,
+                "flap_angle": best_flap,
+                "masked": False,
+            })
+        else:
+            # All candidates masked/invalid at this T
+            hull.append({
+                "T_s": float(T),
+                "eta_max": float("nan"),
+                "controller": "",
+                "flap_angle": -1,
+                "masked": True,
+            })
+
+    hull.sort(key=lambda d: d["T_s"])
+    return hull
+
+
+def _write_efficiency_envelope_csv(hull: list[dict], csv_path: Path) -> None:
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    with csv_path.open("w", newline="") as fh:
+        writer = csv.DictWriter(
+            fh, fieldnames=["T_s", "eta_max", "controller", "flap_angle", "masked"]
+        )
+        writer.writeheader()
+        for row in hull:
+            writer.writerow({
+                "T_s": row["T_s"],
+                "eta_max": "" if (not math.isfinite(row["eta_max"])) else row["eta_max"],
+                "controller": row["controller"],
+                "flap_angle": row["flap_angle"] if row["flap_angle"] >= 0 else "",
+                "masked": str(row["masked"]).lower(),
+            })
+    print(f"[ok] wrote {csv_path}")
+
+
+def plot_operating_envelope_efficiency(
+    hull: list[dict],
+    out_png: Path,
+    efficiency_ceiling: float,
+) -> None:
+    """Plot the efficiency operating hull (upper η envelope across all controller×flap combos)."""
+    valid = [d for d in hull if not d["masked"] and math.isfinite(d["eta_max"])]
+    all_T = np.array([d["T_s"] for d in hull], dtype=float)
+    masked_flags = np.array([d["masked"] for d in hull], dtype=bool)
+
+    T_valid = np.array([d["T_s"] for d in valid], dtype=float)
+    eta_valid_arr = np.array([d["eta_max"] * 100.0 for d in valid], dtype=float)
+
+    fig, ax = plt.subplots(figsize=(9.0, 5.5))
+
+    # Hatching for all-masked periods
+    _add_masked_spans(ax, all_T, masked_flags, label="Masked / P_opt undefined")
+
+    if len(T_valid) > 0:
+        # Fill under the envelope
+        ax.fill_between(T_valid, 0.0, eta_valid_arr, alpha=0.12, color="0.3", zorder=0.3)
+        ax.plot(T_valid, eta_valid_arr, color="0.2", linewidth=2.2, zorder=4,
+                label="Efficiency envelope (upper hull)")
+
+        # Overlay per-controller scatter with distinct colours
+        ctrl_colors = {"CC": "tab:blue", "opt_passive": "tab:green", "ff+PID": "tab:orange"}
+        ctrl_markers = {"CC": "o", "opt_passive": "s", "ff+PID": "^"}
+        labeled: set[tuple] = set()
+
+        for d in valid:
+            ctrl = d["controller"]
+            flap = d["flap_angle"]
+            key = (ctrl, flap)
+            lbl = f"{ctrl} (VGM-{flap})" if key not in labeled else None
+            if lbl:
+                labeled.add(key)
+            ax.scatter(d["T_s"], d["eta_max"] * 100.0,
+                       marker=ctrl_markers.get(ctrl, "x"),
+                       color=ctrl_colors.get(ctrl, "gray"),
+                       s=28, zorder=5)
+
+        # Legend entries for controllers
+        for ctrl, color in ctrl_colors.items():
+            ax.plot([], [], color=color,
+                    marker=ctrl_markers.get(ctrl, "x"),
+                    linestyle="", label=ctrl)
+
+        # Annotate regime bands
+        T_min, T_max = float(all_T.min()), float(all_T.max())
+        cc_end = 2.0
+        res_end = 4.0
+        ax.axvline(cc_end, color="tab:blue", linestyle=":", linewidth=1.0, alpha=0.7)
+        ax.axvline(res_end, color="tab:green", linestyle=":", linewidth=1.0, alpha=0.7)
+        ax.text(T_min + (cc_end - T_min) / 2.0, 0.95,
+                "CC + best flap", transform=ax.get_xaxis_transform(),
+                ha="center", fontsize=8, color="tab:blue", alpha=0.8)
+        ax.text(cc_end + (res_end - cc_end) / 2.0, 0.95,
+                "opt_p / ff+PID + T₀-matched flap",
+                transform=ax.get_xaxis_transform(),
+                ha="center", fontsize=8, color="tab:green", alpha=0.8)
+        ax.text(res_end + (T_max - res_end) / 2.0, 0.95,
+                "ff+PID + low-angle flap",
+                transform=ax.get_xaxis_transform(),
+                ha="center", fontsize=8, color="tab:orange", alpha=0.8)
+
+    ax.set_xlabel("Wave period $T$ [s]")
+    ax.set_ylabel("Best achievable capture efficiency η [%]")
+    ax.set_title(
+        "VGOSWEC master efficiency operating envelope\n"
+        "Upper hull: best η (controller, flap angle) at every period — masked/invalid excluded"
+    )
+    _style_period_axis(ax)
+    _style_efficiency_axis(ax)
+    _style_common(ax)
+    ax.set_xlim(float(all_T.min()) - 0.1, float(all_T.max()) + 0.1)
+    ax.set_ylim(0.0, efficiency_ceiling)
+    ax.legend(loc="upper right", fontsize=8)
+
+    fig.tight_layout()
+    out_png.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_png)
+    plt.close(fig)
+    print(f"[ok] wrote {out_png}")
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -817,12 +1015,21 @@ def main() -> int:
     plot_summary_efficiency(cc_present, op_present, fp_present,
                             out_dir / "three_regime_efficiency_summary.png", efficiency_ceiling)
 
-    # Master operating envelope (Task 4)
+    # Master operating envelope — power hull (Task 4)
     hull = _build_envelope(cc_present, op_present, fp_present)
     if hull:
         hull_csv = repo / "analysis" / "three_regime" / "operating_envelope.csv"
         _write_envelope_csv(hull, hull_csv)
         plot_operating_envelope(hull, out_dir / "operating_envelope.png", power_ceiling)
+
+    # Master operating envelope — efficiency hull (companion)
+    eff_hull = _build_efficiency_envelope(cc_present, op_present, fp_present)
+    if eff_hull:
+        eff_hull_csv = repo / "analysis" / "three_regime" / "operating_envelope_efficiency.csv"
+        _write_efficiency_envelope_csv(eff_hull, eff_hull_csv)
+        plot_operating_envelope_efficiency(
+            eff_hull, out_dir / "operating_envelope_efficiency.png", efficiency_ceiling
+        )
 
     return 0
 

@@ -85,6 +85,8 @@ model scale. CC's practical useful range is T ≲ 2 s.
 
 ## 4. Master operating envelope (co-design capstone)
 
+### 4a. Power operating hull
+
 For each wave period T, the **upper hull = max(P_capture)** over all controllers AND
 all flap variants gives the best achievable power from any (controller, flap-angle)
 combination.
@@ -96,9 +98,119 @@ See `analysis/three_regime/figures/operating_envelope.png` and
 - **Short T (≲2 s):** CC + VGM-0 (closed flap, Budal-bound tracking, up to 2.34 W)
 - **Resonance band (≈2.5–5 s):** opt_passive or ff+PID + the flap whose T₀ matches
   the wave period (90° at T≈2.5 s, marching down to 0° at T≈4.75 s)
-- **Long tail (≳5 s):** ff+PID + VGM-0 (low-angle flap holds the longest radiation tail)
+- **Long tail (≳5 s):** opt_passive + VGM-0 (large excitation despite pitch-radiation notch)
 
 No single controller or flap reaches this envelope alone.
+
+| T_s | P_max_W | controller | flap_angle |
+|-----|---------|-----------|-----------|
+| 0.50 | 0.2958 | CC | 90 |
+| 0.75 | 0.5708 | CC | 90 |
+| 1.00 | 1.4970 | CC | 0 |
+| 1.25 | 1.9298 | CC | 0 |
+| 1.50 | 2.3427 | CC | 0 |
+| 1.75 | 1.9575 | CC | 0 |
+| 2.00 | 1.2889 | CC | 0 |
+| 2.25 | 0.8149 | CC | 0 |
+| 2.50 | 0.5238 | CC | 0 |
+| 2.75 | 0.5467 | ff+PID | 90 |
+| 3.00 | 0.6316 | ff+PID | 45 |
+| 3.25 | 0.7547 | opt_passive | 20 |
+| 3.50 | 0.7721 | opt_passive | 10 |
+| 3.75 | 0.6291 | ff+PID | 10 |
+| 4.00 | 0.5114 | ff+PID | 10 |
+| 4.25 | 0.4394 | ff+PID | 0 |
+| 4.50 | 0.6534 | opt_passive | 0 |
+| 4.75 | 0.6814 | opt_passive | 0 |
+| 5.00 | 0.5927 | opt_passive | 0 |
+| 5.25 | 0.4977 | opt_passive | 0 |
+| 5.50 | 0.4194 | opt_passive | 0 |
+| 5.75 | 0.3479 | opt_passive | 0 |
+| 6.00 | 0.2897 | opt_passive | 0 |
+| 6.25 | 0.2460 | opt_passive | 0 |
+| 6.50 | 0.2064 | opt_passive | 0 |
+| 6.75 | 0.1757 | opt_passive | 0 |
+| 7.00 | 0.1478 | opt_passive | 0 |
+
+### 4b. Efficiency operating hull
+
+For each period T, the **efficiency upper hull = max(η)** over all controllers AND flap
+variants, where η = P_capture / P_opt. **Only unmasked, well-defined points are
+included**: rows where `masked == true`, `linear_popt_invalid == true`, η is NaN, or
+η > 1 + ε are skipped (the VGM-0 pitch-radiation notch at T ≥ 3.0 s and the
+short-period `linear_popt_invalid` region make P_opt undefined there).
+
+See `analysis/three_regime/figures/operating_envelope_efficiency.png` and
+`analysis/three_regime/operating_envelope_efficiency.csv`.
+
+| T_s | eta_max | controller | flap_angle |
+|-----|---------|-----------|-----------|
+| 0.50 | 0.823 | opt_passive | 90 |
+| 0.75 | 0.991 | CC | 45 |
+| 1.00 | 0.962 | CC | 45 |
+| 1.25 | 0.902 | CC | 10 |
+| 1.50 | 0.940 | CC | 0 |
+| 1.75 | 0.636 | CC | 0 |
+| 2.00 | 0.357 | CC | 0 |
+| 2.25 | 0.200 | CC | 0 |
+| 2.50 | 0.119 | opt_passive | 90 |
+| 2.75 | 0.121 | ff+PID | 90 |
+| 3.00 | 0.133 | ff+PID | 45 |
+| 3.25 | 0.156 | opt_passive | 20 |
+| 3.50 | 0.149 | opt_passive | 10 |
+| 3.75 | 0.121 | ff+PID | 10 |
+| 4.00 | 0.097 | ff+PID | 10 |
+| 4.25 | 0.080 | ff+PID | 10 |
+| 4.50 | 0.065 | ff+PID | 10 |
+| 4.75 | 0.054 | ff+PID | 10 |
+| 5.00 | 0.046 | ff+PID | 10 |
+| 5.25 | 0.032 | ff+PID | 20 |
+| 5.50 | 0.017 | ff+PID | 45 |
+| 5.75 | 0.015 | ff+PID | 45 |
+| 6.00 | 0.013 | ff+PID | 45 |
+| 6.25 | 0.012 | ff+PID | 45 |
+| 6.50 | 0.007 | ff+PID | 90 |
+| 6.75 | 0.007 | ff+PID | 90 |
+| 7.00 | 0.006 | ff+PID | 90 |
+
+### 4c. Power vs efficiency co-design schedules diverge
+
+The two hulls select **different (controller, flap-angle) winners** at 17 of the 27
+period points. The divergence has two structural causes:
+
+**1. Short-period flap selection (T ≤ 1.25 s, T = 2.5 s):**
+At T ≤ 1.25 s the power hull picks CC + VGM-0 because the closed-flap geometry
+produces the largest excitation torque (and thus highest raw P_capture). The
+efficiency hull, however, picks CC + VGM-45 or VGM-10 — those flaps achieve a larger
+fraction of their own P_opt because their hydrodynamic coupling is better matched at
+short periods. At T = 0.5 s the efficiency hull switches entirely to opt_passive/90:
+here the CC `linear_popt_invalid` flag makes all CC η values undefined, and opt_passive
+on the wide-open flap captures the highest valid η.
+
+**2. Long-period VGM-0 notch (T ≥ 4.25 s):**
+The most dramatic divergence. The power hull selects opt_passive + VGM-0 at
+T = 4.5–7.0 s because VGM-0 still produces measurable P_capture (0.15–0.68 W) in
+this band — even though P_opt is undefined (the pitch-radiation B55 → 0 notch makes
+the theoretical optimum diverge). The efficiency hull **must exclude** all VGM-0
+T ≥ 3.0 s data (`masked = true`, P_opt empty) and instead finds the best well-defined
+η among the higher-angle flaps, landing on ff+PID + VGM-{10,20,45,90} depending on
+which flap's resonance tail overlaps that period.
+
+**Divergence summary table:**
+
+| T_s | Power hull | Efficiency hull | Reason |
+|-----|-----------|-----------------|--------|
+| 0.50 | CC/90 | opt_passive/90 | CC η undefined (linear_popt_invalid); opt_passive/90 best valid η |
+| 0.75 | CC/90 | CC/45 | CC/90 maximises P; CC/45 maximises P/P_opt |
+| 1.00 | CC/0 | CC/45 | CC/0 maximises P; CC/45 maximises P/P_opt |
+| 1.25 | CC/0 | CC/10 | CC/0 maximises P; CC/10 maximises P/P_opt |
+| 2.50 | CC/0 | opt_passive/90 | CC/0 still highest P; opt_passive/90 best η at this period |
+| 4.25 | ff+PID/0 | ff+PID/10 | VGM-0 data masked; ff+PID/10 best valid η |
+| 4.50–7.00 | opt_passive/0 | ff+PID/{10,20,45,90} | VGM-0 masked (P_opt undefined); efficiency hull excludes notch |
+
+Periods T = 1.5–2.25 s and T = 2.75–4.0 s agree on the winning (controller, flap)
+combination — at resonance the same configuration maximises both raw power and
+efficiency fraction simultaneously.
 
 ---
 
@@ -149,5 +261,7 @@ Output files:
 - `analysis/three_regime/figures/three_regime_efficiency_VGM{0,10,20,45,90}.png` — efficiency
 - `analysis/three_regime/figures/three_regime_summary.png` — cross-flap power summary
 - `analysis/three_regime/figures/three_regime_efficiency_summary.png` — cross-flap efficiency
-- `analysis/three_regime/figures/operating_envelope.png` — master co-design envelope
-- `analysis/three_regime/operating_envelope.csv` — hull data for reproducibility
+- `analysis/three_regime/figures/operating_envelope.png` — master power co-design envelope
+- `analysis/three_regime/operating_envelope.csv` — power hull data for reproducibility
+- `analysis/three_regime/figures/operating_envelope_efficiency.png` — master efficiency envelope
+- `analysis/three_regime/operating_envelope_efficiency.csv` — efficiency hull (masked-respecting)

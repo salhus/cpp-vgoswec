@@ -222,8 +222,17 @@ Output under `analysis/three_regime/figures/`:
 - `three_regime_efficiency_VGM{0,10,20,45,90}.png` — per-flap 3-way efficiency
 - `three_regime_summary.png` — cross-flap power summary
 - `three_regime_efficiency_summary.png` — cross-flap efficiency summary
-- `operating_envelope.png` — master co-design envelope (upper hull)
-- `../operating_envelope.csv` — hull data for reproducibility
+- `operating_envelope.png` — master power co-design envelope (upper hull of P_capture)
+- `../operating_envelope.csv` — power hull data for reproducibility
+- `operating_envelope_efficiency.png` — master efficiency envelope (upper hull of η)
+- `../operating_envelope_efficiency.csv` — efficiency hull data (masked/invalid excluded)
+
+**Efficiency hull masking rule:** A (controller, flap, T) point is excluded from the
+efficiency hull if `masked == true`, `linear_popt_invalid == true`, η is NaN, or
+η > 1 + ε. This correctly excludes the VGM-0 pitch-radiation notch (T ≥ 3.0 s,
+`masked=true`, P_opt undefined) and the short-period `linear_popt_invalid` CC spike.
+The power hull and efficiency hull select different (controller, flap) winners at
+17 of 27 periods — see `analysis/FINDINGS_3REGIME.md` §4c for the divergence table.
 
 ---
 
