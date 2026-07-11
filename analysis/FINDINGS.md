@@ -1,13 +1,18 @@
 # Capture-Efficiency Study — Key Findings
 
+**See [`analysis/FINDINGS_3REGIME.md`](FINDINGS_3REGIME.md) for the consolidated
+three-regime relay findings (CC → opt_passive → ff+PID).**
+
 Controller comparison across VGOSWEC flap variants (VGM-0/10/20/45/90) over a shared
-wave-period grid **T = 0.5–7.0 s** (0.25 s steps, H = 0.05 m). Two controllers:
+wave-period grid **T = 0.5–7.0 s** (0.25 s steps, H = 0.05 m). Three controllers:
 
 - **CC** — complex-conjugate (reactive) control.
+- **opt_passive** — optimal resistive damping at resonance, `B_opt = |Z_intrinsic(ω₀)|`.
 - **ff+PID** — tuned excitation-feedforward + PID (`exc_ff_pid`), designed for T = 2–7 s.
 
-All results are reproducible from the committed CSVs under `analysis/{cc,passive_guarded}/`
-via each script's `--plot-only` mode. No solver runs are required to regenerate the figures.
+All results are reproducible from the committed CSVs under
+`analysis/{cc,opt_passive,passive_guarded}/` via each script's `--plot-only` mode.
+No solver runs are required to regenerate the figures.
 
 Naming convention: `P_injected_W` (reactive power returned to the fluid),
 `P_converted_W` (gross PTO conversion), and captured power
@@ -111,16 +116,19 @@ modes.
 ## Reproducing the figures
 
 ```bash
+# Three-regime (CC / opt_passive / ff+PID) per-flap + cross-flap + operating envelope:
+python3 scripts/three_regime_comparison.py --plot-only
+
+# Individual controller sweeps:
 python3 scripts/capture_efficiency_sweep.py     --plot-only   # analysis/passive_guarded/figures/
 python3 scripts/cc_capture_efficiency_sweep.py  --plot-only   # analysis/cc/figures/
 python3 scripts/cc_vs_ffpid_comparison.py       --plot-only   # analysis/comparison/figures/
-python3 scripts/passive_vs_optpassive_sweep.py  --plot-only   # analysis/passive*/figures/
 ```
 
 ## Deferred / next phase
 
-- **Passive vs optimal-damped** comparison: configs and sweep script created; awaiting
-  simulation runs to populate CSVs. See `analysis/FINDINGS_PASSIVE.md` for method and
-  expected results.
-- Optional refactor: unify the three per-script power/efficiency ceiling helpers into one
-  shared module so "matched ceilings" cannot drift.
+- Literature cross-check (Issue #50): verify CC/opt_passive results against Falnes/Ringwood
+  textbook; confirm variable-geometry OSWEC operating-map novelty; check excitation-FF
+  velocity-tracking prior art.
+- Optional refactor: unify per-script power/efficiency ceiling helpers into one shared
+  module so matched ceilings cannot drift.

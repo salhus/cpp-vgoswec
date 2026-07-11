@@ -11,23 +11,35 @@ Project Chrono for multi-body dynamics.
 - **Default geometry**: `geometry/vgm45.obj` (flap), `geometry/stl_files/center_beam_w_foundation_BEM.STL` (base)
 - **Default hydro data**: `hydroData/vgoswec_45.h5`
 - **Wave default**: Regular waves, H = 0.05 m, T = 1.5 s
-- **Four pluggable PTO controllers**: passive, optimal-passive, complex-conjugate, excitation-FF+PID
+- **Four pluggable PTO controllers**: passive (placeholder — tune with tank data), optimal-passive, complex-conjugate, excitation-FF+PID
 
-## Controller / flap-config co-design
+## Controller / flap-config co-design — three-regime relay
 
 Across the full VGOSWEC flap-vent sweep (VGM-0 = vents closed → VGM-90 = vents fully
-open), the two active controllers occupy complementary period bands: **complex-conjugate
-(CC) control dominates short wave periods**, while **excitation-FF+PID dominates long
-periods**. The flap configuration acts as a design knob that shifts the CC→ff+PID
-crossover, so the optimal controller is *configuration-dependent*.
+open), three controllers occupy complementary period bands in a clean relay:
 
-![CC vs ff+PID capture power across VGOSWEC flap variants](analysis/comparison/figures/cc_vs_ffpid_summary.png)
+- **CC (complex-conjugate)** dominates short periods (T ≲ 2 s), tracking the Budal
+  theoretical optimum with up to 2.34 W at T = 1.5 s.
+- **opt_passive** (optimal resistive damping) matches a tuned feedforward controller at
+  each flap's resonance peak with a single tuning-free coefficient. The resonance hump
+  marches across T = 2.5–4.75 s as the flap angle changes.
+- **ff+PID** (excitation-feedforward + PID) carries the long-period tail past resonance
+  with no reactive-power penalty.
 
-*Capture power for complex-conjugate (solid) vs excitation-FF+PID (dashed) control across
-all flap variants on a shared wave-period axis. CC peaks at short T; ff+PID peaks at long
-T; the flap vent configuration tunes where each controller's peak — and the crossover
-between them — lands. See [`analysis/comparison/`](analysis/comparison/) for the
-per-variant comparison figures.*
+The flap angle acts as a co-design knob that shifts the resonance period — and thus the
+crossover between regimes — across the full T = 2.5–5 s band.
+
+![Three-regime operating envelope](analysis/three_regime/figures/operating_envelope.png)
+
+*Master operating envelope: upper hull of captured power over all (controller, flap-angle)
+combinations at every wave period. CC + VGM-0 dominates short T; opt_passive and ff+PID
+with the T₀-matched flap dominate resonance; ff+PID + VGM-0 dominates the long tail.
+See [`analysis/FINDINGS_3REGIME.md`](analysis/FINDINGS_3REGIME.md) for the full findings.*
+
+Reproduce all figures from committed CSVs (no solver needed):
+```bash
+python3 scripts/three_regime_comparison.py --plot-only
+```
 
 ## Repository structure
 

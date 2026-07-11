@@ -182,7 +182,52 @@ Note: below T≈1.5 s, `exc_ff_pid` is outside its tuned band (designed for T = 
 
 ---
 
-## CC vs exc_ff_pid comparison
+## Three-regime relay (current study)
+
+The finalized study shows a clean three-controller regime relay across all five VGOSWEC
+flap variants. See [`analysis/FINDINGS_3REGIME.md`](../analysis/FINDINGS_3REGIME.md)
+for the full findings.
+
+### CC → opt_passive → ff+PID
+
+| Regime | Period band | Winner | Notes |
+|--------|-------------|--------|-------|
+| **CC** | T ≲ 2 s | **CC** | Near Budal bound; peak up to 2.34 W |
+| **opt_passive** | ≈ T₀ per flap | **opt_passive / tie** | Matches ff+PID at resonance, no tuning |
+| **ff+PID** | T ≳ T₀ | **ff+PID** | Long-period tail with no reactive penalty |
+
+The crossover periods slide with flap angle because T₀ shifts (VGM-90 ≈ 2.5 s → VGM-0 ≈ 4.75 s).
+
+### opt_passive resonance hump per flap
+
+| Flap | opt_passive peak | peak T | ff+PID at resonance | winner |
+|------|-----------------|--------|---------------------|--------|
+| VGM-90 | 0.509 W | 2.50 s | ~0.55 W | ff+PID edges |
+| VGM-45 | 0.479 W | 3.00 s | ~0.63 W | ff+PID edges |
+| VGM-20 | 0.755 W | 3.25 s | ~0.73 W | opt_passive edges |
+| VGM-10 | 0.772 W | 3.50 s | ~0.75 W | opt_passive edges |
+| VGM-0  | 0.681 W | 4.75 s | ~0.68 W | tie |
+
+opt_passive **matches a tuned feedforward controller at resonance with a single
+tuning-free coefficient**, and beats CC by 10–30× in the long tail.
+
+### Three-regime reproduction commands
+
+```bash
+python3 scripts/three_regime_comparison.py --plot-only
+```
+
+Output under `analysis/three_regime/figures/`:
+- `three_regime_VGM{0,10,20,45,90}.png` — per-flap 3-way power + shaded regime bands
+- `three_regime_efficiency_VGM{0,10,20,45,90}.png` — per-flap 3-way efficiency
+- `three_regime_summary.png` — cross-flap power summary
+- `three_regime_efficiency_summary.png` — cross-flap efficiency summary
+- `operating_envelope.png` — master co-design envelope (upper hull)
+- `../operating_envelope.csv` — hull data for reproducibility
+
+---
+
+## CC vs exc_ff_pid comparison (two-regime reference)
 
 Use `scripts/cc_vs_ffpid_comparison.py` to load per-flap CSVs from both controllers and
 produce per-flap and cross-flap overlay figures on the shared T = 0.5–7 s axis.
@@ -243,41 +288,18 @@ python3 scripts/cc_vs_ffpid_comparison.py --plot-only
 
 ---
 
-## Passive vs optimal-passive sweep
+## Passive vs optimal-passive sweep (deprecated from study — passive is degenerate)
 
-Use `scripts/passive_vs_optpassive_sweep.py` to run the complete passive / opt_passive
-comparison across all five VGOSWEC flap variants on the same T = 0.5–7 s period grid.
+> **Note:** Fixed-passive (`B_pto = B55(ω₀)`) is degenerate for all five VGOSWEC flap
+> variants (see `analysis/FINDINGS_3REGIME.md` §Appendix). `B_pto = B55(ω₀)` is
+> 10⁴–10⁵× smaller than `|Z_intrinsic(ω₀)|`, so passive captures ≈ 0 W across the
+> entire T = 0.5–7 s band. The fixed-passive arm has been **removed from the study**.
+> The `passive` controller type remains in the code for tank-test tuning, with a
+> `B_pto: 0.5` placeholder (TODO annotation) in `config/vgoswec_*_passive.yaml`.
 
-### Method
-
-Both controllers are pure velocity dampers `τ_pto = −B·θ̇`:
-
-- **PassiveDamper** — fixed hand-tuned `B_pto = B55(ω₀)` (radiation damping at resonance).
-- **OptimalPassive** — `B_opt = |Z_intrinsic(ω₀)|` computed from the H5 at startup by
-  `PitchImpedanceMagnitude()` in `src/impedance.cpp`, evaluated at each flap's design
-  resonance ω₀. `B_opt` is **not** written in the YAML.
-
-The key physics:
-
-- At exact resonance the reactive part of `Z_intrinsic(ω₀)` → 0, so
-  `B_opt(ω₀) ≈ B55(ω₀)` — passive and opt_passive coincide near ω₀.
-- Off-resonance `|Z_intrinsic(ω)| > B55(ω₀)`, so opt_passive ≥ passive everywhere.
-- Both purely dissipative controllers bracket the CC and ff+PID envelopes from below.
-
-### Per-flap B_pto = B55(ω₀) values
-
-| Flap  | ω₀ (rad/s) | T₀ (s) | B55(ω₀) (N·m·s/rad) | Config |
-|-------|-----------|--------|----------------------|--------|
-| VGM-0  | 1.07  | 5.86 | 3.1908e-7 (pitch notch: near-zero) | vgoswec_0_passive.yaml |
-| VGM-10 | 1.468 | 4.29 | 1.2723e-4 | vgoswec_10_passive.yaml |
-| VGM-20 | 1.568 | 4.01 | 1.5118e-4 | vgoswec_20_passive.yaml |
-| VGM-45 | 1.84  | 3.42 | 2.5303e-4 | vgoswec_45_passive.yaml |
-| VGM-90 | 2.094 | 2.99 | 3.9114e-4 | vgoswec_90_passive.yaml |
-
-Values computed as `B55(ω₀) = λ55(ω₀) · ρ_h5 · ω₀`
-(i.e., `GetPitchHydroCoefficientsAtOmega(...).B55` from `src/impedance.cpp`).
-Note: VGM-0's value is in the radiation-damping pitch notch (below the B55 ≤ 1e-4 mask
-threshold); the passive controller produces negligible capture for that flap.
+`scripts/passive_vs_optpassive_sweep.py` remains in the repo for reference.
+The opt_passive CSVs (`analysis/opt_passive/capture_efficiency_VGM*.csv`) are committed
+and used by the three-regime comparison script above.
 
 ### Per-flap design_omega for opt_passive
 
@@ -289,25 +311,14 @@ threshold); the passive controller produces negligible capture for that flap.
 | VGM-45 | 1.84  | vgoswec_45_opt_passive.yaml |
 | VGM-90 | 2.094 | vgoswec_90_opt_passive.yaml |
 
-### Masking rules (identical to all other sweep scripts)
+### Masking rules (identical to all sweep scripts)
 
 - `B55 ≤ 1e-4`: reactive-limited; `P_opt` undefined; `masked=true`; hatched shading.
 - `eta > 1 + 1e-6`: linear `P_opt` bound locally invalid (`linear_popt_invalid=true`).
 
-### Output figures
-
-- `analysis/passive/figures/capture_efficiency_VGM<angle>.png` — per-flap passive
-- `analysis/passive/figures/capture_efficiency_summary.png` — cross-flap passive
-- `analysis/opt_passive/figures/capture_efficiency_VGM<angle>.png` — per-flap opt_passive
-- `analysis/opt_passive/figures/capture_efficiency_summary.png` — cross-flap opt_passive
-- `analysis/passive_vs_optpassive/figures/passive_vs_optpassive_VGM<angle>.png` — overlay
-- `analysis/passive_vs_optpassive/figures/passive_vs_optpassive_summary.png` — cross-flap
-- `analysis/passive_vs_optpassive/figures/passive_vs_optpassive_efficiency_summary.png`
-
-Regenerate all figures from committed CSVs without running the solver:
-```
-python3 scripts/passive_vs_optpassive_sweep.py --plot-only
-```
+The short-period opt_passive efficiency spike (η ≈ 50–82% at T ≲ 0.75 s) is a
+near-zero-denominator artefact (`masked=true` rows) and is shaded/hatched in all
+figures — it is not a meaningful efficiency value.
 
 ---
 
