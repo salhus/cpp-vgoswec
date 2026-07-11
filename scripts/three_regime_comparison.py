@@ -58,7 +58,7 @@ from matplotlib.ticker import AutoMinorLocator, MultipleLocator
 FLAP_ANGLES = [0, 10, 20, 45, 90]
 FLAP_LABELS = {0: "VGM-0", 10: "VGM-10", 20: "VGM-20", 45: "VGM-45", 90: "VGM-90"}
 
-# opt_passive resonance-peak periods (T₀ marches with flap angle).
+# opt_passive resonance-peak periods T₀ [s] per flap (marches with flap angle).
 # Used to shade the three regime bands per flap.
 RESONANCE_PEAK_T = {0: 4.75, 10: 3.50, 20: 3.25, 45: 3.00, 90: 2.50}
 
@@ -747,8 +747,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--plot-only",
         action="store_true",
-        default=True,
-        help="Regenerate figures from committed CSVs without running simulations (default: True)",
+        help="Regenerate figures from committed CSVs without running simulations",
     )
     return p.parse_args()
 

@@ -43,5 +43,8 @@ controller:
   type: passive
   passive:
     # TODO: tune B_pto with tank-test data
+    # Note: 0.5 N·m·s/rad is a conservative starting placeholder for tank-test tuning.
+    # B55(ω₀) at resonance is ~4e-4 N·m·s/rad (far too small to extract meaningful power).
+    # Use a kpkd sweep or hand-tuning against tank data to find a useful B_pto value.
     B_pto: 0.5          # [N·m·s/rad]  placeholder — tune with tank-test data
     clip_torque: 5.0    # [N·m]  output saturation limit

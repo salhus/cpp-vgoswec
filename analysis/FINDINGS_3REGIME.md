@@ -73,7 +73,7 @@ Specifically:
 
 ## 3. CC validates the Budal bound (short periods)
 
-CC tracked captured power tracks the analytic optimum **P_opt** almost exactly up to
+CC captured power tracks the analytic optimum **P_opt** almost exactly up to
 T ≈ 1.5 s. For VGM-0 the CC peak is **2.34 W at T = 1.5 s** with η ≈ 94–108%.
 This validates the CC implementation against the Budal/optimal-absorption limit.
 
@@ -108,9 +108,9 @@ No single controller or flap reaches this envelope alone.
 For all five VGOSWEC flap variants this value is in the range **~1e-4 to ~4e-4 N·m·s/rad**
 (with VGM-0 at 3.2e-7, deep in the pitch-radiation notch):
 
-| Flap  | B55(ω₀) [N·m·s/rad] | |Z_intrinsic(ω₀)| magnitude | ratio |
+| Flap  | B55(ω₀) [N·m·s/rad] | |Z_intrinsic(ω₀)| (approx.) | ratio (approx.) |
 |-------|----------------------|---------------------------|-------|
-| VGM-0  | 3.19e-7 (pitch notch) | ~1e-2 … 1e-3 | ~10⁴–10⁵× smaller |
+| VGM-0  | 3.19e-7 (pitch notch) | ~1e-2 to 1e-3 | ~10⁴–10⁵× smaller |
 | VGM-10 | 1.27e-4 | ~1e-2 | ~100× smaller |
 | VGM-20 | 1.51e-4 | ~1e-2 | ~100× smaller |
 | VGM-45 | 2.53e-4 | ~1e-2 | ~50× smaller |
