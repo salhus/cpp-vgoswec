@@ -17,19 +17,21 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-# Shared period grid T = 0.5 … 7.0 s (uniform in T, 0.5 s steps) — identical to the
+# Shared period grid T = 0.5 … 7.0 s (uniform in T, 0.25 s steps) — identical to the
 # ff+PID sweep grid so both controllers' curves share x-values point-for-point.
 # Note: above T≈3–4 s CC becomes reactive-heavy (|inj|/conv → ~0.9). These are
 # expected regime limits (CC is theoretically correct but practically demanding at
 # long periods), not errors; the reactive ratio is plotted explicitly in the comparison.
-PERIOD_GRID = np.arange(0.5, 7.01, 0.5)  # T = 0.5, 1.0, 1.5, …, 7.0 s (14 points)
+PERIOD_GRID = np.round(np.arange(0.5, 7.01, 0.25), 2)  # T = 0.5, 0.75, 1.0, …, 7.0 s (27 points)
 WAVE_HEIGHT_M = 0.05
 WAVE_AMPLITUDE_M = WAVE_HEIGHT_M / 2.0
 # Match the existing capture sweep duration to keep settling/steady-state windows comparable.
 DURATION_S = 171.0
 MASK_B55_THRESHOLD = 1e-4
+ETA_GT1_TOL = 1e-6
 PITCH_DOF_INDEX = 4
 MASK_NOTE = f"B55 <= {MASK_B55_THRESHOLD:.0e}"
+ETA_GT1_NOTE = f"eta > {1.0 + ETA_GT1_TOL:.6f}"
 
 FLAPS = {
     0: {"label": "VGM-0", "config": "config/vgoswec_0_cc.yaml", "h5": "hydroData/vgoswec_0.h5"},
@@ -194,7 +196,7 @@ def write_efficiency_csv(out_csv: Path, rows: list[dict]) -> None:
     out_csv.parent.mkdir(parents=True, exist_ok=True)
     cols = [
         "T_s", "omega_rads", "P_capture_W", "P_opt_W", "B55_Nmsrad", "F_exc_Nm",
-        "P_converted_W", "P_injected_W", "eta", "masked",
+        "P_converted_W", "P_injected_W", "eta", "masked", "linear_popt_invalid",
     ]
     with out_csv.open("w", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=cols)
@@ -217,6 +219,7 @@ def load_efficiency_csv(csv_path: Path) -> list[dict]:
                     "P_injected_W": float(r["P_injected_W"]) if r["P_injected_W"].strip() else float("nan"),
                     "eta": float(r["eta"]) if r["eta"].strip() else float("nan"),
                     "masked": str(r["masked"]).strip().lower() == "true",
+                    "linear_popt_invalid": str(r.get("linear_popt_invalid", "false")).strip().lower() == "true",
                 }
             )
     rows.sort(key=lambda d: d["T_s"])
@@ -251,6 +254,7 @@ def plot_per_flap(rows: list[dict], flap_angle: int, out_png: Path) -> None:
     p_opt = np.array([r["P_opt_W"] for r in rows], dtype=float)
     eta = np.array([r["eta"] for r in rows], dtype=float) * 100.0
     masked = np.array([r["masked"] for r in rows], dtype=bool)
+    linear_invalid = np.array([r["linear_popt_invalid"] for r in rows], dtype=bool)
     fig, (ax0, ax1) = plt.subplots(2, 1, figsize=(8.2, 6.0), sharex=True)
     ax0.plot(T, p_cap, marker="o", color="tab:blue", linewidth=1.8, label="$P_{capture}$")
     ax0.plot(T, p_opt, marker="s", color="k", linestyle="--", linewidth=1.4, label="$P_{opt}$")
@@ -258,6 +262,8 @@ def plot_per_flap(rows: list[dict], flap_angle: int, out_png: Path) -> None:
     for ax in (ax0, ax1):
         for x0, x1 in _masked_spans(T, masked):
             ax.axvspan(x0, x1, facecolor="0.9", edgecolor="0.5", hatch="//", alpha=0.8)
+        for x0, x1 in _masked_spans(T, linear_invalid):
+            ax.axvspan(x0, x1, facecolor="#f9d9d9", edgecolor="#b44d4d", hatch="\\\\", alpha=0.55)
         ax.grid(True, alpha=0.3, linestyle="--")
     ax0.set_ylabel("Power [W]")
     ax1.set_ylabel("Efficiency [%]")
@@ -265,7 +271,16 @@ def plot_per_flap(rows: list[dict], flap_angle: int, out_png: Path) -> None:
     ax0.set_title(f"{meta['label']} capture efficiency (cc)")
     ax0.legend(loc="best", fontsize=8)
     ax1.legend(loc="best", fontsize=8)
-    fig.text(0.01, 0.01, f"Mask rule: {MASK_NOTE} N·m·s/rad (reactive-limited)", fontsize=7, color="0.35")
+    fig.text(
+        0.01,
+        0.01,
+        (
+            f"Mask rules: {MASK_NOTE} N·m·s/rad (reactive-limited notch); "
+            f"{ETA_GT1_NOTE} => linear single-DOF $P_{{opt}}$ invalid (short-period), $\\eta$ not reported."
+        ),
+        fontsize=7,
+        color="0.35",
+    )
     fig.tight_layout(rect=[0, 0.03, 1, 1])
     out_png.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_png)
@@ -279,16 +294,34 @@ def plot_summary(csv_map: dict[int, Path], out_png: Path) -> None:
         rows = load_efficiency_csv(csv_map[angle])
         T = np.array([r["T_s"] for r in rows], dtype=float)
         eta = np.array([r["eta"] for r in rows], dtype=float) * 100.0
+        linear_invalid = np.array([r["linear_popt_invalid"] for r in rows], dtype=bool)
         p_conv = np.array([r["P_converted_W"] for r in rows], dtype=float)
         p_inj = np.array([r["P_injected_W"] for r in rows], dtype=float)
         label = FLAPS[angle]["label"]
         ax0.plot(T, eta, marker="o", linewidth=1.8, color=color, label=label)
+        if np.any(linear_invalid):
+            ax0.scatter(
+                T[linear_invalid],
+                np.full(np.count_nonzero(linear_invalid), 100.0),
+                marker="x",
+                s=24,
+                color=color,
+                alpha=0.9,
+            )
         ax1.plot(T, p_conv, marker="o", linewidth=1.6, color=color, label=f"{label} converted")
         ax1.plot(T, p_inj, marker="x", linewidth=1.4, linestyle="--", color=color, alpha=0.8, label=f"{label} injected")
     ax0.set_ylabel("Capture efficiency $\\eta$ [%]")
     ax0.set_title("Capture efficiency summary — tuned cc across VGOSWEC flap variants")
     ax0.grid(True, alpha=0.3, linestyle="--")
     ax0.legend(loc="best", fontsize=8, ncol=2)
+    ax0.text(
+        0.01,
+        0.02,
+        f"X marks: {ETA_GT1_NOTE} (linear single-DOF $P_{{opt}}$ invalid; $\\eta$ hidden).",
+        transform=ax0.transAxes,
+        fontsize=7,
+        color="#8a2d2d",
+    )
     ax1.set_xlabel("Wave period $T$ [s]")
     ax1.set_ylabel("Power [W]")
     ax1.set_title("Injected vs converted power summary (cc)")
@@ -322,8 +355,13 @@ def compute_and_write_csvs(repo: Path, demo: Path, run_sim: bool) -> dict[int, P
         for i, T in enumerate(PERIOD_GRID):
             p_capture, p_converted, p_injected = captures.get(float(T), (float("nan"), float("nan"), float("nan")))
             eta = float("nan")
+            linear_popt_invalid = False
             if not masked[i] and np.isfinite(p_capture):
-                eta = p_capture / p_opt[i]
+                eta_candidate = p_capture / p_opt[i]
+                if eta_candidate > (1.0 + ETA_GT1_TOL):
+                    linear_popt_invalid = True
+                else:
+                    eta = eta_candidate
             rows.append(
                 {
                     "T_s": f"{T:.2f}",
@@ -334,8 +372,9 @@ def compute_and_write_csvs(repo: Path, demo: Path, run_sim: bool) -> dict[int, P
                     "F_exc_Nm": f"{fexc[i]:.8e}",
                     "P_converted_W": f"{p_converted:.8e}",
                     "P_injected_W": f"{p_injected:.8e}",
-                    "eta": "" if masked[i] or not np.isfinite(eta) else f"{eta:.8e}",
+                    "eta": "" if masked[i] or linear_popt_invalid or not np.isfinite(eta) else f"{eta:.8e}",
                     "masked": "true" if masked[i] else "false",
+                    "linear_popt_invalid": "true" if linear_popt_invalid else "false",
                 }
             )
         out_csv = repo / "analysis" / "cc" / f"capture_efficiency_VGM{angle}.csv"
