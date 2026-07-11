@@ -82,20 +82,25 @@ with increasing angle (VGM-10 → VGM-20 → VGM-45 → VGM-90), and opt_passive
 increases monotonically with flap-angle in the mid-period band (T ≈ 2–5 s). This
 ordering is consistent with the CC and ff+PID results reported in `analysis/FINDINGS.md`.
 
-## 6. Winner-per-period table (opt_passive, by flap angle)
+## 6. Expected winner-per-period ordering (opt_passive, by flap angle)
 
 Opt_passive is strictly better than passive by construction (B_opt ≥ B_pto at all
-periods). For the opt_passive controller, the winner-per-period table (best flap angle)
-mirrors the systematic ordering seen in the ff+PID study:
+periods). For the opt_passive controller, the expected winner-per-period ordering (best
+flap angle) mirrors the systematic trend seen in the ff+PID study — high-angle flaps
+win at short-to-mid periods (where their resonance B55 is larger and their resonance
+period is shorter), and low-angle flaps win at long periods (where VGM-0's radiation
+damping persists longer into the tail).
 
-| T (s) | VGM-0 | VGM-10 | VGM-20 | VGM-45 | VGM-90 | Best (expected) |
-|------:|:-----:|:------:|:------:|:------:|:------:|:---------------:|
-| ≈ T₀  | masked | masked | ≈0 | ≈0 | ≈0 | depends on B55 ordering |
-| 2.5–3 | — | — | — | — | — | higher-angle flaps win (larger B55) |
-| 4–6   | — | — | — | — | — | lower-angle flaps win (B55 persists) |
+**Note: the table below shows expected qualitative ordering based on the B55(ω)
+curves extracted from H5 data. Quantitative values require simulation runs; populate
+by running `python3 scripts/passive_vs_optpassive_sweep.py --demo build/demo_vgoswec`.**
 
-(Exact values require simulation runs; table shows expected qualitative ordering based on
-B55 curve shapes extracted from H5 data.)
+| T (s) | Expected best flap (opt_passive) | Rationale |
+|------:|:--------------------------------:|-----------|
+| 0.5–1.5 | VGM-90 or VGM-45 | Short-period, high-ω; larger B55 at high frequencies |
+| 2–3 | VGM-45 or VGM-90 | Mid-band resonance for high-angle flaps |
+| 3–4 | VGM-20 or VGM-45 | Matches ff+PID ordering: VGM-20 global max near T=3.25 s |
+| 4–7 | VGM-0 or VGM-10 | Lowest-angle flaps have longest-period radiation tail |
 
 ---
 

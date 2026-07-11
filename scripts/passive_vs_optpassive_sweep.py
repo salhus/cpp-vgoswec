@@ -541,6 +541,7 @@ def plot_per_flap_comparison(
     flap_angle: int,
     out_png: Path,
     power_ceiling: float,
+    efficiency_ceiling: float,
 ) -> None:
     """Per-flap overlay: both dampers + P_opt reference on shared T axis."""
     meta = FLAPS[flap_angle]
@@ -604,7 +605,7 @@ def plot_per_flap_comparison(
     _style_efficiency_axis(ax1, major_step=10.0, minor_divisions=5)
 
     ax0.set_ylim(0.0, power_ceiling)
-    ax1.set_ylim(0.0, 110.0)
+    ax1.set_ylim(0.0, efficiency_ceiling)
     ax0.set_ylabel("Captured power [W]")
     ax1.set_ylabel("Efficiency [%]")
     ax1.set_xlabel("Wave period $T$ [s]")
@@ -789,7 +790,7 @@ def regenerate_plots_from_csv(
         passive_rows = load_efficiency_csv(p_path)
         opt_rows = load_efficiency_csv(o_path)
         out_png = comp_dir / f"passive_vs_optpassive_VGM{angle}.png"
-        plot_per_flap_comparison(passive_rows, opt_rows, angle, out_png, power_ceiling)
+        plot_per_flap_comparison(passive_rows, opt_rows, angle, out_png, power_ceiling, efficiency_ceiling)
 
     summary_png = comp_dir / "passive_vs_optpassive_summary.png"
     plot_summary_comparison(passive_csv_map, opt_csv_map, summary_png, power_ceiling)
