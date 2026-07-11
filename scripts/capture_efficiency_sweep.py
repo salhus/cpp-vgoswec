@@ -384,7 +384,7 @@ def plot_per_flap(rows: list[dict], flap_angle: int, out_png: Path, power_ceilin
         _style_common_axes(ax)
     _style_power_axis(ax0)
     _style_efficiency_axis(ax1, major_step=10.0, minor_divisions=5)
-    ax0.set_ylim(0.0, 1.5)
+    ax0.set_ylim(0.0, power_ceiling)
     ax1.set_ylim(0.0, efficiency_ceiling)
 
     ax0.set_ylabel("Power [W]")
@@ -431,7 +431,7 @@ def plot_summary(csv_map: dict[int, Path], out_png: Path, power_ceiling: float, 
     _style_period_axis(ax0)
     _style_power_axis(ax0)
     _style_common_axes(ax0)
-    ax0.set_ylim(0.0, power_ceiling)
+    ax0.set_ylim(0.0, 1.5)
     ax0.legend(loc="best", fontsize=8, ncol=2)
 
     ax1.set_xlabel("Wave period $T$ [s]")
