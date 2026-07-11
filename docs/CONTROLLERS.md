@@ -173,9 +173,9 @@ Use `scripts/capture_efficiency_sweep.py` to compute:
 
 Masking/flagging rules:
 - Reactive-limited masking is mandatory: periods with `B55 <= 1e-4` are reported as undefined (`masked=true`) and are shaded/hatched in figures. This is expected near the known pitch radiation-damping notch behavior.
-- CC linear-validity guard: when `eta > 1 + 1e-6`, the linear single-DOF `P_opt` bound is treated as locally invalid (`linear_popt_invalid=true`), so `eta` is intentionally left blank and marked separately from the B55 notch mask.
+- CC linear-validity guard: when `eta > 1 + 1e-6`, the linear single-DOF `P_opt` bound is treated as locally invalid (`linear_popt_invalid=true`), so `eta` is intentionally left blank and marked separately from the B55 notch mask. This typically appears in the short-period range (about `T < 1 s`), where nonlinear behavior can make the linear bound non-applicable.
 
-Note: below T≈1.5 s, `exc_ff_pid` is outside its tuned band (designed for T=2–7 s). Low power capture at short periods is expected and not an error.
+Note: below T≈1.5 s, `exc_ff_pid` is outside its tuned band (designed for T = 2–7 s). Low power capture at short periods is expected and not an error.
 
 ### One-step delay
 `ExcitationForceProvider` is updated after each `DoStepDynamics` call. The RSDA functor reads excitation from the previous step (≈ 0.005 s delay vs T≥2.0 s wave period → negligible).

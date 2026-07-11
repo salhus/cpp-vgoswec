@@ -60,7 +60,7 @@
 | `F_exc_Nm` | De-normalized pitch excitation moment magnitude `|F_exc|` for `A=0.025 m` [N·m] |
 | `eta` | Capture efficiency `η = P_capture / P_opt`, blank when masked |
 | `masked` | `true` where `B55 <= 1e-4` (reactive-limited / undefined `P_opt`, including non-positive `B55`) |
-| `linear_popt_invalid` *(CC sweep)* | `true` where `η > 1 + 1e-6`; short-period point flagged as outside linear single-DOF `P_opt` validity, so `η` is intentionally blank |
+| `linear_popt_invalid` *(CC sweep)* | `true` where `η > 1 + 1e-6`; short-period point (typically `T < 1 s`) flagged as outside linear single-DOF `P_opt` validity, so `η` is intentionally blank |
 
 ## Capture-efficiency method (tuned `exc_ff_pid`)
 
@@ -76,7 +76,7 @@
   - Wave amplitude fixed to `A = 0.025 m` (`H = 0.05 m`) for both sim and `P_opt`.
 - Masking/flagging (essential):
   - `B55 <= 1e-4` => `P_opt` undefined (reactive-limited notch), so `η` is not reported/plotted (`masked=true`).
-  - `η > 1 + 1e-6` => linear single-DOF `P_opt` locally invalid (short-period nonlinear regime), so `η` is not reported and row is flagged (`linear_popt_invalid=true`).
+  - `η > 1 + 1e-6` => linear single-DOF `P_opt` locally invalid (short-period nonlinear regime, typically `T < 1 s`), so `η` is not reported and row is flagged (`linear_popt_invalid=true`).
 - **VGM-0 finding (not a failure):** across `T ≈ 3.0–7.0 s`, VGM-0's pitch `B55` is ~10⁻⁷ N·m·s/rad
   (four orders below the other flaps), so the linear complex-conjugate `P_opt` is physically
   undefined and the band is masked. Notably, VGM-0's *captured* power peaks (~0.14 W at T≈4.5 s)

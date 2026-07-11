@@ -32,6 +32,16 @@ ETA_GT1_TOL = 1e-6
 PITCH_DOF_INDEX = 4
 MASK_NOTE = f"B55 <= {MASK_B55_THRESHOLD:.0e}"
 ETA_GT1_NOTE = f"eta > {1.0 + ETA_GT1_TOL:.6f}"
+LINEAR_INVALID_HATCH = "xx"
+LINEAR_INVALID_MARKER_SIZE = 24
+LINEAR_INVALID_MARKER_ALPHA = 0.9
+
+
+def _compute_invalid_marker_y_position(eta_pct: np.ndarray) -> float:
+    finite_eta = eta_pct[np.isfinite(eta_pct)]
+    if finite_eta.size == 0:
+        return 100.0
+    return float(np.clip(np.nanmax(finite_eta) + 2.0, 0.0, 100.0))
 
 FLAPS = {
     0: {"label": "VGM-0", "config": "config/vgoswec_0_cc.yaml", "h5": "hydroData/vgoswec_0.h5"},
@@ -263,7 +273,7 @@ def plot_per_flap(rows: list[dict], flap_angle: int, out_png: Path) -> None:
         for x0, x1 in _masked_spans(T, masked):
             ax.axvspan(x0, x1, facecolor="0.9", edgecolor="0.5", hatch="//", alpha=0.8)
         for x0, x1 in _masked_spans(T, linear_invalid):
-            ax.axvspan(x0, x1, facecolor="#f9d9d9", edgecolor="#b44d4d", hatch="\\\\", alpha=0.55)
+            ax.axvspan(x0, x1, facecolor="#f9d9d9", edgecolor="#b44d4d", hatch=LINEAR_INVALID_HATCH, alpha=0.55)
         ax.grid(True, alpha=0.3, linestyle="--")
     ax0.set_ylabel("Power [W]")
     ax1.set_ylabel("Efficiency [%]")
@@ -276,7 +286,7 @@ def plot_per_flap(rows: list[dict], flap_angle: int, out_png: Path) -> None:
         0.01,
         (
             f"Mask rules: {MASK_NOTE} N·m·s/rad (reactive-limited notch); "
-            f"{ETA_GT1_NOTE} => linear single-DOF $P_{{opt}}$ invalid (short-period), $\\eta$ not reported."
+            f"{ETA_GT1_NOTE} => linear single-DOF $P_{{opt}}$ invalid in short-period regime (typically T < 1 s), $\\eta$ not reported."
         ),
         fontsize=7,
         color="0.35",
@@ -300,13 +310,14 @@ def plot_summary(csv_map: dict[int, Path], out_png: Path) -> None:
         label = FLAPS[angle]["label"]
         ax0.plot(T, eta, marker="o", linewidth=1.8, color=color, label=label)
         if np.any(linear_invalid):
+            marker_y = _compute_invalid_marker_y_position(eta)
             ax0.scatter(
                 T[linear_invalid],
-                np.full(np.count_nonzero(linear_invalid), 100.0),
+                np.full(np.count_nonzero(linear_invalid), marker_y),
                 marker="x",
-                s=24,
+                s=LINEAR_INVALID_MARKER_SIZE,
                 color=color,
-                alpha=0.9,
+                alpha=LINEAR_INVALID_MARKER_ALPHA,
             )
         ax1.plot(T, p_conv, marker="o", linewidth=1.6, color=color, label=f"{label} converted")
         ax1.plot(T, p_inj, marker="x", linewidth=1.4, linestyle="--", color=color, alpha=0.8, label=f"{label} injected")
