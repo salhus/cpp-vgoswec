@@ -114,10 +114,13 @@ modes.
 python3 scripts/capture_efficiency_sweep.py     --plot-only   # analysis/passive_guarded/figures/
 python3 scripts/cc_capture_efficiency_sweep.py  --plot-only   # analysis/cc/figures/
 python3 scripts/cc_vs_ffpid_comparison.py       --plot-only   # analysis/comparison/figures/
+python3 scripts/passive_vs_optpassive_sweep.py  --plot-only   # analysis/passive*/figures/
 ```
 
 ## Deferred / next phase
 
-- **Passive vs optimal-damped** comparison (not yet started).
+- **Passive vs optimal-damped** comparison: configs and sweep script created; awaiting
+  simulation runs to populate CSVs. See `analysis/FINDINGS_PASSIVE.md` for method and
+  expected results.
 - Optional refactor: unify the three per-script power/efficiency ceiling helpers into one
   shared module so "matched ceilings" cannot drift.

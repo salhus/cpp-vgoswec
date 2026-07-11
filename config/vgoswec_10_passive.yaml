@@ -1,6 +1,6 @@
-# vgoswec_45_passive.yaml
-# Source: Ogden et al., ASME JOMAE 145(3):030905 (VGOSWEC-45 / VGM-45).
-# VGM-45 free-decay reference: ωn = 1.84 rad/s, Ts = 3.42 s.
+# vgoswec_10_passive.yaml
+# Source: Ogden et al., ASME JOMAE 145(3):030905 (VGOSWEC-10 / VGM-10).
+# VGM-10 free-decay reference: ωn = 1.468 rad/s, Ts = 4.29 s.
 # Baseline: linear viscous damper on the hinge.
 #
 # τ_pto = -B_pto · θ̇
@@ -13,13 +13,13 @@ simulation:
 
 body:
   flap:
-    mesh: geometry/vgm45.obj
+    mesh: geometry/vgm45.obj  # same hull shape; geometry/vgm0.obj not required for BEM runs
     mass: 6.676                    # [kg] Table 1 body mass (model scale)
     cog: [0.0, 0.0, -0.235]       # [m] hinge_z + r_g = -0.5 + 0.265
     inertia_xx: 0.32              # [kg·m²] CG roll inertia  (owner-provided, about CG)
     inertia_yy: 0.21             # [kg·m²] CG pitch inertia (WEC-Sim validated). Hinge inertia = I_cg + m·r_g² = 0.21 + 6.676·0.265² (≈0.469) = 0.652
     inertia_zz: 0.12              # [kg·m²] CG yaw inertia   (owner-provided, about CG)
-    # Geometry/properties from Table 1: w=0.40 m, H_p=0.50 m, t=0.076 m, V=7395 cm^3, r_b=0.293 m.
+    # Geometry/properties from Table 1 (same physical device, different angle).
   base:
     mesh: geometry/stl_files/center_beam_w_foundation_BEM.STL
     mass: 1.0e6                   # [kg]  dummy; base is constrained to ground
@@ -30,23 +30,19 @@ hinge:
   external_stiffness: 6.57  # [N·m/rad] experimental hinge spring (Table 1), applied at all times
 
 hydro:
-  h5_file: hydroData/vgoswec_45.h5
+  h5_file: hydroData/vgoswec_10.h5
   rho: 1025.0          # [kg/m³]  seawater
 
 wave:
   type: regular         # regular | jonswap
   height: 0.05          # [m]  H for regular, Hs for JONSWAP
-  period: 3.42          # [s]  VGM-45 resonance period (WEC-Sim free-decay reference)
+  period: 4.29          # [s]  VGM-10 resonance period (WEC-Sim free-decay reference)
   direction: 0.0        # [rad]  wave direction (0 = +x)
-  # JONSWAP-only:
-  # gamma: 3.3
-  # n_components: 200
-  # seed: 42
 
 controller:
   type: passive
   passive:
-    # B_pto = B55(ω₀) = 2.5303e-4 N·m·s/rad (radiation damping at free-decay resonance ω₀=1.84 rad/s)
-    # Computed: λ55(ω₀)·ρ_h5·ω₀ = 1.3752e-7 · 1000.0 · 1.84 (from hydroData/vgoswec_45.h5)
-    B_pto: 2.5303e-4    # [N·m·s/rad]  radiation damping at resonance
+    # B_pto = B55(ω₀) = 1.2723e-4 N·m·s/rad (radiation damping at free-decay resonance ω₀=1.468 rad/s)
+    # Computed: λ55(ω₀)·ρ_h5·ω₀ = 8.6670e-8 · 1000.0 · 1.468 (from hydroData/vgoswec_10.h5)
+    B_pto: 1.2723e-4    # [N·m·s/rad]  radiation damping at resonance
     clip_torque: 5.0    # [N·m]  output saturation limit

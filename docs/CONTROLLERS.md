@@ -243,6 +243,74 @@ python3 scripts/cc_vs_ffpid_comparison.py --plot-only
 
 ---
 
+## Passive vs optimal-passive sweep
+
+Use `scripts/passive_vs_optpassive_sweep.py` to run the complete passive / opt_passive
+comparison across all five VGOSWEC flap variants on the same T = 0.5–7 s period grid.
+
+### Method
+
+Both controllers are pure velocity dampers `τ_pto = −B·θ̇`:
+
+- **PassiveDamper** — fixed hand-tuned `B_pto = B55(ω₀)` (radiation damping at resonance).
+- **OptimalPassive** — `B_opt = |Z_intrinsic(ω₀)|` computed from the H5 at startup by
+  `PitchImpedanceMagnitude()` in `src/impedance.cpp`, evaluated at each flap's design
+  resonance ω₀. `B_opt` is **not** written in the YAML.
+
+The key physics:
+
+- At exact resonance the reactive part of `Z_intrinsic(ω₀)` → 0, so
+  `B_opt(ω₀) ≈ B55(ω₀)` — passive and opt_passive coincide near ω₀.
+- Off-resonance `|Z_intrinsic(ω)| > B55(ω₀)`, so opt_passive ≥ passive everywhere.
+- Both purely dissipative controllers bracket the CC and ff+PID envelopes from below.
+
+### Per-flap B_pto = B55(ω₀) values
+
+| Flap  | ω₀ (rad/s) | T₀ (s) | B55(ω₀) (N·m·s/rad) | Config |
+|-------|-----------|--------|----------------------|--------|
+| VGM-0  | 1.07  | 5.86 | 3.1908e-7 (pitch notch: near-zero) | vgoswec_0_passive.yaml |
+| VGM-10 | 1.468 | 4.29 | 1.2723e-4 | vgoswec_10_passive.yaml |
+| VGM-20 | 1.568 | 4.01 | 1.5118e-4 | vgoswec_20_passive.yaml |
+| VGM-45 | 1.84  | 3.42 | 2.5303e-4 | vgoswec_45_passive.yaml |
+| VGM-90 | 2.094 | 2.99 | 3.9114e-4 | vgoswec_90_passive.yaml |
+
+Values computed as `B55(ω₀) = λ55(ω₀) · ρ_h5 · ω₀`
+(i.e., `GetPitchHydroCoefficientsAtOmega(...).B55` from `src/impedance.cpp`).
+Note: VGM-0's value is in the radiation-damping pitch notch (below the B55 ≤ 1e-4 mask
+threshold); the passive controller produces negligible capture for that flap.
+
+### Per-flap design_omega for opt_passive
+
+| Flap  | design_omega (rad/s) | Config |
+|-------|---------------------|--------|
+| VGM-0  | 1.07  | vgoswec_0_opt_passive.yaml |
+| VGM-10 | 1.468 | vgoswec_10_opt_passive.yaml |
+| VGM-20 | 1.568 | vgoswec_20_opt_passive.yaml |
+| VGM-45 | 1.84  | vgoswec_45_opt_passive.yaml |
+| VGM-90 | 2.094 | vgoswec_90_opt_passive.yaml |
+
+### Masking rules (identical to all other sweep scripts)
+
+- `B55 ≤ 1e-4`: reactive-limited; `P_opt` undefined; `masked=true`; hatched shading.
+- `eta > 1 + 1e-6`: linear `P_opt` bound locally invalid (`linear_popt_invalid=true`).
+
+### Output figures
+
+- `analysis/passive/figures/capture_efficiency_VGM<angle>.png` — per-flap passive
+- `analysis/passive/figures/capture_efficiency_summary.png` — cross-flap passive
+- `analysis/opt_passive/figures/capture_efficiency_VGM<angle>.png` — per-flap opt_passive
+- `analysis/opt_passive/figures/capture_efficiency_summary.png` — cross-flap opt_passive
+- `analysis/passive_vs_optpassive/figures/passive_vs_optpassive_VGM<angle>.png` — overlay
+- `analysis/passive_vs_optpassive/figures/passive_vs_optpassive_summary.png` — cross-flap
+- `analysis/passive_vs_optpassive/figures/passive_vs_optpassive_efficiency_summary.png`
+
+Regenerate all figures from committed CSVs without running the solver:
+```
+python3 scripts/passive_vs_optpassive_sweep.py --plot-only
+```
+
+---
+
 ## Known limitations (carried forward to a later follow-up)
 
 **Un-hinge-referred F_exc (current session limitation — NOT fixed in this PR):**
