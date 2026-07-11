@@ -32,11 +32,11 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-# Shared period grid T = 0.5 … 7.0 s (uniform in T, 0.5 s steps) — identical to the
+# Shared period grid T = 0.5 … 7.0 s (uniform in T, 0.25 s steps) — identical to the
 # CC sweep grid so both controllers' curves share x-values point-for-point.
 # Note: below T≈1.5 s, exc_ff_pid is outside its tuned band (designed for T=2–7 s);
 # expected low power capture in the short-period region is not an error.
-PERIOD_GRID = np.arange(0.5, 7.01, 0.5)  # T = 0.5, 1.0, 1.5, …, 7.0 s (14 points)
+PERIOD_GRID = np.round(np.arange(0.5, 7.01, 0.25), 2)  # T = 0.5, 0.75, 1.0, …, 7.0 s (27 points)
 WAVE_HEIGHT_M = 0.05
 WAVE_AMPLITUDE_M = WAVE_HEIGHT_M / 2.0
 DURATION_S = 171.0
