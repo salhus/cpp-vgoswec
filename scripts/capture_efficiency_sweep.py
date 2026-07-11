@@ -31,7 +31,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.ticker import AutoMinorLocator, MaxNLocator, MultipleLocator
+from matplotlib.ticker import AutoMinorLocator, MultipleLocator
 
 # Shared period grid T = 0.5 … 7.0 s (uniform in T, 0.25 s steps) — identical to the
 # CC sweep grid so both controllers' curves share x-values point-for-point.
@@ -45,8 +45,6 @@ MASK_B55_THRESHOLD = 1e-4
 ETA_GT1_TOL = 1e-6
 PITCH_DOF_INDEX = 4  # 0-based, DOF5 (pitch)
 MASK_NOTE = f"B55 <= {MASK_B55_THRESHOLD:.0e}"
-ETA_GT1_NOTE = f"eta > {1.0 + ETA_GT1_TOL:.6f}"
-ETA_INVALID_LABEL = "η > 1: linear $P_{opt}$ invalid (short-period)"
 
 FLAPS = {
     0: {
@@ -290,19 +288,63 @@ def _style_period_axis(ax) -> None:
 
 
 def _style_power_axis(ax) -> None:
-    ax.yaxis.set_major_locator(MaxNLocator(nbins=6, min_n_ticks=4))
+    ax.yaxis.set_major_locator(MultipleLocator(0.25))
     ax.yaxis.set_minor_locator(AutoMinorLocator(2))
 
 
-def _style_efficiency_axis(ax) -> None:
-    ax.yaxis.set_major_locator(MultipleLocator(10.0))
-    ax.yaxis.set_minor_locator(AutoMinorLocator(2))
+def _style_efficiency_axis(ax, major_step: float = 10.0, minor_divisions: int = 2) -> None:
+    ax.yaxis.set_major_locator(MultipleLocator(major_step))
+    ax.yaxis.set_minor_locator(AutoMinorLocator(minor_divisions))
 
 
 def _style_common_axes(ax) -> None:
     ax.set_axisbelow(True)
-    ax.grid(True, which="major", alpha=0.55, linestyle="--")
-    ax.grid(True, which="minor", alpha=0.30, linestyle="--")
+    ax.grid(True, which="major", alpha=0.7, linestyle="--", color="0.45")
+    ax.grid(True, which="minor", alpha=0.5, linestyle="--", color="0.6")
+
+
+def _ceil_to_step(value: float, step: float) -> float:
+    if (not np.isfinite(value)) or value <= 0.0:
+        return step
+    return float(math.ceil(value / step) * step)
+
+
+def _shared_power_ceiling(repo: Path, csv_map: dict[int, Path]) -> float:
+    maxima: list[float] = []
+    csv_paths = list(csv_map.values())
+    csv_paths.extend(
+        [
+            repo / "analysis" / "cc" / f"capture_efficiency_VGM{angle}.csv"
+            for angle in FLAPS
+            if (repo / "analysis" / "cc" / f"capture_efficiency_VGM{angle}.csv").exists()
+        ]
+    )
+    for csv_path in csv_paths:
+        rows = load_efficiency_csv(csv_path)
+        for r in rows:
+            for key in ("P_capture_W", "P_opt_W"):
+                v = r.get(key, float("nan"))
+                if np.isfinite(v):
+                    maxima.append(float(v))
+    return _ceil_to_step(max(maxima) if maxima else float("nan"), 0.25)
+
+
+def _shared_efficiency_ceiling(repo: Path, csv_map: dict[int, Path]) -> float:
+    maxima: list[float] = []
+    csv_paths = list(csv_map.values())
+    csv_paths.extend(
+        [
+            repo / "analysis" / "cc" / f"capture_efficiency_VGM{angle}.csv"
+            for angle in FLAPS
+            if (repo / "analysis" / "cc" / f"capture_efficiency_VGM{angle}.csv").exists()
+        ]
+    )
+    for csv_path in csv_paths:
+        rows = load_efficiency_csv(csv_path)
+        for r in rows:
+            if (not r["masked"]) and np.isfinite(r["eta"]):
+                maxima.append(float(r["eta"] * 100.0))
+    return _ceil_to_step(max(maxima) if maxima else float("nan"), 5.0)
 
 
 def _add_masked_spans(ax, periods: np.ndarray, masked: np.ndarray) -> None:
@@ -319,44 +361,31 @@ def _add_masked_spans(ax, periods: np.ndarray, masked: np.ndarray) -> None:
         )
 
 
-def plot_per_flap(rows: list[dict], flap_angle: int, out_png: Path) -> None:
+def plot_per_flap(rows: list[dict], flap_angle: int, out_png: Path, power_ceiling: float, efficiency_ceiling: float) -> None:
     meta = FLAPS[flap_angle]
     T = np.array([r["T_s"] for r in rows], dtype=float)
     p_cap = np.array([r["P_capture_W"] for r in rows], dtype=float)
     p_opt = np.array([r["P_opt_W"] for r in rows], dtype=float)
     eta = np.array([r["eta"] for r in rows], dtype=float)
     masked = np.array([r["masked"] for r in rows], dtype=bool)
-    linear_invalid = np.array([r["linear_popt_invalid"] for r in rows], dtype=bool)
-
     eta_pct = eta * 100.0
 
     fig, (ax0, ax1) = plt.subplots(2, 1, figsize=(8.2, 6.0), sharex=True)
 
     ax0.plot(T, p_cap, marker="o", color="tab:blue", linewidth=1.8, label="$P_{capture}$", zorder=3)
     ax0.plot(T, p_opt, marker="s", color="k", linestyle="--", linewidth=1.4, label="$P_{opt}$", zorder=3)
-    normal_eta = (~masked) & np.isfinite(eta_pct) & (~linear_invalid)
-    invalid_eta = (~masked) & np.isfinite(eta_pct) & linear_invalid
-    if np.any(normal_eta):
-        ax1.plot(T[normal_eta], eta_pct[normal_eta], marker="o", color="tab:green", linewidth=1.8, label="$\\eta$", zorder=3)
-    if np.any(invalid_eta):
-        ax1.plot(
-            T[invalid_eta],
-            eta_pct[invalid_eta],
-            marker="o",
-            linestyle="None",
-            markerfacecolor="none",
-            markeredgecolor="tab:red",
-            markeredgewidth=1.4,
-            label=ETA_INVALID_LABEL,
-            zorder=3,
-        )
+    valid_eta = (~masked) & np.isfinite(eta_pct)
+    if np.any(valid_eta):
+        ax1.plot(T[valid_eta], eta_pct[valid_eta], marker="o", color="tab:green", linewidth=1.8, label="$\\eta$", zorder=3)
 
     for ax in (ax0, ax1):
         _style_period_axis(ax)
         _add_masked_spans(ax, T, masked)
         _style_common_axes(ax)
     _style_power_axis(ax0)
-    _style_efficiency_axis(ax1)
+    _style_efficiency_axis(ax1, major_step=5.0, minor_divisions=5)
+    ax0.set_ylim(0.0, power_ceiling)
+    ax1.set_ylim(0.0, efficiency_ceiling)
 
     ax0.set_ylabel("Power [W]")
     ax1.set_ylabel("Efficiency [%]")
@@ -371,10 +400,7 @@ def plot_per_flap(rows: list[dict], flap_angle: int, out_png: Path) -> None:
     fig.text(
         0.01,
         0.01,
-        (
-            f"Mask rule: {MASK_NOTE} N·m·s/rad (reactive-limited). "
-            "η > 100% points are shown and flagged; this indicates linear $P_{opt}$ underestimates the true optimum in that regime."
-        ),
+        (f"Mask rule: {MASK_NOTE} N·m·s/rad (reactive-limited)."),
         fontsize=7,
         color="0.35",
     )
@@ -385,49 +411,36 @@ def plot_per_flap(rows: list[dict], flap_angle: int, out_png: Path) -> None:
     plt.close(fig)
 
 
-def plot_summary(csv_map: dict[int, Path], out_png: Path) -> None:
-    fig, ax = plt.subplots(figsize=(8.4, 4.6))
+def plot_summary(csv_map: dict[int, Path], out_png: Path, power_ceiling: float, efficiency_ceiling: float) -> None:
+    fig, (ax0, ax1) = plt.subplots(2, 1, figsize=(8.4, 7.0), sharex=True)
     cmap = plt.cm.viridis(np.linspace(0.15, 0.9, len(csv_map)))
 
     for color, angle in zip(cmap, sorted(csv_map.keys())):
         rows = load_efficiency_csv(csv_map[angle])
         T = np.array([r["T_s"] for r in rows], dtype=float)
+        p_cap = np.array([r["P_capture_W"] for r in rows], dtype=float)
         eta = np.array([r["eta"] for r in rows], dtype=float) * 100.0
         masked = np.array([r["masked"] for r in rows], dtype=bool)
-        linear_invalid = np.array([r["linear_popt_invalid"] for r in rows], dtype=bool)
-        normal_eta = (~masked) & np.isfinite(eta) & (~linear_invalid)
-        invalid_eta = (~masked) & np.isfinite(eta) & linear_invalid
-        ax.plot(T[normal_eta], eta[normal_eta], marker="o", linewidth=1.8, color=color, label=FLAPS[angle]["label"], zorder=3)
-        if np.any(invalid_eta):
-            ax.plot(
-                T[invalid_eta],
-                eta[invalid_eta],
-                marker="o",
-                linestyle="None",
-                markerfacecolor="none",
-                markeredgecolor=color,
-                markeredgewidth=1.4,
-                zorder=3,
-            )
+        valid_eta = (~masked) & np.isfinite(eta)
+        label = FLAPS[angle]["label"]
+        ax0.plot(T, p_cap, marker="o", linewidth=1.8, color=color, label=label, zorder=3)
+        ax1.plot(T[valid_eta], eta[valid_eta], marker="o", linewidth=1.8, color=color, label=label, zorder=3)
 
-    ax.set_xlabel("Wave period $T$ [s]")
-    ax.set_ylabel("Capture efficiency $\\eta$ [%]")
-    ax.set_title("Capture efficiency summary — tuned exc_ff_pid across VGOSWEC flap variants")
-    _style_period_axis(ax)
-    _style_efficiency_axis(ax)
-    _style_common_axes(ax)
-    ax.legend(loc="best", fontsize=8, ncol=2)
-    ax.text(
-        0.01,
-        0.02,
-        (
-            f"Masked points omitted where {MASK_NOTE}. "
-            f"Flagged markers indicate {ETA_GT1_NOTE}: linear $P_{{opt}}$ invalid (short-period)."
-        ),
-        transform=ax.transAxes,
-        fontsize=7,
-        color="0.35",
-    )
+    ax0.set_ylabel("Power [W]")
+    ax0.set_title("Capture summary — tuned exc_ff_pid across VGOSWEC flap variants")
+    _style_period_axis(ax0)
+    _style_power_axis(ax0)
+    _style_common_axes(ax0)
+    ax0.set_ylim(0.0, power_ceiling)
+    ax0.legend(loc="best", fontsize=8, ncol=2)
+
+    ax1.set_xlabel("Wave period $T$ [s]")
+    ax1.set_ylabel("Capture efficiency $\\eta$ [%]")
+    _style_period_axis(ax1)
+    _style_efficiency_axis(ax1)
+    _style_common_axes(ax1)
+    ax1.set_ylim(0.0, efficiency_ceiling)
+    ax1.legend(loc="best", fontsize=8, ncol=2)
 
     fig.tight_layout()
     out_png.parent.mkdir(parents=True, exist_ok=True)
@@ -473,14 +486,16 @@ def compute_and_write_csvs(repo: Path, demo: Path, run_sim: bool) -> dict[int, P
 
 
 def regenerate_plots_from_csv(repo: Path, csv_map: dict[int, Path]) -> None:
+    power_ceiling = _shared_power_ceiling(repo, csv_map)
+    efficiency_ceiling = _shared_efficiency_ceiling(repo, csv_map)
     for angle, csv_path in csv_map.items():
         rows = load_efficiency_csv(csv_path)
         out_png = repo / "analysis" / "passive_guarded" / "figures" / f"capture_efficiency_VGM{angle}.png"
-        plot_per_flap(rows, angle, out_png)
+        plot_per_flap(rows, angle, out_png, power_ceiling, efficiency_ceiling)
         print(f"[ok] wrote {out_png}")
 
     summary_png = repo / "analysis" / "passive_guarded" / "figures" / "capture_efficiency_summary.png"
-    plot_summary(csv_map, summary_png)
+    plot_summary(csv_map, summary_png, power_ceiling, efficiency_ceiling)
     print(f"[ok] wrote {summary_png}")
 
 
