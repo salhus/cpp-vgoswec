@@ -1,5 +1,23 @@
 # Free-decay validation of the C++ VGOSWEC model against Husain et al. (Ogden et al., ASME JOMAE 145(3):030905), Table 2 and Fig. 4
 
+## Foundation: plant validation against WEC-Sim
+
+This validation is the **foundation** on which the three-regime controller/flap
+co-design study rests. The co-design results are only meaningful because the
+plant's **reactive impedance** (natural frequency **ω_n**) and **resistive
+impedance** (damping ratio **ζ**, i.e. radiation damping **B55**) are
+WEC-Sim-validated across the full **0°–90°** VGOSWEC geometric sweep
+(VGM-0/10/20/45/90).
+
+## Validation → Study bridge
+
+The free-decay match is the bridge from plant model to controller study:
+validating **ω_n** confirms the reactive impedance (**A55**-driven added
+inertia plus hinge stiffness) that the **CC** and **opt_passive**
+impedance-matching arguments depend on, while validating **ζ / B55** confirms
+the radiation damping that sets **P_opt** and therefore the entire
+capture-efficiency denominator used throughout the three-regime analysis.
+
 ## Purpose
 
 This validation demonstrates that spring-only free-decay simulations in the C++ VGOSWEC model recover both the natural frequency **ω_n** and the damping ratio **ζ** for each available geometry, and match the values reported in Husain et al. / Ogden et al. (ASME JOMAE 145(3):030905) — Table 2 for ω_n, and Fig. 4 for ζ.
@@ -161,23 +179,79 @@ The numerical-dissipation component is minor (≈4×10⁻⁴, or ~8%) and conver
 
 ---
 
-## Reproduction
+## Full reproduction from a clean checkout
 
-Run free-decay cases and regenerate all figures and the validation CSV:
+The free-decay validation is reproducible end-to-end from this repository alone
+as the following numbered pipeline:
 
-```bash
-# Optionally re-run simulations (requires built binary):
-# python3 scripts/freedecay_validation.py --run --make-figures
+1. **Build the SEA-Stack / Chrono binary**
 
-# Reuse existing output CSVs (default):
-python3 scripts/freedecay_validation.py --make-figures
-```
+   ```bash
+   source scripts/setup_env.sh
+   cmake -S . -B build \
+     -DCMAKE_BUILD_TYPE=Release \
+     -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}"
+   cmake --build build -j$(nproc)
+   ```
 
-The unified validation script (`scripts/freedecay_validation.py`) computes both ω_n (FFT + zero-cross) and ζ (logdec with correct n), prints the comparison table, writes `docs/freedecay_validation.csv`, and regenerates the ζ figures. It depends only on NumPy (+ optional Matplotlib for figures).
+   This produces `build/demo_vgoswec`. The documented prerequisites are
+   **SEA-Stack**, **Project Chrono**, **yaml-cpp**, and **Eigen3**; the
+   headless free-decay workflow below uses `--no-viz`, so it does **not**
+   require the optional GUI / VSG stack.
 
-The ω_n-only plotting script is at `scripts/plot_freedecay_validation.py` (unchanged external behavior/outputs).
+2. **Run the raw SEA-Stack free-decay cases**
 
-Shared analysis functions (load_series, peak detection, logdec, ω_n estimation) are in `scripts/freedecay_analysis.py`.
+   ```bash
+   for deg in 0 10 20 45 90; do
+     ./build/demo_vgoswec --config config/vgoswec_${deg}_freedecay.yaml --no-viz
+   done
+   ```
+
+   Each case writes `output/vgoswec_${deg}_freedecay_results.csv`. The analysis
+   consumes the resulting time histories, including `time_s`,
+   `flap_pitch_rad`, and the other solver-output columns in those CSVs.
+
+3. **Run the Python free-decay analysis**
+
+   ```bash
+   # Re-run sims internally AND regenerate the ζ analysis/figures:
+   python3 scripts/freedecay_validation.py --run --make-figures
+
+   # OR, if output/vgoswec_*_freedecay_results.csv already exist locally,
+   # reuse them and only re-analyze/re-plot the ζ outputs:
+   python3 scripts/freedecay_validation.py --make-figures
+   ```
+
+   `--run` calls `build/demo_vgoswec` internally for each of the five
+   `config/vgoswec_{deg}_freedecay.yaml` cases, so step 2 is optional if you
+   use that flag. The unified driver depends only on **NumPy** (+ **Matplotlib**
+   when `--make-figures` is used). Shared `load_series`, peak-detection,
+   log-decrement, and ω_n-estimation helpers live in
+   `scripts/freedecay_analysis.py`.
+
+4. **Refresh the ω_n summary CSV / figure**
+
+   ```bash
+   python3 scripts/plot_freedecay_validation.py
+   ```
+
+   This companion ω_n-only plotter writes `docs/freedecay_validation.csv` and
+   `docs/img/freedecay_validation.png`, using the just-generated
+   `output/vgoswec_*_freedecay_results.csv` when present and otherwise falling
+   back to its embedded validated values.
+
+5. **Resulting artifacts**
+
+   This pipeline regenerates the free-decay validation artifacts in order:
+
+   - `build/demo_vgoswec`
+   - `output/vgoswec_{0,10,20,45,90}_freedecay_results.csv`
+   - `docs/img/freedecay_zeta_validation.png`
+   - `docs/img/freedecay_zeta_decay_fit.png`
+   - `docs/freedecay_validation.csv`
+   - `docs/img/freedecay_validation.png`
+
+The ω_n-only plotting script is at `scripts/plot_freedecay_validation.py`.
 
 Quick Python extraction for ω_n (robust to NaNs, sorted time, and transient removal):
 

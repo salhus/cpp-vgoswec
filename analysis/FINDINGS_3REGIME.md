@@ -10,6 +10,12 @@ Controller co-design study across VGOSWEC flap variants (VGM-0/10/20/45/90) over
 All results are reproducible from committed CSVs under
 `analysis/{cc,opt_passive,passive_guarded}/` via `--plot-only`. No solver runs required.
 
+> **Validated-plant foundation:** The controller/flap co-design results below
+> rest on the free-decay WEC-Sim plant validation in
+> [`../docs/freedecay_validation.md`](../docs/freedecay_validation.md), which
+> verifies both the reactive plant impedance (**ω_n**) and the resistive
+> radiation-damping response (**ζ / B55**) across VGM-0/10/20/45/90.
+
 ---
 
 ## 1. Three-regime relay (headline result)
