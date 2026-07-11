@@ -285,24 +285,24 @@ def _masked_spans(periods: np.ndarray, masked: np.ndarray) -> list[tuple[float, 
 
 
 def _style_period_axis(ax) -> None:
-    ax.xaxis.set_major_locator(MultipleLocator(0.5))
+    ax.xaxis.set_major_locator(MultipleLocator(1.0))
     ax.xaxis.set_minor_locator(AutoMinorLocator(2))
 
 
 def _style_power_axis(ax) -> None:
-    ax.yaxis.set_major_locator(MaxNLocator(nbins=8, min_n_ticks=6))
+    ax.yaxis.set_major_locator(MaxNLocator(nbins=6, min_n_ticks=4))
     ax.yaxis.set_minor_locator(AutoMinorLocator(2))
 
 
 def _style_efficiency_axis(ax) -> None:
-    ax.yaxis.set_major_locator(MultipleLocator(5.0))
+    ax.yaxis.set_major_locator(MultipleLocator(10.0))
     ax.yaxis.set_minor_locator(AutoMinorLocator(2))
 
 
 def _style_common_axes(ax) -> None:
     ax.set_axisbelow(True)
-    ax.grid(True, which="major", alpha=0.3, linestyle="--")
-    ax.grid(True, which="minor", alpha=0.15, linestyle="--")
+    ax.grid(True, which="major", alpha=0.55, linestyle="--")
+    ax.grid(True, which="minor", alpha=0.30, linestyle="--")
 
 
 def _add_masked_spans(ax, periods: np.ndarray, masked: np.ndarray) -> None:
@@ -310,10 +310,10 @@ def _add_masked_spans(ax, periods: np.ndarray, masked: np.ndarray) -> None:
         ax.axvspan(
             x0,
             x1,
-            facecolor="0.96",
-            edgecolor="0.70",
+            facecolor="0.92",
+            edgecolor="0.45",
             hatch="//",
-            alpha=0.35,
+            alpha=0.50,
             linewidth=0.0,
             zorder=0.1,
         )
