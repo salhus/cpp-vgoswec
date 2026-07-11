@@ -288,7 +288,7 @@ def _style_period_axis(ax) -> None:
 
 
 def _style_power_axis(ax) -> None:
-    ax.yaxis.set_major_locator(MultipleLocator(0.25))
+    ax.yaxis.set_major_locator(MultipleLocator(0.5))
     ax.yaxis.set_minor_locator(AutoMinorLocator(2))
 
 
@@ -383,8 +383,8 @@ def plot_per_flap(rows: list[dict], flap_angle: int, out_png: Path, power_ceilin
         _add_masked_spans(ax, T, masked)
         _style_common_axes(ax)
     _style_power_axis(ax0)
-    _style_efficiency_axis(ax1, major_step=5.0, minor_divisions=5)
-    ax0.set_ylim(0.0, power_ceiling)
+    _style_efficiency_axis(ax1, major_step=10.0, minor_divisions=5)
+    ax0.set_ylim(0.0, 1.5)
     ax1.set_ylim(0.0, efficiency_ceiling)
 
     ax0.set_ylabel("Power [W]")

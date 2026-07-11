@@ -154,7 +154,7 @@ def _style_period_axis(ax) -> None:
 
 
 def _style_power_axis(ax) -> None:
-    ax.yaxis.set_major_locator(MultipleLocator(0.25))
+    ax.yaxis.set_major_locator(MultipleLocator(0.5))
     ax.yaxis.set_minor_locator(AutoMinorLocator(2))
 
 
@@ -409,7 +409,7 @@ def plot_summary_comparison(
     _style_period_axis(ax)
     _style_power_axis(ax)
     _style_common_axes(ax)
-    ax.set_ylim(0.0, power_ceiling)
+    ax.set_ylim(0.0, 3.0)
     ax.legend(loc="best", fontsize=7, ncol=2)
 
     fig.tight_layout()

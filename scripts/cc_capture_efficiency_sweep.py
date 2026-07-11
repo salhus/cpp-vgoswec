@@ -265,7 +265,7 @@ def _style_period_axis(ax) -> None:
 
 
 def _style_power_axis(ax) -> None:
-    ax.yaxis.set_major_locator(MultipleLocator(0.25))
+    ax.yaxis.set_major_locator(MultipleLocator(0.5))
     ax.yaxis.set_minor_locator(AutoMinorLocator(2))
 
 
@@ -374,7 +374,7 @@ def plot_per_flap(rows: list[dict], flap_angle: int, out_png: Path, power_ceilin
     _style_power_axis(ax0)
     _style_efficiency_axis(ax1)
     ax0.set_ylim(0.0, power_ceiling)
-    ax1.set_ylim(0.0, efficiency_ceiling)
+    ax1.set_ylim(0.0, 110.0)
     ax0.set_ylabel("Power [W]")
     ax1.set_ylabel("Efficiency [%]")
     ax1.set_xlabel("Wave period $T$ [s]")
@@ -419,14 +419,14 @@ def plot_summary(csv_map: dict[int, Path], out_png: Path, power_ceiling: float, 
     _style_period_axis(ax0)
     _style_power_axis(ax0)
     _style_common_axes(ax0)
-    ax0.set_ylim(0.0, power_ceiling)
+    ax0.set_ylim(0.0, 3.0)
     ax0.legend(loc="best", fontsize=8, ncol=2)
     ax1.set_xlabel("Wave period $T$ [s]")
     ax1.set_ylabel("Capture efficiency $\\eta$ [%]")
     _style_period_axis(ax1)
     _style_efficiency_axis(ax1)
     _style_common_axes(ax1)
-    ax1.set_ylim(0.0, efficiency_ceiling)
+    ax1.set_ylim(0.0, 110.0)
     ax1.legend(loc="best", fontsize=8, ncol=2)
     fig.tight_layout()
     out_png.parent.mkdir(parents=True, exist_ok=True)
