@@ -19,6 +19,11 @@ __pycache__/
 !analysis/passive_guarded/figures/*.png
 !analysis/comparison/figures/
 !analysis/comparison/figures/*.png
+!analysis/opt_passive/*.csv
+!analysis/three_regime/
+!analysis/three_regime/*.csv
+!analysis/three_regime/figures/
+!analysis/three_regime/figures/*.png
 
 # CMake
 CMakeCache.txt
