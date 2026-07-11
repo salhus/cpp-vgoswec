@@ -36,13 +36,12 @@ hydro:
 wave:
   type: regular         # regular | jonswap
   height: 0.05          # [m]  H for regular, Hs for JONSWAP
-  period: 4.01          # [s]  VGM-20 resonance period (WEC-Sim free-decay reference)
+  period: 1.5           # [s]  default wave period
   direction: 0.0        # [rad]  wave direction (0 = +x)
 
 controller:
   type: passive
   passive:
-    # B_pto = B55(ω₀) = 1.5118e-4 N·m·s/rad (radiation damping at free-decay resonance ω₀=1.568 rad/s)
-    # Computed: λ55(ω₀)·ρ_h5·ω₀ = 9.6416e-8 · 1000.0 · 1.568 (from hydroData/vgoswec_20.h5)
-    B_pto: 1.5118e-4    # [N·m·s/rad]  radiation damping at resonance
+    # TODO: tune B_pto with tank-test data
+    B_pto: 0.5          # [N·m·s/rad]  placeholder — tune with tank-test data
     clip_torque: 5.0    # [N·m]  output saturation limit
