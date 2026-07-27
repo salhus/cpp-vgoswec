@@ -1,7 +1,7 @@
-# VGOSWEC-45 Standalone C++ SEA-Stack Application
+# VGOSWEC C++ SEA-Stack Application
 
-Standalone C++ downstream application simulating the model-scale **VGOSWEC-45**
-(Variable-Geometry OSWEC, 45° panel — bottom-hinged flap) using the
+Standalone C++ downstream application simulating the model-scale **VGOSWEC**
+(Variable-Geometry OSWEC — bottom-hinged flap) using the
 [SEA-Stack](https://github.com/Project-SEA-Stack/SEA-Stack) framework and
 Project Chrono for multi-body dynamics.
 
