@@ -1,42 +1,43 @@
-# Free-decay validation of the C++ VGOSWEC model against Husain et al. (Ogden et al., ASME JOMAE 145(3):030905), Table 2 and Fig. 4
+# Free-decay validation of the C++ VGOSWEC model
+
+## Status
+
+This document records the repository-native C++ free-decay validation workflow and its comparison against Ogden et al. (ASME JOMAE 145(3):030905), Table 2 and Fig. 4.
+
+**Primary damping-ratio reference:** for ζ, the strongest reference is now the direct comparison against the original WEC-Sim raw free-decay time histories documented in [`docs/freedecay_wecsim_rawdata_validation.md`](freedecay_wecsim_rawdata_validation.md). The published Table 2 ζ column is retained here for traceability, but it is no longer treated as the authoritative damping-ratio target because both WEC-Sim raw data and the C++ model give ζ values about 9–13× larger than Table 2 as printed.
+
+**Primary natural-frequency result:** C++ 200 s free-decay records agree with the WEC-Sim raw-data FFT/zero-crossing extraction within ±0.17% across VGM-0/10/20/45/90. This is tighter than comparison against the rounded paper Table 2 values.
+
+---
 
 ## Foundation: plant validation against WEC-Sim
 
-This validation is the **foundation** on which the three-regime controller/flap
-co-design study rests. The co-design results are only meaningful because the
-plant's **reactive impedance** (natural frequency **ω_n**) and **resistive
-impedance** (damping ratio **ζ**, i.e. radiation damping **B55**) are
-WEC-Sim-validated across the full **0°–90°** VGOSWEC geometric sweep
-(VGM-0/10/20/45/90).
+This validation is the foundation on which the three-regime controller/flap co-design study rests. The co-design results are only meaningful because the plant's:
 
-## Validation → Study bridge
+- **reactive impedance** — natural frequency **ω_n**, governed by added inertia **A55**, body inertia, and hinge stiffness; and
+- **resistive impedance** — damping ratio **ζ**, i.e. radiation damping **B55**;
 
-The free-decay match is the bridge from plant model to controller study:
-validating **ω_n** confirms the reactive impedance (**A55**-driven added
-inertia plus hinge stiffness) that the **CC** and **opt_passive**
-impedance-matching arguments depend on, while validating **ζ / B55** confirms
-the radiation damping that sets **P_opt** and therefore the entire
-capture-efficiency denominator used throughout the three-regime analysis.
+are validated across the full **0°–90°** VGOSWEC geometric sweep: VGM-0/10/20/45/90.
 
-## Purpose
+Validating **ω_n** confirms the reactive plant physics used by the **CC** and **opt_passive** impedance-matching arguments. Validating **ζ / B55** confirms the radiation damping that sets **P_opt** and therefore the capture-efficiency denominator used throughout the three-regime analysis.
 
-This validation demonstrates that spring-only free-decay simulations in the C++ VGOSWEC model recover both the natural frequency **ω_n** and the damping ratio **ζ** for each available geometry, and match the values reported in Husain et al. / Ogden et al. (ASME JOMAE 145(3):030905) — Table 2 for ω_n, and Fig. 4 for ζ.
+---
 
 ## Method
 
 - No incident waves: `wave.type: none`
 - External hinge spring is the only restoring mechanism: `C_ext = 6.57 N·m/rad`
 - Initial condition: `initial_pitch = 0.15 rad`
-- Controller: passive with `B_pto = 0` (pure free oscillation; no PTO damping torque)
-- Dynamics are solved in Chrono time-domain simulation with coupled surge–pitch–hinge motion and hydrodynamic radiation convolution; resonance is therefore measured from the full coupled plant response, not from a single-DOF closed-form estimate.
-- Natural frequency is extracted from `flap_pitch_rad` using:
-  1. FFT peak pick
-  2. Zero-crossing period estimate
-- Damping ratio is extracted from `flap_pitch_rad` using the logarithmic decrement method (see [Damping ratio (ζ) validation](#damping-ratio-ζ-validation) below).
+- Controller: passive with `B_pto = 0` — pure free oscillation; no PTO damping torque
+- Dynamics are solved in Chrono time-domain simulation with coupled surge–pitch–hinge motion and hydrodynamic radiation convolution. Resonance is measured from the full coupled plant response, not from a single-DOF closed-form approximation.
+- Natural frequency is extracted from `flap_pitch_rad` using FFT peak-picking and zero-crossing period estimation.
+- Damping ratio is extracted from `flap_pitch_rad` using logarithmic decrement.
 
-> Note: `omega_n_pred` startup diagnostics are approximate single-DOF estimates and are **not** used as the validation metric here.
+> `omega_n_pred` startup diagnostics are approximate single-DOF estimates and are **not** used as the validation metric here.
 
-## Body properties used (constant for all angles)
+---
+
+## Body properties used
 
 These values are WEC-Sim-validated and intentionally held fixed across the geometric sweep for this free-decay validation; only the BEM hydro file changes by angle.
 
@@ -51,138 +52,148 @@ These values are WEC-Sim-validated and intentionally held fixed across the geome
 | Hinge location `z` | -0.5 m |
 | External hinge stiffness `C_ext` | 6.57 N·m/rad |
 
-## Results vs paper (Table 2)
+---
 
-| Config | Paper ω_n [rad/s] | Paper T_s [s] | Paper ζ×10⁻⁴ | C++ zero-cross ω_n [rad/s] | C++ FFT ω_n [rad/s] | Zero-cross error |
-|---|---:|---:|---:|---:|---:|---:|
-| VGM-0  | 1.07 | 5.86 | 5.8 | 1.072 | 1.083 | +0.2% |
-| VGM-10 | 1.46 | 4.29 | 4.3 | 1.468 | 1.517 | +0.6% |
-| VGM-20 | 1.57 | 4.01 | 4.1 | 1.568 | 1.517 | -0.1% |
-| VGM-45 | 1.84 | 3.42 | 3.5 | 1.837 | 1.819 | -0.2% |
-| VGM-90 | 2.10 | 2.99 | 3.2 | 2.094 | 2.058 | -0.3% |
+## 2026-09-17 result set: 200 s free-decay records
 
-Zero-crossing agreement is within **±0.6%** at every angle, and the trend is monotonic with flap angle: **1.07 → 1.46 → 1.57 → 1.84 → 2.10 rad/s**, matching the paper.
+The free-decay records were harmonized to **200 s** for all five geometries to match the paper Fig. 4 record length and to remove the previous short-record FFT bin-resolution ambiguity. The regenerated result files were produced at commit `3717147` with `CHRONO_FLAVOR=v10`.
 
-## Validation figure
+| Config | Paper Table 2 ω_n [rad/s] | Paper T_s [s] | Paper Table 2 ζ×10⁻⁴ | C++ zero-cross ω_n [rad/s] | C++ FFT ω_n [rad/s] | Zero-cross error vs Table 2 | C++ ζ×10⁻⁴ |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| VGM-0  | 1.070 | 5.86 | 5.8 | 1.066 | 1.079 | -0.4% | 52.8 |
+| VGM-10 | 1.460 | 4.29 | 4.3 | 1.460 | 1.460 | -0.0% | 38.1 |
+| VGM-20 | 1.570 | 4.01 | 4.1 | 1.557 | 1.555 | -0.8% | 47.5 |
+| VGM-45 | 1.840 | 3.42 | 3.5 | 1.823 | 1.840 | -0.9% | 36.7 |
+| VGM-90 | 2.100 | 2.99 | 3.2 | 2.083 | 2.094 | -0.8% | 28.6 |
+
+Against the rounded Table 2 values, C++ zero-crossing agreement is within **±0.9%** at every angle. Against the original WEC-Sim raw time histories, agreement is much tighter — within **±0.17%** using independent FFT/zero-crossing estimators. See [`docs/freedecay_wecsim_rawdata_validation.md`](freedecay_wecsim_rawdata_validation.md).
+
+---
+
+## Direct WEC-Sim raw-data validation
+
+The owner located the original WEC-Sim `.mat` free-decay outputs (`FreeDecay_vg{1..5}_intAng1.mat`). Those files contain the raw pitch histories used to generate the paper:
+
+- time vector: `output.wave.time`
+- pitch signal: `output.bodies(1).position(:,5)`
+
+The extraction is documented in detail in [`docs/freedecay_wecsim_rawdata_validation.md`](freedecay_wecsim_rawdata_validation.md). The key results are summarized here.
+
+### Natural frequency: C++ vs WEC-Sim raw histories
+
+| VGM | WEC-Sim FFT-interp ω [rad/s] | WEC-Sim zero-cross ω [rad/s] | C++ 200 s zero-cross ω [rad/s] |
+|---|---:|---:|---:|
+| 0  | 1.0656 | 1.0642 | 1.066 |
+| 10 | 1.4597 | 1.4579 | 1.460 |
+| 20 | 1.5581 | 1.5562 | 1.557 |
+| 45 | 1.8241 | 1.8221 | 1.823 |
+| 90 | 2.0850 | 2.0829 | 2.083 |
+
+**Conclusion:** the C++ model reproduces the WEC-Sim raw-data natural frequencies within **±0.17%** across all five geometries. This confirms the reactive impedance of the plant.
+
+### Damping ratio: C++ vs WEC-Sim raw histories
+
+| VGM | WEC-Sim fitted ζ×10⁻⁴ | C++ 200 s log-decrement ζ×10⁻⁴ | Difference | Paper Table 2 ζ×10⁻⁴ |
+|---|---:|---:|---:|---:|
+| 0  | 55.3 | 52.8 | -4.6%  | 5.8 |
+| 10 | 42.4 | 38.1 | -10.2% | 4.3 |
+| 20 | 53.5 | 47.5 | -11.2% | 4.1 |
+| 45 | 42.0 | 36.7 | -12.6% | 3.5 |
+| 90 | 31.4 | 28.6 | -9.0%  | 3.2 |
+
+**Conclusion:** C++ and WEC-Sim ζ agree in magnitude and trend to within roughly **5–13%**, using independent estimators on independent solver outputs. Both solvers place ζ in the **tens-of-×10⁻⁴** range. The published Table 2 ζ values are uniformly about **9–13× lower**.
+
+This is now the primary ζ validation result. The Fig. 4 and Table 2 comparisons below are retained as corroboration and provenance.
+
+---
+
+## Validation figures
 
 ![C++ vs paper natural frequency across geometry](img/freedecay_validation.png)
 
-## FFT bin-resolution caveat (important)
+![C++ ζ, paper Fig. 4 per-config ζ, paper Table 2 ζ and Table 2 × 10 across geometry](img/freedecay_zeta_validation.png)
 
-For a ~55 s record, FFT resolution is approximately:
+![VGM-0 free-decay pitch with log-decrement envelope fit](img/freedecay_zeta_decay_fit.png)
+
+---
+
+## FFT bin-resolution note
+
+The original shorter C++ records were 40–60 s long. For a ~55 s record, FFT resolution is approximately:
 
 - `Δf ≈ 1/55 ≈ 0.018 Hz`
 - `Δω = 2πΔf ≈ 0.11 rad/s` per bin
 
-VGM-10 (1.46 rad/s) and VGM-20 (1.57 rad/s) are separated by ~0.11 rad/s, so they can land in the same FFT bin for naive peak picking, yielding identical FFT estimates (1.517 rad/s). Zero-crossing resolves these cleanly (1.468 vs 1.568 rad/s). This is a windowing/bin-quantization artifact, not a plant-physics error. The paper’s own FFT-vs-period presentation has the same finite-resolution limitation, so tabulated FFT-read values naturally carry a few-percent windowing uncertainty.
+VGM-10 (≈1.46 rad/s) and VGM-20 (≈1.57 rad/s) are separated by about one such FFT bin, so naive FFT peak-picking could place them in the same bin. This occurred in the earlier 60 s C++ analysis, where both returned 1.517 rad/s by FFT while zero-crossing separated them correctly.
 
-## Damping ratio (ζ) validation
-
-### Method: logarithmic decrement
-
-Damping ratio ζ is extracted from the `flap_pitch_rad` free-decay time series using the **logarithmic decrement** method — the same method used by the paper's WEC-Sim analysis:
-
-$$\delta = \frac{1}{N} \ln\!\frac{A_0}{A_N}, \qquad \zeta = \frac{\delta}{\sqrt{4\pi^2 + \delta^2}} = \frac{1}{\sqrt{1 + \left(\tfrac{2\pi}{\delta}\right)^2}}$$
-
-where $A_0$ is the first retained positive peak amplitude, $A_N$ is the $N$-th peak (the last retained), and $N$ is the number of cycles between them (= number of retained peaks − 1).
-
-> **`n` pitfall (important):** The formula above gives the *per-cycle* $\delta$, so $N$ must equal the actual number of oscillation cycles between $A_0$ and $A_N$.
->
-> - Adjacent peaks are only **1 cycle apart**, so the correct call is `n=1`.
-> - Calling `logdec(x1, x2, n=2)` with adjacent peaks halves $\delta$ and therefore halves $\zeta$.
-> - Passing `n=2` on adjacent peaks is exactly the kind of off-by-one that produces a spurious ×2 factor; combined with a small-amplitude tail selection, it can compound to a ×10 discrepancy.
-
-### C++ ζ results vs paper Table 2
-
-| Config | C++ ζ (×10⁻⁴, n=1 logdec) | Paper Table 2 ζ (×10⁻⁴) | Ratio C++ / Table 2 |
-|---|---:|---:|---:|
-| VGM-0  | 49.9 | 5.8 | 8.6× |
-| VGM-10 | 40.1 | 4.3 | 9.3× |
-| VGM-20 | 46.5 | 4.1 | 11.3× |
-| VGM-45 | 37.8 | 3.5 | 10.8× |
-| VGM-90 | 29.9 | 3.2 | 9.3× |
-
-Mean ratio: **≈ 9.9×** (flat across all five geometries).
-
-### Linearity of damping (amplitude-independence)
-
-Per-adjacent-cycle ζ (n=1 between each consecutive peak pair) is essentially flat across the decay envelope for every geometry. For example, VGM-10: ζ runs from approximately **43×10⁻⁴** at the largest peaks (~8.4°) down to **38×10⁻⁴** at the smallest retained peaks (~6.0°) — a negligible variation. This confirms that:
-
-1. The C++ damping is **linear** (amplitude-independent). Nonlinear (e.g. quadratic drag) damping would produce strongly decreasing per-cycle ζ as amplitude decays.
-2. The ~10× discrepancy vs Table 2 is **not** an amplitude-matching artifact. It persists at all amplitude levels in the C++ result.
-
-### Paper Fig. 4 cross-check — the decisive evidence
-
-The paper's own **Fig. 4** shows the nondimensionalized pitch free-decay time history for all five geometries overlaid. The nondimensional envelope decays from ≈1.0 to ≈0.35 over approximately 200 s. With oscillation periods T_s ≈ 3–6 s (≈50 cycles over the record), a direct log-decrement on the paper's figure gives:
-
-$$\delta = \frac{1}{50} \ln\!\frac{1.0}{0.35} \approx 0.021 \implies \zeta \approx 34 \times 10^{-4}$$
-
-This aggregate estimate (ζ ≈ 34×10⁻⁴) is now refined into per-config estimates using each geometry's own period — see [Per-geometry Fig. 4 log-decrement (angle-resolved cross-check)](#per-geometry-fig-4-log-decrement-angle-resolved-cross-check) below.
-
-### Per-geometry Fig. 4 log-decrement (angle-resolved cross-check)
-
-Because each geometry has a distinct oscillation period T_s (Table 2), the paper's Fig. 4 can be log-decremented **per geometry** rather than with a single aggregate period. Over the ~200 s record the nondimensional envelope decays from A₀ ≈ 1.0 to A_N ≈ 0.35; each config contributes N = 200 / T_s cycles, giving:
-
-$$\delta = \frac{\ln(A_0 / A_N)}{N} = \frac{\ln(1.0 / 0.35)}{200 / T_s}, \qquad \zeta = \frac{\delta}{\sqrt{4\pi^2 + \delta^2}}$$
-
-| Config | T_s [s] | N ≈ 200/T_s | Paper Fig. 4 ζ (×10⁻⁴) | C++ ζ (×10⁻⁴) | Table 2 ζ (×10⁻⁴) | Fig. 4 / Table 2 |
-|---|---:|---:|---:|---:|---:|---:|
-| VGM-0  | 5.86 | ~34 | ≈ 49 | 49.9 | 5.8 | ~8.4× |
-| VGM-10 | 4.29 | ~47 | ≈ 36 | 40.1 | 4.3 | ~8.4× |
-| VGM-20 | 4.01 | ~50 | ≈ 33 | 46.5 | 4.1 | ~8.0× |
-| VGM-45 | 3.42 | ~58 | ≈ 29 | 37.8 | 3.5 | ~8.3× |
-| VGM-90 | 2.99 | ~67 | ≈ 25 | 29.9 | 3.2 | ~7.8× |
-
-> **Note:** Paper Fig. 4 ζ values are **approximate figure-read estimates** (the envelope ratio A₀/A_N and the 200 s record length are both read from the plot, not digitised precisely). They carry ±10–15% uncertainty and are presented as an independent corroboration, not a precision measurement.
-
-**Qualitative conclusion:**
-
-All three series — C++ ζ, paper-Fig.4 per-config ζ, and Table 2 ζ — **decrease monotonically from 0° to 90°** (same physics/shape). However:
-- **C++ ζ and paper-Fig.4 ζ agree in magnitude** (both in the range 25–50×10⁻⁴), matching at every geometry.
-- **Table 2 ζ is uniformly ~8–10× lower** (single-digit ×10⁻⁴) at all angles.
-
-This is geometry-resolved confirmation that the C++ model correctly reproduces the paper's own free-decay physics (Fig. 4), and that the Table 2 ζ column carries a ×10⁻³/×10⁻⁴ exponent inconsistency.
-
-### Conclusion: Table 2 ζ column exponent inconsistency
-
-The C++ model **matches the paper's real free-decay damping** as displayed in its Fig. 4. The paper's Table 2 ζ column (3.2–5.8×10⁻⁴) appears to carry a **×10⁻³ vs ×10⁻⁴ exponent inconsistency**: those tabulated values are ~10× smaller than what the paper's own Fig. 4 implies (≈34×10⁻⁴). If Table 2 is read as ζ×10⁻³ (i.e. 32–58×10⁻⁴), it agrees with both Fig. 4 and the C++ result.
-
-**Physical plausibility check:**
-- C++ result: ζ ≈ 40×10⁻⁴ → Q ≈ 1/(2ζ) ≈ **125** — typical for a BEM radiation-damped flap in water.
-- Table 2 as written: ζ ≈ 4×10⁻⁴ → Q ≈ **1250** — unrealistically high Q (under-damped) for a wetted oscillating body in open water.
-
-The ~10× ratio is also a **flat scalar across all five geometries** (mean ≈ 9.9×, range 8.6–11.3×), not a geometry-dependent spread. A physical coupling or leakage effect would scatter with angle; a nearly-constant scalar multiplier is the fingerprint of a tabulation error (exponent, units, or scale factor in post-processing).
-
-**Summary:** Both the C++ model and the paper's own Fig. 4 agree on ζ ≈ 30–50×10⁻⁴. The Table 2 ζ column values (×10⁻⁴ as labeled) appear ~10× too small compared to the paper's own Fig. 4 evidence.
-
-### ζ validation figure
-
-![C++ ζ, paper Fig. 4 per-config ζ, paper Table 2 ζ and Table 2 × 10 across geometry](img/freedecay_zeta_validation.png)
-
-The figure shows four series: **C++ ζ** (log-decrement, n=1), **paper Fig. 4 per-config ζ** (log-dec of the nondimensional envelope per geometry's period), **Table 2 ζ**, and **Table 2 ζ × 10** (scale reconciliation). The C++ and paper-Fig.4 series overlap in magnitude (25–50×10⁻⁴) and both decrease monotonically 0°→90°, while Table 2 sits uniformly ~10× lower with the same trend shape.
-
-### Log-decrement envelope fit (VGM-0)
-
-![VGM-0 free-decay pitch with log-decrement envelope fit](img/freedecay_zeta_decay_fit.png)
-
-The fitted exponential envelope demonstrates linear damping: the logdec-fitted curve tracks the peak amplitudes uniformly from the start of the decay to the end, consistent with constant (amplitude-independent) ζ.
-
-### Numerical timestep sensitivity
-
-Refining the integrator timestep slightly lowers the extracted ζ due to reduced numerical dissipation:
-
-| Config | dt = 0.005 s | dt = 0.0005 s |
-|---|---:|---:|
-| VGM-0 ζ (×10⁻⁴) | 54 | 50 |
-
-The numerical-dissipation component is minor (≈4×10⁻⁴, or ~8%) and converges out with timestep refinement. The dominant contribution to ζ ≈ 50×10⁻⁴ is the **physical radiation damping** from the BEM hydro coupling, not numerical artifacts. This does not change the ×10 reconciliation conclusion.
+The 2026-09-17 200 s records resolve this issue: FFT and zero-crossing now separate VGM-10 and VGM-20 cleanly.
 
 ---
 
-## Full reproduction from a clean checkout
+## Damping-ratio method: logarithmic decrement
 
-The free-decay validation is reproducible end-to-end from this repository alone
-as the following numbered pipeline:
+Damping ratio ζ is extracted from the C++ `flap_pitch_rad` free-decay time series using logarithmic decrement:
+
+$$
+\delta = \frac{1}{N}\ln\!\frac{A_0}{A_N}, \qquad
+\zeta = \frac{\delta}{\sqrt{4\pi^2 + \delta^2}}
+       = \frac{1}{\sqrt{1 + \left(\tfrac{2\pi}{\delta}\right)^2}}
+$$
+
+where `A_0` is the first retained positive peak amplitude, `A_N` is the last retained positive peak amplitude, and `N` is the number of cycles between them, i.e. retained peak count minus one.
+
+> **`n` pitfall:** the formula gives the *per-cycle* decrement. Adjacent peaks are one cycle apart, so the correct call for adjacent peaks is `n=1`. Passing `n=2` for adjacent peaks halves δ and therefore approximately halves ζ for small damping. That produces a ×2 error, not the full ×10 Table 2 discrepancy.
+
+The C++ analysis uses adjacent-cycle-compatible peak indexing and a full-record log-decrement over retained positive peaks.
+
+---
+
+## Paper Fig. 4 cross-check
+
+The paper's Fig. 4 shows nondimensional pitch free-decay histories over approximately 200 s. The nondimensional envelope decays from approximately 1.0 to approximately 0.35. A direct envelope log-decrement gives ζ in the tens-of-×10⁻⁴ range, not the single-digit ×10⁻⁴ range printed in Table 2.
+
+Using each geometry's own period gives the following approximate figure-read estimates:
+
+| Config | T_s [s] | N ≈ 200/T_s | Paper Fig. 4 ζ×10⁻⁴ | C++ 200 s ζ×10⁻⁴ | Table 2 ζ×10⁻⁴ | Fig. 4 / Table 2 |
+|---|---:|---:|---:|---:|---:|---:|
+| VGM-0  | 5.86 | ~34 | ≈49 | 52.8 | 5.8 | ~8.4× |
+| VGM-10 | 4.29 | ~47 | ≈36 | 38.1 | 4.3 | ~8.4× |
+| VGM-20 | 4.01 | ~50 | ≈33 | 47.5 | 4.1 | ~8.0× |
+| VGM-45 | 3.42 | ~58 | ≈29 | 36.7 | 3.5 | ~8.3× |
+| VGM-90 | 2.99 | ~67 | ≈25 | 28.6 | 3.2 | ~7.8× |
+
+The Fig. 4 values are approximate because they are read from a plotted envelope, not from digitized raw data. Their role is corroborative. The direct WEC-Sim raw-data comparison above is the stronger ζ reference.
+
+---
+
+## Interpretation of the Table 2 ζ discrepancy
+
+The C++ model and the WEC-Sim raw time histories agree that ζ is in the **25–55×10⁻⁴** range. The paper Table 2 ζ column lists **3.2–5.8×10⁻⁴**. The ratio is nearly scalar across the sweep rather than geometry-dependent.
+
+This pattern is consistent with a table exponent/scale issue — e.g. `×10⁻³` vs `×10⁻⁴` — rather than a plant-model error. A physical hydrodynamic discrepancy would generally vary with geometry; it would not appear as a nearly constant factor across VGM-0/10/20/45/90.
+
+A plausibility check reaches the same conclusion:
+
+- ζ ≈ 40×10⁻⁴ gives `Q ≈ 1/(2ζ) ≈ 125`, plausible for a BEM radiation-damped wetted flap.
+- ζ ≈ 4×10⁻⁴ gives `Q ≈ 1250`, implausibly under-damped for this open-water free-decay problem.
+
+---
+
+## Numerical timestep sensitivity
+
+Refining the integrator timestep slightly lowers the extracted VGM-0 ζ because of reduced numerical dissipation:
+
+| Config | dt = 0.005 s | dt = 0.0005 s |
+|---|---:|---:|
+| VGM-0 ζ×10⁻⁴ | 54 | 50 |
+
+The 2026-09-17 200 s campaign uses the config timestep `dt = 0.005 s`, so the appropriate VGM-0 C++ ζ value for that campaign is **52.8×10⁻⁴**. The refined-timestep value remains useful as a sensitivity check, but it should not be mixed into the standard-config result table.
+
+The timestep effect is minor compared with the Table 2 scale discrepancy and does not change the conclusion.
+
+---
+
+## Reproduction from a clean checkout
 
 1. **Build the SEA-Stack / Chrono binary**
 
@@ -194,12 +205,7 @@ as the following numbered pipeline:
    cmake --build build -j$(nproc)
    ```
 
-   This produces `build/demo_vgoswec`. The documented prerequisites are
-   **SEA-Stack**, **Project Chrono**, **yaml-cpp**, and **Eigen3**; the
-   headless free-decay workflow below uses `--no-viz`, so it does **not**
-   require the optional GUI / VSG stack.
-
-2. **Run the raw SEA-Stack free-decay cases**
+2. **Run the free-decay cases**
 
    ```bash
    for deg in 0 10 20 45 90; do
@@ -207,131 +213,40 @@ as the following numbered pipeline:
    done
    ```
 
-   Each case writes `output/vgoswec_${deg}_freedecay_results.csv`. The analysis
-   consumes the resulting time histories, including `time_s`,
-   `flap_pitch_rad`, and the other solver-output columns in those CSVs.
+   Each case writes `output/vgoswec_${deg}_freedecay_results.csv`.
 
-3. **Run the Python free-decay analysis**
+3. **Run the unified free-decay analysis**
 
    ```bash
-   # Re-run sims internally AND regenerate the ζ analysis/figures:
-   python3 scripts/freedecay_validation.py --run --make-figures
-
-   # OR, if output/vgoswec_*_freedecay_results.csv already exist locally,
-   # reuse them and only re-analyze/re-plot the ζ outputs:
-   python3 scripts/freedecay_validation.py --make-figures
+   python3 scripts/freedecay_validation.py --make-figures --paper-fig-zeta
    ```
 
-   `--run` calls `build/demo_vgoswec` internally for each of the five
-   `config/vgoswec_{deg}_freedecay.yaml` cases, so step 2 is optional if you
-   use that flag. The unified driver depends only on **NumPy** (+ **Matplotlib**
-   when `--make-figures` is used). Shared `load_series`, peak-detection,
-   log-decrement, and ω_n-estimation helpers live in
-   `scripts/freedecay_analysis.py`.
+   This writes:
 
-4. **Refresh the ω_n summary CSV / figure**
+   - `docs/freedecay_validation.csv`
+   - `docs/img/freedecay_zeta_validation.png`
+   - `docs/img/freedecay_zeta_decay_fit.png`
+
+4. **Refresh the ω_n summary figure**
 
    ```bash
    python3 scripts/plot_freedecay_validation.py
    ```
 
-   This companion ω_n-only plotter writes `docs/freedecay_validation.csv` and
-   `docs/img/freedecay_validation.png`, using the just-generated
-   `output/vgoswec_*_freedecay_results.csv` when present and otherwise falling
-   back to its embedded validated values.
+   This writes:
 
-5. **Resulting artifacts**
-
-   This pipeline regenerates the free-decay validation artifacts in order:
-
-   - `build/demo_vgoswec`
-   - `output/vgoswec_{0,10,20,45,90}_freedecay_results.csv`
-   - `docs/img/freedecay_zeta_validation.png`
-   - `docs/img/freedecay_zeta_decay_fit.png`
-   - `docs/freedecay_validation.csv`
    - `docs/img/freedecay_validation.png`
 
-The ω_n-only plotting script is at `scripts/plot_freedecay_validation.py`.
+> **Important provenance note:** `scripts/freedecay_validation.py` and `scripts/plot_freedecay_validation.py` contain embedded fallback values for historical reproducibility. For campaign-grade runs, clear or archive existing `output/vgoswec_*_freedecay_results.csv` files first, run the solver explicitly, confirm fresh output timestamps, and then run the analysis. Otherwise a missing or unreadable solver output can be masked by fallback values.
 
-Quick Python extraction for ω_n (robust to NaNs, sorted time, and transient removal):
-
-```python
-import csv
-import math
-from pathlib import Path
-
-import numpy as np
-
-
-def estimate_wn(csv_path: Path, transient_s: float = 2.0):
-    t, x = [], []
-    with csv_path.open(newline="") as fh:
-        r = csv.DictReader(fh)
-        for row in r:
-            try:
-                ti = float(row["time_s"])
-                xi = float(row["flap_pitch_rad"])
-            except (KeyError, ValueError, TypeError):
-                continue
-            if not (math.isfinite(ti) and math.isfinite(xi)):
-                continue
-            t.append(ti)
-            x.append(xi)
-
-    if len(t) < 16:
-        raise RuntimeError(f"Not enough valid rows in {csv_path}")
-
-    idx = np.argsort(np.asarray(t))
-    t = np.asarray(t)[idx]
-    x = np.asarray(x)[idx]
-
-    mask = t >= (t[0] + transient_s)
-    t = t[mask]
-    x = x[mask]
-    if len(t) < 16:
-        raise RuntimeError("Not enough post-transient samples")
-
-    x = x - np.mean(x)  # detrend (constant)
-    dt = float(np.median(np.diff(t)))
-
-    # FFT estimate
-    freqs = np.fft.rfftfreq(len(x), d=dt)
-    amps = np.abs(np.fft.rfft(x))
-    amps[0] = 0.0
-    k = int(np.argmax(amps))
-    wn_fft = 2.0 * math.pi * freqs[k]
-
-    # Zero-crossing estimate (upward crossings, linear interpolation)
-    zc = []
-    for i in range(1, len(x)):
-        if x[i - 1] < 0.0 <= x[i]:
-            dx = x[i] - x[i - 1]
-            if dx == 0.0:
-                continue
-            alpha = -x[i - 1] / dx
-            zc.append(t[i - 1] + alpha * (t[i] - t[i - 1]))
-    if len(zc) < 2:
-        raise RuntimeError("Insufficient zero crossings")
-
-    periods = np.diff(np.asarray(zc))
-    T = float(np.median(periods))
-    wn_zc = 2.0 * math.pi / T
-
-    return wn_fft, wn_zc
-
-
-for dev in [0, 10, 20, 45, 90]:
-    path = Path(f"output/vgoswec_{dev}_freedecay_results.csv")
-    w_fft, w_zc = estimate_wn(path)
-    print(f"VGM-{dev:>2}: FFT={w_fft:.3f} rad/s, zero-cross={w_zc:.3f} rad/s")
-```
+---
 
 ## Conclusion
 
-Across the full 0°–90° sweep (0°, 10°, 20°, 45°, 90°), the C++ VGOSWEC model is **fully validated** against Ogden et al. (ASME JOMAE 145(3):030905) on both key free-decay metrics:
+The C++ VGOSWEC free-decay plant model is validated on both key metrics:
 
-1. **Natural frequency ω_n** — C++ zero-cross matches Table 2 within **±0.6%** at every angle, with the correct monotonic trend 1.07 → 1.46 → 1.57 → 1.84 → 2.10 rad/s. This validates the reactive plant physics (mass/inertia, hinge spring, BEM added mass).
+1. **Natural frequency ω_n:** C++ 200 s free-decay records match the original WEC-Sim raw-data FFT/zero-crossing extraction within **±0.17%** across all five geometries. This validates the reactive plant physics: body inertia, hinge spring, and BEM added-mass coupling.
 
-2. **Damping ratio ζ** — C++ logdec values (≈30–50×10⁻⁴) match the paper's **own Fig. 4** time history, both in aggregate (≈34×10⁻⁴ from a blended envelope read) and **per geometry** (per-config log-decrement using each geometry's period: 49/36/33/29/25×10⁻⁴ for 0°/10°/20°/45°/90°, matching the C++ 49.9/40.1/46.5/37.8/29.9×10⁻⁴). The paper's Table 2 ζ column (3.2–5.8×10⁻⁴) appears to carry a ×10⁻³/×10⁻⁴ exponent inconsistency (values ~10× too small compared to its own Fig. 4). The C++ result is physically plausible (Q ≈ 125, consistent with BEM radiation damping of a wetted flap in water). This validates the resistive plant physics (radiation damping).
+2. **Damping ratio ζ:** C++ log-decrement values match damping extracted directly from WEC-Sim raw time histories within **~5–13%** and agree in magnitude with the paper Fig. 4 envelope. Both solvers place ζ in the **25–55×10⁻⁴** range. The paper Table 2 ζ column, as printed, is uniformly about **9–13× lower** and is best interpreted as a scale/exponent inconsistency rather than a model discrepancy.
 
-The C++ VGOSWEC plant model is fully validated. **Controller power-capture tuning** (analytic impedance-matching gain formulas in `impedance.cpp`) is the next focus.
+The plant validation is therefore banked. No C++ model rewrite is indicated by the free-decay evidence; downstream focus should return to SEA-Stack/capture-efficiency issues, especially the `rho = 1025` config value versus `rho = 1000` stored in the H5 hydro data.
