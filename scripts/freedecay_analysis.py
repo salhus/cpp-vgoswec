@@ -35,23 +35,48 @@ PAPER_TABLE2 = {
     90: {"paper_wn_rads": 2.10, "paper_Ts_s": 2.99, "paper_zeta_1e4": 3.2},
 }
 
-# Validated C++ ζ fallback values (×10⁻⁴) computed via logdec with correct n=1
-# between adjacent peaks from the committed simulation output CSVs.
+# Validated C++ fallback values from the 2026-09-17 200 s free-decay campaign:
+# - commit: 3717147
+# - CHRONO_FLAVOR=v10
+# - standard config timestep: dt = 0.005 s
+#
+# Important: the refined-timestep VGM-0 sensitivity check (dt = 0.0005 s,
+# ζ ≈ 50×10⁻⁴) must not be mixed into the standard-config fallback table below.
 FALLBACK_CPP_ZETA_1E4 = {
-    0:  49.9,
-    10: 40.1,
-    20: 46.5,
-    45: 37.8,
-    90: 29.9,
+    0:  52.8,
+    10: 38.1,
+    20: 47.5,
+    45: 36.7,
+    90: 28.6,
 }
 
 # Validated C++ ω_n fallback values (rad/s)
 FALLBACK_CPP_WN = {
-    0:  {"cpp_zc": 1.072, "cpp_fft": 1.083},
-    10: {"cpp_zc": 1.468, "cpp_fft": 1.517},
-    20: {"cpp_zc": 1.568, "cpp_fft": 1.517},
-    45: {"cpp_zc": 1.837, "cpp_fft": 1.819},
-    90: {"cpp_zc": 2.094, "cpp_fft": 2.058},
+    0:  {"cpp_zc": 1.066, "cpp_fft": 1.079},
+    10: {"cpp_zc": 1.460, "cpp_fft": 1.460},
+    20: {"cpp_zc": 1.557, "cpp_fft": 1.555},
+    45: {"cpp_zc": 1.823, "cpp_fft": 1.840},
+    90: {"cpp_zc": 2.083, "cpp_fft": 2.094},
+}
+
+# WEC-Sim raw-data reference values from the owner-supplied original study files
+# FreeDecay_vg{1..5}_intAng1.mat (not committed to this repository).
+#
+# Extracted from:
+#   - time vector: output.wave.time
+#   - pitch signal: output.bodies(1).position(:,5)
+#
+# Methods:
+#   - ω via FFT peak with parabolic interpolation and via zero-crossing median
+#   - ζ via damped-sinusoid least-squares fit
+#       x(t) = c + e^{-σt}(a cos ωt + b sin ωt)
+#       ζ = σ / sqrt(ω² + σ²)
+WECSIM_RAWDATA = {
+    0:  {"wecsim_fft_interp": 1.0656, "wecsim_zc": 1.0642, "wecsim_fit_zeta_1e4": 55.3},
+    10: {"wecsim_fft_interp": 1.4597, "wecsim_zc": 1.4579, "wecsim_fit_zeta_1e4": 42.4},
+    20: {"wecsim_fft_interp": 1.5581, "wecsim_zc": 1.5562, "wecsim_fit_zeta_1e4": 53.5},
+    45: {"wecsim_fft_interp": 1.8241, "wecsim_zc": 1.8221, "wecsim_fit_zeta_1e4": 42.0},
+    90: {"wecsim_fft_interp": 2.0850, "wecsim_zc": 2.0829, "wecsim_fit_zeta_1e4": 31.4},
 }
 
 
