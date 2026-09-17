@@ -43,8 +43,5 @@ CTestTestfile.cmake
 .DS_Store
 Thumbs.db
 
-# Committed docs artifacts
-!docs/*.csv
-
-# Committed docs artifacts
+# Committed docs artifacts — free-decay validation summary CSV
 !docs/*.csv
