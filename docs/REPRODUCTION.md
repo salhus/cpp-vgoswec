@@ -34,34 +34,47 @@ optional GUI / VSG stack is not required for CSV-only reproduction.
 **Purpose:** regenerate the plant-validation basis used by the controller study.
 
 ```bash
-# Clean-checkout, fully self-contained path: re-run the five free-decay cases,
-# re-analyze ζ, then refresh the ω_n summary CSV/figure.
-python3 scripts/freedecay_validation.py --run --make-figures
+# Campaign-grade path: re-run the five free-decay cases, build the WEC-Sim
+# comparison tables/figures, emit the per-geometry paper-ζ cross-check table,
+# and fail closed if any geometry falls back to embedded historical values.
+python3 scripts/freedecay_validation.py --run --make-figures --paper-fig-zeta --strict
 python3 scripts/plot_freedecay_validation.py
 
-# If output/vgoswec_*_freedecay_results.csv already exist locally, reuse them:
-python3 scripts/freedecay_validation.py --make-figures
+# If output/vgoswec_*_freedecay_results.csv already exist locally and you want
+# to reuse them, drop `--run` but keep the same analysis flags:
+python3 scripts/freedecay_validation.py --make-figures --paper-fig-zeta --strict
 python3 scripts/plot_freedecay_validation.py
 ```
 
 - **Solver behavior**
-  - `scripts/freedecay_validation.py --run --make-figures` invokes
+  - `scripts/freedecay_validation.py --run --make-figures --paper-fig-zeta --strict` invokes
     `build/demo_vgoswec` internally for
     `config/vgoswec_{0,10,20,45,90}_freedecay.yaml`.
+  - `--paper-fig-zeta` prints the per-geometry ζ cross-check table comparing C++
+    against paper Fig. 4 and Table 2.
+  - `--strict` exits non-zero if any geometry falls back to embedded historical
+    values instead of reading a real result CSV; use it for campaign-grade
+    reproduction runs.
+  - The default console output now includes the WEC-Sim raw-data comparison
+    table in addition to the paper/Table 2 summary.
   - The companion `scripts/plot_freedecay_validation.py` does **not** invoke
     the solver; it reuses `output/vgoswec_*_freedecay_results.csv` if present.
 - **Inputs consumed**
   - Solver configs: `config/vgoswec_{0,10,20,45,90}_freedecay.yaml`
+    (all harmonized to `simulation.duration: 200.0 s` to match the paper Fig. 4
+    record length)
   - Shared analysis helpers: `scripts/freedecay_analysis.py`
   - Raw solver outputs: `output/vgoswec_*_freedecay_results.csv`
 - **Outputs produced**
   - `output/vgoswec_{0,10,20,45,90}_freedecay_results.csv`
   - `docs/freedecay_validation.csv`
+    (now carrying WEC-Sim reference columns plus a per-geometry `source` column
+    recording `csv` vs `fallback` provenance)
   - `docs/img/freedecay_validation.png`
   - `docs/img/freedecay_zeta_validation.png`
   - `docs/img/freedecay_zeta_decay_fit.png`
 
-See also: [`docs/freedecay_validation.md`](freedecay_validation.md).
+See also: [`docs/freedecay_validation.md`](freedecay_validation.md), [`docs/freedecay_wecsim_rawdata_validation.md`](freedecay_wecsim_rawdata_validation.md), [`docs/RESULTS_CAMPAIGN_2026-09-17.md`](RESULTS_CAMPAIGN_2026-09-17.md).
 
 ## 2. CC capture-efficiency sweep
 
