@@ -137,7 +137,13 @@ python3 scripts/passive_vs_optpassive_sweep.py --plot-only
 - **Solver behavior**
   - Default invocation runs both the `passive` and `opt_passive` arms across the
     shared `T = 0.5–7.0 s` grid using `build/demo_vgoswec`.
+  - The sweep is self-contained: it writes scratch configs with
+    `timestep = 0.01 s`, uses `duration(T) = 10 + 150·T` seconds, and computes
+    steady-state captured power from the final `20` whole wave cycles after
+    discarding `130` settle cycles.
   - `--plot-only` reuses committed CSVs and does not call the solver.
+  - Full method note:
+    [`docs/PASSIVE_CAMPAIGN_METHOD.md`](PASSIVE_CAMPAIGN_METHOD.md)
 - **Inputs consumed**
   - Solver configs:
     `config/vgoswec_{0,10,20,45,90}_passive.yaml`,
