@@ -2,17 +2,21 @@
 """Free-decay validation CLI for the C++ VGOSWEC model.
 
 Checks natural frequency (ω_n) and damping ratio (ζ) against
-Ogden et al., ASME JOMAE 145(3):030905, Table 2 and Fig. 4.
+the primary WEC-Sim raw-data reference plus Ogden et al.,
+ASME JOMAE 145(3):030905, Table 2 and Fig. 4.
 
 Usage
 -----
-    python scripts/freedecay_validation.py [--run] [--make-figures] [--paper-fig-zeta]
+    python scripts/freedecay_validation.py [--run] [--strict] [--make-figures] [--paper-fig-zeta]
 
 Flags
 -----
 --run           Re-run ./build/demo_vgoswec for each config before analysis.
-                If the binary is missing, falls back to existing CSVs.
+                If the binary is missing or the run fails, embedded historical
+                fallback values may be used instead, with explicit provenance
+                warnings.
 --no-run        (default) Use existing output/vgoswec_*_freedecay_results.csv.
+--strict        Exit non-zero if any geometry uses fallback data.
 --make-figures  Regenerate docs/img/freedecay_zeta_validation.png and
                 docs/img/freedecay_zeta_decay_fit.png (requires matplotlib).
 --paper-fig-zeta
@@ -22,7 +26,7 @@ Flags
 
 Outputs
 -------
-- Console table: C++ vs paper ω_n (% error) and ζ (C++/Table2 ratio).
+- Console tables: C++ vs WEC-Sim raw-data and paper references, with provenance.
 - docs/freedecay_validation.csv — updated with ζ columns.
 - docs/img/freedecay_zeta_validation.png (if --make-figures).
 - docs/img/freedecay_zeta_decay_fit.png (if --make-figures).
@@ -52,6 +56,7 @@ from freedecay_analysis import (  # noqa: E402
     FALLBACK_CPP_ZETA_1E4,
     PAPER_FIG4_ZETA_1E4,
     PAPER_TABLE2,
+    WECSIM_RAWDATA,
     estimate_wn_fft,
     estimate_wn_zerocross,
     estimate_zeta_logdec,
@@ -135,8 +140,8 @@ def _make_figures(rows: List[dict], repo_root: Path) -> None:
 
     if t_plot is None:
         # Synthetic free-decay envelope matching VGM-0 validated parameters
-        wn = FALLBACK_CPP_WN[0]["cpp_zc"]       # 1.072 rad/s
-        zeta_val = FALLBACK_CPP_ZETA_1E4[0] * 1e-4  # 49.9×10⁻⁴
+        wn = FALLBACK_CPP_WN[0]["cpp_zc"]       # 1.066 rad/s
+        zeta_val = FALLBACK_CPP_ZETA_1E4[0] * 1e-4  # 52.8×10⁻⁴
         A0 = 0.15  # rad
         t_plot = np.linspace(0.0, 55.0, 5500)
         wd = wn * math.sqrt(max(1.0 - zeta_val ** 2, 1e-10))
@@ -187,24 +192,58 @@ def _make_figures(rows: List[dict], repo_root: Path) -> None:
 # Core analysis loop
 # ---------------------------------------------------------------------------
 
-def _run_simulation(deg: int, repo_root: Path) -> bool:
-    """Attempt to run demo_vgoswec for a given angle.  Returns True on success."""
+def _stderr_tail(stderr: bytes, max_lines: int = 10) -> str:
+    """Return the tail of a captured stderr stream as a printable string."""
+    text = stderr.decode("utf-8", errors="replace").strip()
+    if not text:
+        return ""
+    lines = text.splitlines()
+    return "\n".join(lines[-max_lines:])
+
+
+def _run_simulation(deg: int, repo_root: Path) -> tuple[bool, str]:
+    """Attempt to run demo_vgoswec for a given angle."""
     binary = repo_root / "build" / "demo_vgoswec"
     config = repo_root / "config" / f"vgoswec_{deg}_freedecay.yaml"
+    output_csv = repo_root / "output" / f"vgoswec_{deg}_freedecay_results.csv"
     if not binary.exists():
-        print(f"  Binary {binary} not found; skipping run for VGM-{deg}.")
-        return False
+        msg = f"Binary {binary} not found; skipping run for VGM-{deg}."
+        print(f"  WARNING: {msg}")
+        return False, msg
     if not config.exists():
-        print(f"  Config {config} not found; skipping run for VGM-{deg}.")
-        return False
-    result = subprocess.run(
-        [str(binary), "--config", str(config), "--no-viz"],
-        capture_output=True,
-    )
+        msg = f"Config {config} not found; skipping run for VGM-{deg}."
+        print(f"  WARNING: {msg}")
+        return False, msg
+    if output_csv.exists():
+        try:
+            output_csv.unlink()
+        except OSError as exc:
+            msg = f"could not remove stale {output_csv.name} before VGM-{deg} run: {exc}"
+            print(f"  WARNING: {msg}")
+            return False, msg
+    try:
+        result = subprocess.run(
+            [str(binary), "--config", str(config), "--no-viz"],
+            capture_output=True,
+        )
+    except OSError as exc:
+        msg = f"failed to launch simulation for VGM-{deg}: {exc}"
+        print(f"  WARNING: {msg}")
+        return False, msg
     if result.returncode != 0:
-        print(f"  WARNING: simulation for VGM-{deg} exited {result.returncode}.")
-        return False
-    return True
+        msg = f"simulation for VGM-{deg} exited {result.returncode}"
+        stderr_tail = _stderr_tail(result.stderr)
+        print(f"  WARNING: {msg}.")
+        if stderr_tail:
+            print("           stderr tail:")
+            for line in stderr_tail.splitlines():
+                print(f"             {line}")
+        return False, msg
+    if not output_csv.exists():
+        msg = f"simulation for VGM-{deg} completed but did not produce {output_csv.name}"
+        print(f"  WARNING: {msg}.")
+        return False, msg
+    return True, ""
 
 
 def analyse(repo_root: Path, run_sims: bool) -> List[dict]:
@@ -212,20 +251,27 @@ def analyse(repo_root: Path, run_sims: bool) -> List[dict]:
     rows: List[dict] = []
     for deg in ANGLES:
         cfg = f"VGM-{deg}"
+        run_ok = True
         if run_sims:
             print(f"Running simulation for {cfg}...")
-            _run_simulation(deg, repo_root)
+            run_ok, _ = _run_simulation(deg, repo_root)
 
         csv_path = repo_root / "output" / f"vgoswec_{deg}_freedecay_results.csv"
         paper = PAPER_TABLE2[deg]
+        wecsim = WECSIM_RAWDATA[deg]
 
         # ω_n
         cpp_zc = FALLBACK_CPP_WN[deg]["cpp_zc"]
         cpp_fft = FALLBACK_CPP_WN[deg]["cpp_fft"]
         cpp_zeta = FALLBACK_CPP_ZETA_1E4[deg]
-        source = "fallback"
+        source = "fallback-after-failed-run" if run_sims and not run_ok else "fallback"
 
-        if csv_path.exists():
+        if run_sims and not run_ok:
+            print(
+                f"  WARN: {cfg} run failed; ignoring any existing {csv_path.name} "
+                "and using embedded fallback values."
+            )
+        elif csv_path.exists():
             try:
                 t, x = load_series(csv_path)
                 cpp_fft = estimate_wn_fft(t, x)
@@ -241,6 +287,12 @@ def analyse(repo_root: Path, run_sims: bool) -> List[dict]:
         paper_z = paper["paper_zeta_1e4"]
         ratio = cpp_zeta / paper_z if paper_z != 0 else float("nan")
         fig4_z = PAPER_FIG4_ZETA_1E4[deg]
+        wecsim_fft = wecsim["wecsim_fft_interp"]
+        wecsim_zc = wecsim["wecsim_zc"]
+        wecsim_zeta = wecsim["wecsim_fit_zeta_1e4"]
+        cpp_zc_vs_wecsim_fft_err_pct = (cpp_zc - wecsim_fft) / wecsim_fft * 100.0
+        cpp_zc_vs_wecsim_zc_err_pct = (cpp_zc - wecsim_zc) / wecsim_zc * 100.0
+        cpp_zeta_vs_wecsim_zeta_err_pct = (cpp_zeta - wecsim_zeta) / wecsim_zeta * 100.0
 
         rows.append({
             "config": cfg,
@@ -254,6 +306,13 @@ def analyse(repo_root: Path, run_sims: bool) -> List[dict]:
             "zerocross_err_pct": err_pct,
             "cpp_zeta_1e4": cpp_zeta,
             "zeta_ratio_cpp_over_table2": ratio,
+            "wecsim_fft_interp_wn_rads": wecsim_fft,
+            "wecsim_zerocross_wn_rads": wecsim_zc,
+            "wecsim_fitted_zeta_1e4": wecsim_zeta,
+            "cpp_zc_vs_wecsim_fft_err_pct": cpp_zc_vs_wecsim_fft_err_pct,
+            "cpp_zc_vs_wecsim_zc_err_pct": cpp_zc_vs_wecsim_zc_err_pct,
+            "cpp_zeta_vs_wecsim_zeta_err_pct": cpp_zeta_vs_wecsim_zeta_err_pct,
+            "source": source,
             "_source": source,
         })
     return rows
@@ -272,7 +331,8 @@ HEADER_FMT = (
     f"{'Paper ζ×1e4':>12} "
     f"{'Fig4 ζ×1e4':>11} "
     f"{'C++ ζ×1e4':>11} "
-    f"{'C++/Tbl2':>10}"
+    f"{'C++/Tbl2':>10} "
+    f"{'Source':>23}"
 )
 ROW_FMT = (
     "{config:<8} "
@@ -283,8 +343,29 @@ ROW_FMT = (
     "{paper_zeta_1e4:>12.1f} "
     "{paper_fig4_zeta_1e4:>11.0f} "
     "{cpp_zeta_1e4:>11.1f} "
-    "{zeta_ratio_cpp_over_table2:>10.1f}x"
+    "{zeta_ratio_cpp_over_table2:>10.1f}x "
+    "{source:>23}"
 )
+
+
+def rows_needing_attention(rows: List[dict]) -> List[dict]:
+    """Return rows whose provenance is not a clean current CSV read."""
+    return [r for r in rows if r.get("source") != "csv"]
+
+
+def print_source_warnings(rows: List[dict]) -> None:
+    """Print an explicit provenance warning block for non-csv rows."""
+    flagged = rows_needing_attention(rows)
+    if not flagged:
+        return
+
+    fallback_rows = [r for r in flagged if "fallback" in str(r.get("source", ""))]
+    print("WARNING: non-primary provenance detected in free-decay analysis output.")
+    if fallback_rows:
+        names = ", ".join(f"{r['config']} ({r['source']})" for r in fallback_rows)
+        print(f"  Embedded historical fallback values used for: {names}")
+        print("  These rows are not solver output from this run.")
+    print()
 
 
 def print_table(rows: List[dict]) -> None:
@@ -298,21 +379,100 @@ def print_table(rows: List[dict]) -> None:
         print(ROW_FMT.format(**r))
     print(sep)
     print()
+    print_source_warnings(rows)
+
+    max_abs_err = max(abs(r["zerocross_err_pct"]) for r in rows)
     mean_ratio = float(
         np.mean([r["zeta_ratio_cpp_over_table2"] for r in rows
                  if math.isfinite(r["zeta_ratio_cpp_over_table2"])])
     )
-    mean_cpp_zeta = float(
-        np.mean([r["cpp_zeta_1e4"] for r in rows])
+    fig4_vals = [float(r["paper_fig4_zeta_1e4"]) for r in rows]
+    raw_zeta_vals = [float(r["cpp_zeta_1e4"]) for r in rows] + [
+        float(r["wecsim_fitted_zeta_1e4"]) for r in rows
+    ]
+    table2_scale_factors = [
+        float(r["cpp_zeta_1e4"]) / float(r["paper_zeta_1e4"]) for r in rows
+        if float(r["paper_zeta_1e4"]) != 0.0
+    ] + [
+        float(r["wecsim_fitted_zeta_1e4"]) / float(r["paper_zeta_1e4"]) for r in rows
+        if float(r["paper_zeta_1e4"]) != 0.0
+    ]
+    wecsim_fft_abs = [abs(float(r["cpp_zc_vs_wecsim_fft_err_pct"])) for r in rows]
+    wecsim_zc_abs = [abs(float(r["cpp_zc_vs_wecsim_zc_err_pct"])) for r in rows]
+    wecsim_zeta_abs = [abs(float(r["cpp_zeta_vs_wecsim_zeta_err_pct"])) for r in rows]
+    zeta_abs_low = int(round(min(wecsim_zeta_abs)))
+    zeta_abs_high = math.ceil(max(wecsim_zeta_abs))
+    table2_factor_low = int(round(min(table2_scale_factors)))
+    table2_factor_high = int(round(max(table2_scale_factors)))
+    print(f"  ω_n: C++ zero-cross matches Table 2 within ±{max_abs_err:.1f}% (all angles).")
+    print(
+        "  Primary raw-data check: "
+        f"C++ zero-cross matches WEC-Sim raw-data ω_n within ±{max(wecsim_zc_abs):.2f}% "
+        f"(zero-cross) and ±{max(wecsim_fft_abs):.2f}% (vs FFT-interp)."
     )
-    print(f"  ω_n: C++ zero-cross matches Table 2 within ±0.6% (all angles).")
-    print(f"  ζ:   C++ / Table2 ratio ≈ {mean_ratio:.1f}× (mean across all angles).")
-    print(f"       Per-config log-decrement of the paper's own Fig. 4 envelope")
-    print(f"       (A ≈ 1.0 → ≈ 0.35 over ~200 s, N = 200/T_s cycles per geometry)")
-    print(f"       gives ζ ≈ 25–49×10⁻⁴ (decreasing 0°→90°), matching the C++")
-    print(f"       values (≈{mean_cpp_zeta:.0f}×10⁻⁴ mean) and ~10× the Table 2 values.")
-    print(f"       All three series (C++, Fig. 4, Table 2) share the same")
-    print(f"       decreasing 0°→90° trend; C++ and Fig. 4 agree in magnitude.")
+    print(
+        "  ζ:   C++ and WEC-Sim raw-data damping agree within "
+        f"~{zeta_abs_low}–{zeta_abs_high}% across all angles."
+    )
+    print(
+        "       Both solvers place ζ in the "
+        f"{min(raw_zeta_vals):.1f}–{max(raw_zeta_vals):.1f}×10⁻⁴ range; "
+        f"paper Table 2 is uniformly ~{table2_factor_low}–{table2_factor_high}× lower."
+    )
+    print(
+        "       Paper Fig. 4 remains corroborating evidence: per-config envelope "
+        f"log-decrement gives ζ ≈ {min(fig4_vals):.0f}–{max(fig4_vals):.0f}×10⁻⁴."
+    )
+    print(
+        "       VGM-20 is the one above-trend ζ case in both raw datasets, suggesting "
+        "a physical geometry effect rather than an extraction artifact."
+    )
+    print(
+        f"       C++ / Table2 ratio still averages {mean_ratio:.1f}× across the sweep."
+    )
+    print("       No C++ model change is indicated by the free-decay evidence.")
+    print()
+
+
+def print_wecsim_table(rows: List[dict]) -> None:
+    """Print the primary WEC-Sim raw-data comparison table."""
+    hdr = (
+        f"{'Config':<8} "
+        f"{'C++ ZC ωn':>10} "
+        f"{'WEC FFT ω':>10} "
+        f"{'Δ vs FFT%':>10} "
+        f"{'WEC ZC ω':>10} "
+        f"{'Δ vs ZC%':>9} "
+        f"{'C++ ζ×1e4':>11} "
+        f"{'WEC ζ×1e4':>11} "
+        f"{'Δζ%':>8}"
+    )
+    sep = "-" * len(hdr)
+    print()
+    print("Primary free-decay validation: C++ vs WEC-Sim raw time histories")
+    print(sep)
+    print(hdr)
+    print(sep)
+    for r in sorted(rows, key=lambda rr: int(rr["angle_deg"])):
+        print(
+            f"{r['config']:<8} "
+            f"{float(r['cpp_zerocross_wn_rads']):>10.3f} "
+            f"{float(r['wecsim_fft_interp_wn_rads']):>10.4f} "
+            f"{float(r['cpp_zc_vs_wecsim_fft_err_pct']):>+10.2f} "
+            f"{float(r['wecsim_zerocross_wn_rads']):>10.4f} "
+            f"{float(r['cpp_zc_vs_wecsim_zc_err_pct']):>+9.2f} "
+            f"{float(r['cpp_zeta_1e4']):>11.1f} "
+            f"{float(r['wecsim_fitted_zeta_1e4']):>11.1f} "
+            f"{float(r['cpp_zeta_vs_wecsim_zeta_err_pct']):>+8.1f}"
+        )
+    print(sep)
+    wn_bound = max(abs(float(r["cpp_zc_vs_wecsim_zc_err_pct"])) for r in rows)
+    zeta_abs = [abs(float(r["cpp_zeta_vs_wecsim_zeta_err_pct"])) for r in rows]
+    zeta_abs_low = int(round(min(zeta_abs)))
+    zeta_abs_high = math.ceil(max(zeta_abs))
+    print(
+        f"  Headline: ω_n within ±{wn_bound:.2f}% and ζ within ~{zeta_abs_low}–{zeta_abs_high}%."
+    )
     print()
 
 
@@ -351,10 +511,20 @@ def print_paper_fig_zeta_table(rows: List[dict]) -> None:
         )
     print(sep)
     print()
-    print("  All three series decrease monotonically 0°→90° (same physical trend).")
-    print("  C++ ζ and paper Fig. 4 ζ agree in magnitude (tens of ×10⁻⁴).")
-    print("  Table 2 ζ is uniformly ~10× lower — consistent with a ×10⁻³/×10⁻⁴")
-    print("  exponent inconsistency in the paper's Table 2 ζ column.")
+    fig4_vals = [float(r["paper_fig4_zeta_1e4"]) for r in rows]
+    cpp_vals = [float(r["cpp_zeta_1e4"]) for r in rows]
+    fig4_ratios = [
+        float(r["paper_fig4_zeta_1e4"]) / float(r["paper_zeta_1e4"]) for r in rows
+        if float(r["paper_zeta_1e4"]) != 0.0
+    ]
+    print(
+        f"  Paper Fig. 4 envelope estimates span ≈{min(fig4_vals):.0f}–{max(fig4_vals):.0f}×10⁻⁴;"
+        f" C++ spans {min(cpp_vals):.1f}–{max(cpp_vals):.1f}×10⁻⁴."
+    )
+    print(
+        f"  Fig. 4 / Table 2 ratios span ~{min(fig4_ratios):.1f}–{max(fig4_ratios):.1f}×,"
+        " corroborating the Table 2 exponent inconsistency."
+    )
     print()
 
 
@@ -377,6 +547,13 @@ def write_csv(rows: List[dict], repo_root: Path) -> None:
         "zerocross_err_pct",
         "cpp_zeta_1e4",
         "zeta_ratio_cpp_over_table2",
+        "wecsim_fft_interp_wn_rads",
+        "wecsim_zerocross_wn_rads",
+        "wecsim_fitted_zeta_1e4",
+        "cpp_zc_vs_wecsim_fft_err_pct",
+        "cpp_zc_vs_wecsim_zc_err_pct",
+        "cpp_zeta_vs_wecsim_zeta_err_pct",
+        "source",
     ]
     with out.open("w", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=fieldnames, extrasaction="ignore")
@@ -396,6 +573,13 @@ def write_csv(rows: List[dict], repo_root: Path) -> None:
             row_out["zeta_ratio_cpp_over_table2"] = (
                 f"{ratio:.1f}" if math.isfinite(ratio) else "nan"
             )
+            row_out["wecsim_fft_interp_wn_rads"] = f"{float(r['wecsim_fft_interp_wn_rads']):.4f}"
+            row_out["wecsim_zerocross_wn_rads"] = f"{float(r['wecsim_zerocross_wn_rads']):.4f}"
+            row_out["wecsim_fitted_zeta_1e4"] = f"{float(r['wecsim_fitted_zeta_1e4']):.1f}"
+            row_out["cpp_zc_vs_wecsim_fft_err_pct"] = f"{float(r['cpp_zc_vs_wecsim_fft_err_pct']):.2f}"
+            row_out["cpp_zc_vs_wecsim_zc_err_pct"] = f"{float(r['cpp_zc_vs_wecsim_zc_err_pct']):.2f}"
+            row_out["cpp_zeta_vs_wecsim_zeta_err_pct"] = f"{float(r['cpp_zeta_vs_wecsim_zeta_err_pct']):.1f}"
+            row_out["source"] = str(r["source"])
             writer.writerow(row_out)
     print(f"Wrote: {out}")
 
@@ -422,6 +606,12 @@ def main() -> int:
         help="(default) Use existing output CSVs.",
     )
     parser.add_argument(
+        "--strict",
+        action="store_true",
+        default=False,
+        help="Exit non-zero if any geometry uses fallback data.",
+    )
+    parser.add_argument(
         "--make-figures",
         action="store_true",
         default=False,
@@ -441,6 +631,7 @@ def main() -> int:
     repo_root = REPO_ROOT
     rows = analyse(repo_root, run_sims=args.run)
     print_table(rows)
+    print_wecsim_table(rows)
     write_csv(rows, repo_root)
 
     if args.paper_fig_zeta:
@@ -448,6 +639,13 @@ def main() -> int:
 
     if args.make_figures:
         _make_figures(rows, repo_root)
+
+    if args.strict:
+        flagged = rows_needing_attention(rows)
+        if flagged:
+            names = ", ".join(f"{r['config']} ({r['source']})" for r in flagged)
+            print(f"ERROR: --strict rejected non-primary provenance rows: {names}")
+            return 1
 
     return 0
 
