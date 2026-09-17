@@ -6,7 +6,7 @@
 # sole restoring mechanism.  Controller: passive with B_pto=0 → zero PTO torque.
 
 simulation:
-  duration: 60.0       # [s] >= 5×Ts ≈ 29 s to observe several free-decay cycles
+  duration: 200.0       # [s] matches paper Fig. 4 record length
   timestep: 0.005      # [s]
   wave_ramp: 0.0       # [s] no incident-wave forcing
 

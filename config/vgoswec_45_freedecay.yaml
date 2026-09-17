@@ -11,7 +11,7 @@
 # the resonance notch — expect very low damping (high Q).
 
 simulation:
-  duration: 40.0       # [s] >= 30 s to observe several free-decay cycles
+  duration: 200.0       # [s] matches paper Fig. 4 record length
   timestep: 0.005      # [s]
   wave_ramp: 0.0       # [s] no incident-wave forcing
 
