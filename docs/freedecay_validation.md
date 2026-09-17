@@ -6,7 +6,7 @@ This document records the repository-native C++ free-decay validation workflow a
 
 **Primary damping-ratio reference:** for ζ, the strongest reference is now the direct comparison against the original WEC-Sim raw free-decay time histories documented in [`docs/freedecay_wecsim_rawdata_validation.md`](freedecay_wecsim_rawdata_validation.md). The published Table 2 ζ column is retained here for traceability, but it is no longer treated as the authoritative damping-ratio target because both WEC-Sim raw data and the C++ model give ζ values about 9–13× larger than Table 2 as printed.
 
-**Primary natural-frequency result:** C++ 200 s free-decay records agree with the WEC-Sim raw-data FFT/zero-crossing extraction within ±0.17% across VGM-0/10/20/45/90. This is tighter than comparison against the rounded paper Table 2 values.
+**Primary natural-frequency result:** C++ 200 s free-decay records agree with the WEC-Sim raw-data FFT/zero-crossing extraction within ±0.15% across VGM-0/10/20/45/90. This is tighter than comparison against the rounded paper Table 2 values.
 
 ---
 
@@ -66,7 +66,7 @@ The free-decay records were harmonized to **200 s** for all five geometries to m
 | VGM-45 | 1.840 | 3.42 | 3.5 | 1.823 | 1.840 | -0.9% | 36.7 |
 | VGM-90 | 2.100 | 2.99 | 3.2 | 2.083 | 2.094 | -0.8% | 28.6 |
 
-Against the rounded Table 2 values, C++ zero-crossing agreement is within **±0.9%** at every angle. Against the original WEC-Sim raw time histories, agreement is much tighter — within **±0.17%** using independent FFT/zero-crossing estimators. See [`docs/freedecay_wecsim_rawdata_validation.md`](freedecay_wecsim_rawdata_validation.md).
+Against the rounded Table 2 values, C++ zero-crossing agreement is within **±0.9%** at every angle. Against the original WEC-Sim raw time histories, agreement is much tighter — within **±0.15%** using independent FFT/zero-crossing estimators. See [`docs/freedecay_wecsim_rawdata_validation.md`](freedecay_wecsim_rawdata_validation.md).
 
 ---
 
@@ -89,7 +89,7 @@ The extraction is documented in detail in [`docs/freedecay_wecsim_rawdata_valida
 | 45 | 1.8241 | 1.8221 | 1.823 |
 | 90 | 2.0850 | 2.0829 | 2.083 |
 
-**Conclusion:** the C++ model reproduces the WEC-Sim raw-data natural frequencies within **±0.17%** across all five geometries. This confirms the reactive impedance of the plant.
+**Conclusion:** the C++ model reproduces the WEC-Sim raw-data natural frequencies within **±0.15%** across all five geometries. This confirms the reactive impedance of the plant.
 
 ### Damping ratio: C++ vs WEC-Sim raw histories
 
@@ -101,7 +101,7 @@ The extraction is documented in detail in [`docs/freedecay_wecsim_rawdata_valida
 | 45 | 42.0 | 36.7 | -12.6% | 3.5 |
 | 90 | 31.4 | 28.6 | -9.0%  | 3.2 |
 
-**Conclusion:** C++ and WEC-Sim ζ agree in magnitude and trend to within roughly **5–13%**, using independent estimators on independent solver outputs. Both solvers place ζ in the **tens-of-×10⁻⁴** range. The published Table 2 ζ values are uniformly about **9–13× lower**.
+**Conclusion:** C++ and WEC-Sim ζ agree in magnitude and trend to within roughly **4–13%**, using independent estimators on independent solver outputs. Both solvers place ζ in the **tens-of-×10⁻⁴** range. The published Table 2 ζ values are uniformly about **9–13× lower**.
 
 This is now the primary ζ validation result. The Fig. 4 and Table 2 comparisons below are retained as corroboration and provenance.
 
@@ -245,8 +245,8 @@ The timestep effect is minor compared with the Table 2 scale discrepancy and doe
 
 The C++ VGOSWEC free-decay plant model is validated on both key metrics:
 
-1. **Natural frequency ω_n:** C++ 200 s free-decay records match the original WEC-Sim raw-data FFT/zero-crossing extraction within **±0.17%** across all five geometries. This validates the reactive plant physics: body inertia, hinge spring, and BEM added-mass coupling.
+1. **Natural frequency ω_n:** C++ 200 s free-decay records match the original WEC-Sim raw-data FFT/zero-crossing extraction within **±0.15%** across all five geometries. This validates the reactive plant physics: body inertia, hinge spring, and BEM added-mass coupling.
 
-2. **Damping ratio ζ:** C++ log-decrement values match damping extracted directly from WEC-Sim raw time histories within **~5–13%** and agree in magnitude with the paper Fig. 4 envelope. Both solvers place ζ in the **25–55×10⁻⁴** range. The paper Table 2 ζ column, as printed, is uniformly about **9–13× lower** and is best interpreted as a scale/exponent inconsistency rather than a model discrepancy.
+2. **Damping ratio ζ:** C++ log-decrement values match damping extracted directly from WEC-Sim raw time histories within **~4–13%** and agree in magnitude with the paper Fig. 4 envelope. Both solvers place ζ in the **25–55×10⁻⁴** range. The paper Table 2 ζ column, as printed, is uniformly about **9–13× lower** and is best interpreted as a scale/exponent inconsistency rather than a model discrepancy.
 
 The plant validation is therefore banked. No C++ model rewrite is indicated by the free-decay evidence; downstream focus should return to SEA-Stack/capture-efficiency issues, especially the `rho = 1025` config value versus `rho = 1000` stored in the H5 hydro data.

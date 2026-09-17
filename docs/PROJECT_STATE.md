@@ -1,18 +1,26 @@
 # Project State — Session Handoff
 
-**Last updated: 2026-07-11** · Refresh this file at each phase boundary so any new session can resume exactly here.
+**Last updated: 2026-09-17** · Refresh this file at each phase boundary so any new session can resume exactly here.
 
 ---
 
 ## 1. Current status — resume banner
 
-The **simulation phase is complete** — see [`docs/EOD_SUMMARY_2026-07-11.md`](EOD_SUMMARY_2026-07-11.md) for the formal phase-close record. The project is now entering the **paper / writing phase**, gated on the literature review in issue **#50**. A presentation of the three control-law block diagrams and the three-regime co-design story was **well received; reviewers want to see the paper**, which is why the writing phase is starting now.
+The **simulation phase is complete** — see [`docs/EOD_SUMMARY_2026-07-11.md`](EOD_SUMMARY_2026-07-11.md) for the formal phase-close record. The project is now entering the **paper / writing phase**, gated on the literature review in issue **#50**. A presentation of the three control-law block diagrams and the three-regime co-design story was **well received; reviewers want to see the paper**, which is why the writing phase is starting now. The **free-decay validation stage is closed** on the new WEC-Sim raw-time-history basis documented below.
+
+---
+
+
+## Recent sessions / campaign record
+
+- [`docs/RESULTS_CAMPAIGN_2026-09-17.md`](RESULTS_CAMPAIGN_2026-09-17.md) — free-decay closure record, authoritative handoff for the 200 s WEC-Sim-raw-data validation campaign.
+- [`docs/EOD_SUMMARY_2026-09-16.md`](EOD_SUMMARY_2026-09-16.md) — immediately preceding end-of-day summary leading into the final free-decay closure work.
 
 ---
 
 ## 2. What is done (link — do not re-derive)
 
-- **Plant validation (foundation):** validated vs WEC-Sim / Husain & Ogden et al. (ASME JOMAE 145(3):030905) — ω_n within ±0.6% (Table 2), ζ vs Fig. 4 (~30–50×10⁻⁴); Table 2 ×10⁻³/×10⁻⁴ exponent-discrepancy finding documented. See [`docs/freedecay_validation.md`](freedecay_validation.md).
+- **Plant validation (foundation):** primary reference is now the direct WEC-Sim raw-time-history comparison, with C++ 200 s free-decay records agreeing on **ω_n within ±0.15%** and **ζ within ~4–13%** across VGM-0/10/20/45/90. Both solvers place ζ in the **25–55×10⁻⁴** range, while the paper's Table 2 ζ column is uniformly ~9–13× lower because of a **`×10⁻³` / `×10⁻⁴` exponent-labeling issue**, not a modeling error. The C++ free-decay records are now harmonized to **200 s** across all five geometries. See [`docs/freedecay_wecsim_rawdata_validation.md`](freedecay_wecsim_rawdata_validation.md) and [`docs/freedecay_validation.md`](freedecay_validation.md).
 - **Three-regime co-design relay:** CC → opt_passive → ff+PID across VGM-0/10/20/45/90 on shared T = 0.5–7 s grid at H = 0.05 m; resonance slides with flap angle (T₀ 2.99 s @ VGM-90 → 5.86 s @ VGM-0). See [`analysis/FINDINGS_3REGIME.md`](../analysis/FINDINGS_3REGIME.md) and [`scripts/three_regime_comparison.py`](../scripts/three_regime_comparison.py).
 - **Dual operating envelopes:** power hull (peak 2.34 W at T = 1.5 s, VGM-0, CC) and mask-respecting efficiency hull (CC near-Budal ~99% at short T); the power and efficiency co-design schedules diverge at long T — power favors VGM-0 opt_passive (largest excitation); efficiency favors ff+PID on more-open flaps (largest fraction of P_opt). See [`analysis/three_regime/operating_envelope.csv`](../analysis/three_regime/operating_envelope.csv) and [`operating_envelope_efficiency.csv`](../analysis/three_regime/operating_envelope_efficiency.csv).
 - **Reproducibility:** every dataset regenerable from documented commands. See [`docs/REPRODUCTION.md`](REPRODUCTION.md).
@@ -69,4 +77,5 @@ The maturity placements above are drawn from general knowledge of the Ringwood /
 ## 6. Immediate next actions
 
 1. **Kick off #50** — deep-research literature review to produce the related-work section skeleton + novelty verdict; this is the gate before any manuscript drafting begins.
-2. **Refresh this file** at each subsequent phase boundary (end of lit review, start of drafting, etc.).
+2. **Resolve the `rho` 1025-vs-1000 discrepancy** — `config/*.yaml` specifies `rho = 1025 kg/m³` while the H5 BEM hydro data carries `rho = 1000`, and the solver silently prefers the H5 value. `P_opt` scales linearly with `rho`, so this propagates into every capture-efficiency denominator. See follow-up item 2 in [`docs/RESULTS_CAMPAIGN_2026-09-17.md`](RESULTS_CAMPAIGN_2026-09-17.md).
+3. **Refresh this file** at each subsequent phase boundary (end of lit review, start of drafting, etc.).

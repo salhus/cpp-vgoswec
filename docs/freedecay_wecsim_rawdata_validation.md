@@ -93,7 +93,7 @@ zero-crossing estimates are the primary ω_n reference below.
 | 45 | −0.06% | +0.05% |
 | 90 | −0.10% | +0.005% |
 
-**All five geometries agree to within ±0.17%, using two independent
+**All five geometries agree to within ±0.15%, using two independent
 estimators on independently-run solver output.** This is materially tighter
 than the ±0.6–0.9% obtained comparing against the paper's rounded Table 2
 values (see `docs/freedecay_validation.md`), and it removes the FFT
@@ -111,7 +111,7 @@ distinct.
 | 45 | 42.0 | 36.7 | −12.6% | 3.5 |
 | 90 | 31.4 | 28.6 | −9.0%  | 3.2 |
 
-**C++ and WEC-Sim ζ agree in magnitude and trend to within ~5–13%**, using two
+**C++ and WEC-Sim ζ agree in magnitude and trend to within ~4–13%**, using two
 methodologically independent estimators (damped-sinusoid fit vs.
 log-decrement) on two independently-run solvers. Both land in the
 **tens-of-×10⁻⁴** range at every geometry. The paper's Table 2 column is
@@ -134,9 +134,9 @@ validation.
 the damping ratio extracted directly from the original WEC-Sim raw time
 histories:**
 
-- **ω_n:** within ±0.17% at all five geometries (FFT-interpolated and
+- **ω_n:** within ±0.15% at all five geometries (FFT-interpolated and
   zero-crossing estimators, both solvers).
-- **ζ:** within ~5–13% at all five geometries, both landing in the
+- **ζ:** within ~4–13% at all five geometries, both landing in the
   25–55×10⁻⁴ range (damped fit vs. log-decrement estimators, both solvers).
 
 The discrepancy documented in `docs/freedecay_validation.md` between the C++
@@ -186,9 +186,11 @@ Table 2, consistent with an exponent/scale labeling issue in that table
    correct for the five geometries in this dataset — the peaks are well
    isolated — so no prior result is invalidated by this fix; it is a
    robustness improvement, not a correction.
-3. `scripts/freedecay_validation.py` (C++ side) silently falls back to
-   hardcoded historical values when a result CSV is missing or unreadable,
-   and does not print or persist which source (`csv` vs `fallback`) was
-   actually used. This was worked around during this campaign by clearing
-   `output/vgoswec_*_freedecay_results.csv` before every run. See
-   `docs/RESULTS_CAMPAIGN_2026-09-17.md`, "Follow-up items," item 5.
+3. `scripts/freedecay_validation.py` (C++ side) previously fell back to
+   hardcoded historical values when a result CSV was missing or unreadable,
+   without printing or persisting which source (`csv` vs `fallback`) was
+   actually used. This was resolved during the campaign: the script now
+   prints a provenance warning block, persists a `source` column to
+   `docs/freedecay_validation.csv`, and supports `--strict` to reject
+   fallback-backed runs. See `docs/RESULTS_CAMPAIGN_2026-09-17.md`,
+   "Follow-up items," item 5 (resolved).
