@@ -556,7 +556,10 @@ def write_csv(rows: List[dict], repo_root: Path) -> None:
         "source",
     ]
     with out.open("w", newline="") as fh:
-        writer = csv.DictWriter(fh, fieldnames=fieldnames, extrasaction="ignore")
+        writer = csv.DictWriter(fh,
+                                fieldnames=fieldnames,
+                                extrasaction="ignore",
+                                lineterminator="\n")
         writer.writeheader()
         for r in sorted(rows, key=lambda rr: int(rr["angle_deg"])):
             row_out = {k: r[k] for k in fieldnames}
