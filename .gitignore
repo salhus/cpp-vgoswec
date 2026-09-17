@@ -42,3 +42,9 @@ CTestTestfile.cmake
 # OS
 .DS_Store
 Thumbs.db
+
+# Committed docs artifacts
+!docs/*.csv
+
+# Committed docs artifacts
+!docs/*.csv

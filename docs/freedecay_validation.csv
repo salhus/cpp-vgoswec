@@ -1,0 +1,6 @@
+config,angle_deg,paper_wn_rads,paper_Ts_s,paper_zeta_1e4,paper_fig4_zeta_1e4,cpp_zerocross_wn_rads,cpp_fft_wn_rads,zerocross_err_pct,cpp_zeta_1e4,zeta_ratio_cpp_over_table2,wecsim_fft_interp_wn_rads,wecsim_zerocross_wn_rads,wecsim_fitted_zeta_1e4,cpp_zc_vs_wecsim_fft_err_pct,cpp_zc_vs_wecsim_zc_err_pct,cpp_zeta_vs_wecsim_zeta_err_pct,source
+VGM-0,0,1.070,5.86,5.8,49,1.066,1.079,-0.4,52.8,9.1,1.0656,1.0642,55.3,0.02,0.15,-4.5,csv
+VGM-10,10,1.460,4.29,4.3,36,1.460,1.460,-0.0,38.1,8.9,1.4597,1.4579,42.4,-0.00,0.12,-10.2,csv
+VGM-20,20,1.570,4.01,4.1,33,1.557,1.555,-0.8,47.5,11.6,1.5581,1.5562,53.5,-0.05,0.07,-11.2,csv
+VGM-45,45,1.840,3.42,3.5,29,1.823,1.840,-0.9,36.7,10.5,1.8241,1.8221,42.0,-0.05,0.06,-12.5,csv
+VGM-90,90,2.100,2.99,3.2,25,2.083,2.094,-0.8,28.6,8.9,2.0850,2.0829,31.4,-0.08,0.02,-9.0,csv
