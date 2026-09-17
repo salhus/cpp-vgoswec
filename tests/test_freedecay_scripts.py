@@ -60,9 +60,9 @@ def _sample_rows() -> list[dict]:
                 "wecsim_fft_interp_wn_rads": wec["wecsim_fft_interp"],
                 "wecsim_zerocross_wn_rads": wec["wecsim_zc"],
                 "wecsim_fitted_zeta_1e4": wec["wecsim_fit_zeta_1e4"],
-                "cpp_vs_wecsim_fft_err_pct": (cpp["cpp_zc"] - wec["wecsim_fft_interp"]) / wec["wecsim_fft_interp"] * 100.0,
-                "cpp_vs_wecsim_zc_err_pct": (cpp["cpp_zc"] - wec["wecsim_zc"]) / wec["wecsim_zc"] * 100.0,
-                "cpp_vs_wecsim_zeta_err_pct": (zeta - wec["wecsim_fit_zeta_1e4"]) / wec["wecsim_fit_zeta_1e4"] * 100.0,
+                "cpp_zc_vs_wecsim_fft_err_pct": (cpp["cpp_zc"] - wec["wecsim_fft_interp"]) / wec["wecsim_fft_interp"] * 100.0,
+                "cpp_zc_vs_wecsim_zc_err_pct": (cpp["cpp_zc"] - wec["wecsim_zc"]) / wec["wecsim_zc"] * 100.0,
+                "cpp_zeta_vs_wecsim_zeta_err_pct": (zeta - wec["wecsim_fit_zeta_1e4"]) / wec["wecsim_fit_zeta_1e4"] * 100.0,
                 "source": "csv",
                 "_source": "csv",
             }
@@ -132,6 +132,11 @@ class FreeDecayValidationTests(unittest.TestCase):
     def test_failed_run_provenance_is_preserved(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             repo = Path(tmpdir)
+            (repo / "output").mkdir()
+            for deg in ANGLES:
+                cpp = freedecay_analysis.FALLBACK_CPP_WN[deg]
+                zeta = freedecay_analysis.FALLBACK_CPP_ZETA_1E4[deg]
+                _write_decay_csv(repo / "output" / f"vgoswec_{deg}_freedecay_results.csv", cpp["cpp_zc"], zeta)
             with mock.patch.object(freedecay_validation, "_run_simulation", return_value=(False, "boom")):
                 rows = freedecay_validation.analyse(repo, run_sims=True)
         self.assertTrue(all(r["source"] == "fallback-after-failed-run" for r in rows))
@@ -144,6 +149,22 @@ class FreeDecayValidationTests(unittest.TestCase):
                 with mock.patch.object(sys, "argv", ["plot_freedecay_validation.py", "--strict"]):
                     rc = plot_freedecay_validation.main()
         self.assertEqual(rc, 1)
+
+    def test_run_success_requires_refreshed_output_csv(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            (repo / "build").mkdir()
+            (repo / "config").mkdir()
+            (repo / "output").mkdir()
+            (repo / "build" / "demo_vgoswec").write_text("")
+            (repo / "config" / "vgoswec_0_freedecay.yaml").write_text("")
+            stale = repo / "output" / "vgoswec_0_freedecay_results.csv"
+            stale.write_text("time_s,flap_pitch_rad\n0.0,0.0\n")
+
+            completed = mock.Mock(returncode=0, stderr=b"")
+            with mock.patch.object(freedecay_validation.subprocess, "run", return_value=completed):
+                ok, _ = freedecay_validation._run_simulation(0, repo)
+        self.assertFalse(ok)
 
 
 if __name__ == "__main__":

@@ -64,13 +64,12 @@ def main() -> int:
         "--strict",
         action="store_true",
         default=False,
-        help="Exit non-zero if any geometry uses fallback or stale-post-failure data.",
+        help="Exit non-zero if any geometry uses fallback data.",
     )
     args = parser.parse_args()
 
     rows = analyse(REPO_ROOT, run_sims=False)
     out_png = REPO_ROOT / "docs" / "img" / "freedecay_validation.png"
-    out_csv = REPO_ROOT / "docs" / "freedecay_validation.csv"
 
     print_source_warnings(rows)
     write_plot(rows, out_png)
@@ -80,9 +79,7 @@ def main() -> int:
         print("Generated plot/CSV with mixed provenance; see warnings above.")
     else:
         print("Generated plot/CSV using output/vgoswec_*_freedecay_results.csv data.")
-
     print(f"Wrote: {out_png}")
-    print(f"Wrote: {out_csv}")
 
     if args.strict:
         flagged = rows_needing_attention(rows)

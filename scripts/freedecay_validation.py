@@ -12,12 +12,11 @@ Usage
 Flags
 -----
 --run           Re-run ./build/demo_vgoswec for each config before analysis.
-                If the binary is missing or the run fails, existing CSVs or
-                embedded historical fallback values may still be used, with
-                explicit provenance warnings.
+                If the binary is missing or the run fails, embedded historical
+                fallback values may be used instead, with explicit provenance
+                warnings.
 --no-run        (default) Use existing output/vgoswec_*_freedecay_results.csv.
---strict        Exit non-zero if any geometry uses fallback data or reuses an
-                existing CSV after a failed --run attempt.
+--strict        Exit non-zero if any geometry uses fallback data.
 --make-figures  Regenerate docs/img/freedecay_zeta_validation.png and
                 docs/img/freedecay_zeta_decay_fit.png (requires matplotlib).
 --paper-fig-zeta
@@ -206,6 +205,7 @@ def _run_simulation(deg: int, repo_root: Path) -> tuple[bool, str]:
     """Attempt to run demo_vgoswec for a given angle."""
     binary = repo_root / "build" / "demo_vgoswec"
     config = repo_root / "config" / f"vgoswec_{deg}_freedecay.yaml"
+    output_csv = repo_root / "output" / f"vgoswec_{deg}_freedecay_results.csv"
     if not binary.exists():
         msg = f"Binary {binary} not found; skipping run for VGM-{deg}."
         print(f"  WARNING: {msg}")
@@ -214,10 +214,22 @@ def _run_simulation(deg: int, repo_root: Path) -> tuple[bool, str]:
         msg = f"Config {config} not found; skipping run for VGM-{deg}."
         print(f"  WARNING: {msg}")
         return False, msg
-    result = subprocess.run(
-        [str(binary), "--config", str(config), "--no-viz"],
-        capture_output=True,
-    )
+    if output_csv.exists():
+        try:
+            output_csv.unlink()
+        except OSError as exc:
+            msg = f"could not remove stale {output_csv.name} before VGM-{deg} run: {exc}"
+            print(f"  WARNING: {msg}")
+            return False, msg
+    try:
+        result = subprocess.run(
+            [str(binary), "--config", str(config), "--no-viz"],
+            capture_output=True,
+        )
+    except OSError as exc:
+        msg = f"failed to launch simulation for VGM-{deg}: {exc}"
+        print(f"  WARNING: {msg}")
+        return False, msg
     if result.returncode != 0:
         msg = f"simulation for VGM-{deg} exited {result.returncode}"
         stderr_tail = _stderr_tail(result.stderr)
@@ -226,6 +238,10 @@ def _run_simulation(deg: int, repo_root: Path) -> tuple[bool, str]:
             print("           stderr tail:")
             for line in stderr_tail.splitlines():
                 print(f"             {line}")
+        return False, msg
+    if not output_csv.exists():
+        msg = f"simulation for VGM-{deg} completed but did not produce {output_csv.name}"
+        print(f"  WARNING: {msg}.")
         return False, msg
     return True, ""
 
@@ -250,14 +266,19 @@ def analyse(repo_root: Path, run_sims: bool) -> List[dict]:
         cpp_zeta = FALLBACK_CPP_ZETA_1E4[deg]
         source = "fallback-after-failed-run" if run_sims and not run_ok else "fallback"
 
-        if csv_path.exists():
+        if run_sims and not run_ok:
+            print(
+                f"  WARN: {cfg} run failed; ignoring any existing {csv_path.name} "
+                "and using embedded fallback values."
+            )
+        elif csv_path.exists():
             try:
                 t, x = load_series(csv_path)
                 cpp_fft = estimate_wn_fft(t, x)
                 cpp_zc = estimate_wn_zerocross(t, x)
                 zeta_val, _ = estimate_zeta_logdec(t, x)
                 cpp_zeta = zeta_val * 1e4
-                source = "csv-after-failed-run" if run_sims and not run_ok else "csv"
+                source = "csv"
             except (RuntimeError, OSError, ValueError) as exc:
                 print(f"  WARN: {csv_path}: {exc}. Using embedded fallback.")
 
@@ -269,9 +290,9 @@ def analyse(repo_root: Path, run_sims: bool) -> List[dict]:
         wecsim_fft = wecsim["wecsim_fft_interp"]
         wecsim_zc = wecsim["wecsim_zc"]
         wecsim_zeta = wecsim["wecsim_fit_zeta_1e4"]
-        cpp_vs_wecsim_fft_err_pct = (cpp_zc - wecsim_fft) / wecsim_fft * 100.0
-        cpp_vs_wecsim_zc_err_pct = (cpp_zc - wecsim_zc) / wecsim_zc * 100.0
-        cpp_vs_wecsim_zeta_err_pct = (cpp_zeta - wecsim_zeta) / wecsim_zeta * 100.0
+        cpp_zc_vs_wecsim_fft_err_pct = (cpp_zc - wecsim_fft) / wecsim_fft * 100.0
+        cpp_zc_vs_wecsim_zc_err_pct = (cpp_zc - wecsim_zc) / wecsim_zc * 100.0
+        cpp_zeta_vs_wecsim_zeta_err_pct = (cpp_zeta - wecsim_zeta) / wecsim_zeta * 100.0
 
         rows.append({
             "config": cfg,
@@ -288,9 +309,9 @@ def analyse(repo_root: Path, run_sims: bool) -> List[dict]:
             "wecsim_fft_interp_wn_rads": wecsim_fft,
             "wecsim_zerocross_wn_rads": wecsim_zc,
             "wecsim_fitted_zeta_1e4": wecsim_zeta,
-            "cpp_vs_wecsim_fft_err_pct": cpp_vs_wecsim_fft_err_pct,
-            "cpp_vs_wecsim_zc_err_pct": cpp_vs_wecsim_zc_err_pct,
-            "cpp_vs_wecsim_zeta_err_pct": cpp_vs_wecsim_zeta_err_pct,
+            "cpp_zc_vs_wecsim_fft_err_pct": cpp_zc_vs_wecsim_fft_err_pct,
+            "cpp_zc_vs_wecsim_zc_err_pct": cpp_zc_vs_wecsim_zc_err_pct,
+            "cpp_zeta_vs_wecsim_zeta_err_pct": cpp_zeta_vs_wecsim_zeta_err_pct,
             "source": source,
             "_source": source,
         })
@@ -339,17 +360,11 @@ def print_source_warnings(rows: List[dict]) -> None:
         return
 
     fallback_rows = [r for r in flagged if "fallback" in str(r.get("source", ""))]
-    reused_rows = [r for r in flagged if r.get("source") == "csv-after-failed-run"]
-
     print("WARNING: non-primary provenance detected in free-decay analysis output.")
     if fallback_rows:
         names = ", ".join(f"{r['config']} ({r['source']})" for r in fallback_rows)
         print(f"  Embedded historical fallback values used for: {names}")
         print("  These rows are not solver output from this run.")
-    if reused_rows:
-        names = ", ".join(f"{r['config']} ({r['source']})" for r in reused_rows)
-        print(f"  Existing CSVs reused after failed --run attempt: {names}")
-        print("  These rows were read from disk, not produced by a successful run just now.")
     print()
 
 
@@ -382,9 +397,9 @@ def print_table(rows: List[dict]) -> None:
         float(r["wecsim_fitted_zeta_1e4"]) / float(r["paper_zeta_1e4"]) for r in rows
         if float(r["paper_zeta_1e4"]) != 0.0
     ]
-    wecsim_fft_abs = [abs(float(r["cpp_vs_wecsim_fft_err_pct"])) for r in rows]
-    wecsim_zc_abs = [abs(float(r["cpp_vs_wecsim_zc_err_pct"])) for r in rows]
-    wecsim_zeta_abs = [abs(float(r["cpp_vs_wecsim_zeta_err_pct"])) for r in rows]
+    wecsim_fft_abs = [abs(float(r["cpp_zc_vs_wecsim_fft_err_pct"])) for r in rows]
+    wecsim_zc_abs = [abs(float(r["cpp_zc_vs_wecsim_zc_err_pct"])) for r in rows]
+    wecsim_zeta_abs = [abs(float(r["cpp_zeta_vs_wecsim_zeta_err_pct"])) for r in rows]
     zeta_abs_low = int(round(min(wecsim_zeta_abs)))
     zeta_abs_high = math.ceil(max(wecsim_zeta_abs))
     table2_factor_low = int(round(min(table2_scale_factors)))
@@ -443,16 +458,16 @@ def print_wecsim_table(rows: List[dict]) -> None:
             f"{r['config']:<8} "
             f"{float(r['cpp_zerocross_wn_rads']):>10.3f} "
             f"{float(r['wecsim_fft_interp_wn_rads']):>10.4f} "
-            f"{float(r['cpp_vs_wecsim_fft_err_pct']):>+10.2f} "
+            f"{float(r['cpp_zc_vs_wecsim_fft_err_pct']):>+10.2f} "
             f"{float(r['wecsim_zerocross_wn_rads']):>10.4f} "
-            f"{float(r['cpp_vs_wecsim_zc_err_pct']):>+9.2f} "
+            f"{float(r['cpp_zc_vs_wecsim_zc_err_pct']):>+9.2f} "
             f"{float(r['cpp_zeta_1e4']):>11.1f} "
             f"{float(r['wecsim_fitted_zeta_1e4']):>11.1f} "
-            f"{float(r['cpp_vs_wecsim_zeta_err_pct']):>+8.1f}"
+            f"{float(r['cpp_zeta_vs_wecsim_zeta_err_pct']):>+8.1f}"
         )
     print(sep)
-    wn_bound = max(abs(float(r["cpp_vs_wecsim_zc_err_pct"])) for r in rows)
-    zeta_abs = [abs(float(r["cpp_vs_wecsim_zeta_err_pct"])) for r in rows]
+    wn_bound = max(abs(float(r["cpp_zc_vs_wecsim_zc_err_pct"])) for r in rows)
+    zeta_abs = [abs(float(r["cpp_zeta_vs_wecsim_zeta_err_pct"])) for r in rows]
     zeta_abs_low = int(round(min(zeta_abs)))
     zeta_abs_high = math.ceil(max(zeta_abs))
     print(
@@ -535,9 +550,9 @@ def write_csv(rows: List[dict], repo_root: Path) -> None:
         "wecsim_fft_interp_wn_rads",
         "wecsim_zerocross_wn_rads",
         "wecsim_fitted_zeta_1e4",
-        "cpp_vs_wecsim_fft_err_pct",
-        "cpp_vs_wecsim_zc_err_pct",
-        "cpp_vs_wecsim_zeta_err_pct",
+        "cpp_zc_vs_wecsim_fft_err_pct",
+        "cpp_zc_vs_wecsim_zc_err_pct",
+        "cpp_zeta_vs_wecsim_zeta_err_pct",
         "source",
     ]
     with out.open("w", newline="") as fh:
@@ -561,9 +576,9 @@ def write_csv(rows: List[dict], repo_root: Path) -> None:
             row_out["wecsim_fft_interp_wn_rads"] = f"{float(r['wecsim_fft_interp_wn_rads']):.4f}"
             row_out["wecsim_zerocross_wn_rads"] = f"{float(r['wecsim_zerocross_wn_rads']):.4f}"
             row_out["wecsim_fitted_zeta_1e4"] = f"{float(r['wecsim_fitted_zeta_1e4']):.1f}"
-            row_out["cpp_vs_wecsim_fft_err_pct"] = f"{float(r['cpp_vs_wecsim_fft_err_pct']):.2f}"
-            row_out["cpp_vs_wecsim_zc_err_pct"] = f"{float(r['cpp_vs_wecsim_zc_err_pct']):.2f}"
-            row_out["cpp_vs_wecsim_zeta_err_pct"] = f"{float(r['cpp_vs_wecsim_zeta_err_pct']):.1f}"
+            row_out["cpp_zc_vs_wecsim_fft_err_pct"] = f"{float(r['cpp_zc_vs_wecsim_fft_err_pct']):.2f}"
+            row_out["cpp_zc_vs_wecsim_zc_err_pct"] = f"{float(r['cpp_zc_vs_wecsim_zc_err_pct']):.2f}"
+            row_out["cpp_zeta_vs_wecsim_zeta_err_pct"] = f"{float(r['cpp_zeta_vs_wecsim_zeta_err_pct']):.1f}"
             row_out["source"] = str(r["source"])
             writer.writerow(row_out)
     print(f"Wrote: {out}")
@@ -594,7 +609,7 @@ def main() -> int:
         "--strict",
         action="store_true",
         default=False,
-        help="Exit non-zero if any geometry uses fallback or stale-post-failure data.",
+        help="Exit non-zero if any geometry uses fallback data.",
     )
     parser.add_argument(
         "--make-figures",
