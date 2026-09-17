@@ -35,6 +35,10 @@ raw free-decay physics (as computed by either solver) and the value printed in
 the paper's Table 2, consistent with a `×10⁻³` vs `×10⁻⁴` exponent labeling
 issue in that column.
 
+> **MATLAB / WEC-Sim work is complete.** The raw-data extraction described in
+> S3 closes the MATLAB side of the validation. No further WEC-Sim `.mat`
+> processing is planned; subsequent campaigns are C++-only.
+
 ---
 
 ## S1. Record-length harmonization (40–60 s → 200 s)
@@ -125,6 +129,11 @@ frequency cross-check only.
 Full method, per-geometry tables, and the MATLAB-side gotchas are in
 [`docs/freedecay_wecsim_rawdata_validation.md`](freedecay_wecsim_rawdata_validation.md).
 
+**This completes the MATLAB/WEC-Sim validation work.** The extracted reference
+values are now embedded as constants in `scripts/freedecay_validation.py`, so
+the comparison is reproducible from this repository without re-running any
+MATLAB.
+
 ---
 
 ## S4. Tooling hardening
@@ -145,6 +154,8 @@ updated so the readout cannot drift out of sync with the data again:
   longer discarded; captured stderr is surfaced on failure.
 - **WEC-Sim reference constants** added, with a new comparison table and
   computed `±0.15%` / `~4–13%` headline bounds.
+- **LF line endings** for `docs/freedecay_validation.csv` via an explicit
+  `lineterminator="\n"` on the `csv.DictWriter`.
 
 ---
 
@@ -178,36 +189,73 @@ None of these block the free-decay stage. All are tracked here for the record.
    appears in **both independently-processed** datasets it is most plausibly
    physical — a hydrodynamic-coupling feature of the 20° geometry — rather than
    an extraction artifact. Worth a closer look before publication.
-2. **`rho` mismatch between config and H5.** `config/*.yaml` specifies
-   `rho = 1025 kg/m³` while the H5 BEM hydro data carries `rho = 1000`. The
-   solver silently prefers the H5 value. `P_opt` scales linearly with `rho`, so
-   this propagates directly into every capture-efficiency denominator. **This is
-   the next item to resolve.**
-3. **`[impedance] INFO: legacy A55-match rho=...` log spam.** Printed once per
-   sweep row (32× in a single run) despite being a static property of the H5
-   file. The de-normalization path re-resolves `rho` on every table lookup
-   instead of once at load. Carried over from `docs/EOD_SUMMARY_2026-09-16.md`.
-4. **`--strict` writes artifacts before failing.** A `--strict` run that detects
+2. **`--strict` writes artifacts before failing.** A `--strict` run that detects
    fallback rows still writes `docs/freedecay_validation.csv` before exiting
    non-zero, leaving a `source=fallback` row in the tracked CSV. It should
    refuse to write artifacts at all.
-5. **Silent fallback substitution** *(resolved — see S4)*. The analysis script
-   silently substituted hardcoded historical values when a result CSV was
-   missing or unreadable, with no indication in the output or the CSV. This was
-   worked around during the campaign by clearing
-   `output/vgoswec_*_freedecay_results.csv` before every run. Now surfaced via
-   the `source` column, the warning block, and `--strict`.
-6. **CRLF line endings in `docs/freedecay_validation.csv`.** Python's
-   `csv.writer` defaults to `lineterminator="\r\n"` per RFC 4180, and
-   `open(..., newline="")` correctly passes it through unmodified — so the
-   tracked CSV has CRLF endings on Linux. This invites spurious whole-file diffs
-   and breaks `$`-anchored greps. Fix: pass `lineterminator="\n"` to
-   `csv.DictWriter`.
-7. **`docs/freedecay_validation.csv` was untracked until 2026-09-17.**
-   `.gitignore` carries a blanket `*.csv` with un-ignore exceptions only under
-   `analysis/**`. The free-decay summary CSV — listed as a pipeline artifact in
-   `docs/REPRODUCTION.md` — was therefore never committed. A `!docs/*.csv`
-   exception was added and the CSV is now tracked.
+3. **`[impedance] INFO: legacy A55-match rho=...` log spam.** Printed once per
+   sweep row (32× in a single run) despite being a static property of the H5
+   file, resolved once at load rather than on every table lookup. Purely log
+   noise — the printed value is a diagnostic, not an input to any computation.
+   Carried over from `docs/EOD_SUMMARY_2026-09-16.md`.
+4. **Vestigial `hydro.rho` key in `config/*.yaml`.** The configs carry
+   `rho = 1025 kg/m³`, parsed into `SimConfig::rho` by `config_loader.cpp`, but
+   nothing downstream consumes it. De-normalization is pinned to the H5-stored
+   `rho` (see "Density basis" below). The key is dead config and is misleading
+   on inspection; either remove it or comment it as unused.
+
+### Resolved during this campaign
+
+- **Silent fallback substitution** — the analysis script substituted hardcoded
+  historical values when a result CSV was missing or unreadable, with no
+  indication in the output or the CSV. Now surfaced via the `source` column,
+  an explicit warning block, and `--strict` (see S4).
+- **CRLF line endings in `docs/freedecay_validation.csv`** — Python's
+  `csv.writer` defaults to `lineterminator="\r\n"` per RFC 4180, which reached
+  the worktree unmodified on Linux. Fixed by passing `lineterminator="\n"`.
+  (Git had been normalizing to LF on the way into the index, so the committed
+  blob was always correct; the CRLF was a worktree-only artifact.)
+- **`docs/freedecay_validation.csv` was untracked** — `.gitignore` carried a
+  blanket `*.csv` with un-ignore exceptions only under `analysis/**`, so the
+  summary CSV listed as a pipeline artifact in `docs/REPRODUCTION.md` had never
+  been committed. A `!docs/*.csv` exception was added and the CSV is now
+  tracked.
+
+---
+
+## Density basis (`rho`) — verified correct
+
+Checked during this campaign and recorded here so it is not re-raised as an
+issue.
+
+De-normalization of the BEM coefficients uses the `rho` **stored in the H5
+file** (`simulation_parameters/rho`, = 1000 kg/m³ for the VGM BEM runs) as the
+single source of truth:
+
+```cpp
+// src/impedance.cpp
+double rho_eff = tables.h5_rho;   // active
+```
+
+`A55`, `B55`, and `Fexc55` are all formed from `rho_eff`, and the Python sweep
+scripts read `rho` from each H5 the same way. This is the correct basis: the
+BEM coefficients were computed at that density, so de-normalizing with it
+recovers the dimensional values consistently, and it puts all five geometries
+on one basis.
+
+The `rho_eff_match` / `rho_legacy` value printed in the hydro diagnostic is a
+**diagnostic back-out only** — an RIRF-derived estimate of the density implied
+by the added-mass tables, used to confirm the de-normalization still
+reconciles. It is explicitly labelled as such in `impedance.h` and is never
+used in any computation:
+
+```cpp
+double rho_eff_match; ///< Legacy RIRF-derived rho (diagnostic only, not used)
+```
+
+The `rho = 1025` in `config/*.yaml` is a vestigial key with no consumer (see
+follow-up item 4). **There is no density inconsistency in the physics, and
+`P_opt` is on the correct basis.**
 
 ---
 
@@ -221,5 +269,7 @@ to within ±0.15%, and the resistive impedance (ζ, i.e. radiation damping B55)
 to within ~4–13%. This is the foundation the three-regime controller/flap
 co-design study rests on.
 
-Next: item 2 above — the `rho` 1025-vs-1000 discrepancy, which affects `P_opt`
-and therefore every capture-efficiency figure downstream.
+The MATLAB/WEC-Sim side of the validation is likewise complete; the reference
+values are embedded in the repository and require no further `.mat` processing.
+
+Next: the passive campaign.
