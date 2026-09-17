@@ -5,7 +5,7 @@ For each flap angle variant (VGM-0,10,20,45,90) across T=0.5..7.0 s, runs BOTH
 passive (fixed B_pto = B55(ω₀)) and opt_passive (B_opt = |Z_intrinsic(ω₀)|)
 controllers and computes:
 
-  - P_capture(T): steady-state (second-half) mean absorbed power.
+  - P_capture(T): steady-state mean absorbed power over the final N_AVG whole wave cycles.
   - P_opt(T): theoretical optimum from each flap H5 using body1 pitch hydrodynamics
     (radiation_damping/components/5_5 + excitation/mag[dof=5,dir=0], de-normalised).
   - eta(T) = P_capture / P_opt where defined.
@@ -24,6 +24,14 @@ Use --plot-only to regenerate all figures from committed CSVs without running th
 
 Period grid T = 0.5–7.0 s (0.25 s steps) — identical to the CC / ff+PID grids so all
 four controllers' curves share x-values point-for-point.
+
+Simulation settings for this campaign are period-aware and self-contained in the sweep:
+
+  - duration(T) = RAMP_S + (N_SETTLE + N_AVG) * T = 10 + 150*T seconds
+  - timestep dt = 0.01 s written into each scratch config
+  - steady-state power averaged over the final N_AVG = 20 whole cycles by time window
+
+This removes the fixed-duration / fixed-sample-fraction bias from the previous method.
 """
 
 from __future__ import annotations
@@ -49,7 +57,11 @@ from matplotlib.ticker import AutoMinorLocator, MultipleLocator
 PERIOD_GRID = np.round(np.arange(0.5, 7.01, 0.25), 2)  # T = 0.5, 0.75, …, 7.0 s (27 pts)
 WAVE_HEIGHT_M = 0.05
 WAVE_AMPLITUDE_M = WAVE_HEIGHT_M / 2.0
-DURATION_S = 171.0
+RAMP_S = 10.0
+N_SETTLE = 130
+N_AVG = 20
+N_CYCLES = N_SETTLE + N_AVG
+TIMESTEP_S = 0.01
 MASK_B55_THRESHOLD = 1e-4
 ETA_GT1_TOL = 1e-6
 PITCH_DOF_INDEX = 4  # 0-based, DOF5 (pitch)
@@ -120,19 +132,27 @@ def _replace_yaml_scalar(text: str, key: str, value: str) -> str:
     return out
 
 
+def duration_for_period(period_s: float) -> float:
+    return RAMP_S + N_CYCLES * period_s
+
+
 def prepare_passive_scratch(template: Path, scratch: Path, period_s: float) -> None:
+    duration_s = duration_for_period(period_s)
     txt = template.read_text()
     txt = _replace_yaml_scalar(txt, "height", f"{WAVE_HEIGHT_M}")
     txt = _replace_yaml_scalar(txt, "period", f"{period_s}")
-    txt = _replace_yaml_scalar(txt, "duration", f"{DURATION_S}")
+    txt = _replace_yaml_scalar(txt, "duration", f"{duration_s}")
+    txt = _replace_yaml_scalar(txt, "timestep", f"{TIMESTEP_S}")
     scratch.write_text(txt)
 
 
 def prepare_opt_passive_scratch(template: Path, scratch: Path, period_s: float) -> None:
+    duration_s = duration_for_period(period_s)
     txt = template.read_text()
     txt = _replace_yaml_scalar(txt, "height", f"{WAVE_HEIGHT_M}")
     txt = _replace_yaml_scalar(txt, "period", f"{period_s}")
-    txt = _replace_yaml_scalar(txt, "duration", f"{DURATION_S}")
+    txt = _replace_yaml_scalar(txt, "duration", f"{duration_s}")
+    txt = _replace_yaml_scalar(txt, "timestep", f"{TIMESTEP_S}")
     # Update design_omega to match this period's excitation frequency
     txt = _replace_yaml_scalar(txt, "design_omega", f"{(2.0 * math.pi) / period_s:.8f}")
     scratch.write_text(txt)
@@ -148,13 +168,33 @@ def locate_results_csv(repo: Path, scratch: Path) -> Path:
     raise FileNotFoundError(f"No results CSV found for scratch config '{scratch.name}'")
 
 
-def steady_state_mean_power(csv_path: Path) -> float:
+def _time_column_name(fieldnames: list[str] | None) -> str:
+    if not fieldnames:
+        raise RuntimeError("Output CSV is missing a header row")
+    for key in ("time_s", "time", "t_s", "t"):
+        if key in fieldnames:
+            return key
+    raise RuntimeError(f"Could not find a time column in output CSV header: {fieldnames}")
+
+
+def steady_state_mean_power(csv_path: Path, period_s: float) -> float:
     with csv_path.open(newline="") as fh:
-        rows = list(csv.DictReader(fh))
+        reader = csv.DictReader(fh)
+        rows = list(reader)
     if not rows:
         raise RuntimeError(f"No rows in output CSV: {csv_path}")
+    time_key = _time_column_name(reader.fieldnames)
+    times = np.array([float(r[time_key]) for r in rows], dtype=float)
     pw = np.array([float(r["power_w"]) for r in rows], dtype=float)
-    return float(np.mean(pw[len(pw) // 2:]))
+    t_end = float(times[-1])
+    window_start = t_end - (N_AVG * period_s)
+    mask = times >= window_start
+    if int(np.count_nonzero(mask)) < 10:
+        raise RuntimeError(
+            f"Steady-state averaging window is undersampled for {csv_path}: "
+            f"{np.count_nonzero(mask)} samples over final {N_AVG} cycles"
+        )
+    return float(np.mean(pw[mask]))
 
 
 def run_capture_sweep(
@@ -178,6 +218,7 @@ def run_capture_sweep(
     ) as td:
         scratch = Path(td) / f"{controller_type}_vgm{flap_angle}.yaml"
         for T in PERIOD_GRID:
+            duration_s = duration_for_period(float(T))
             prepare_fn(cfg, scratch, float(T))
             cmd = [
                 str(demo),
@@ -186,7 +227,7 @@ def run_capture_sweep(
                 "--no-viz",
                 "--wave-period", f"{T:.2f}",
                 "--wave-height", f"{WAVE_HEIGHT_M:.4f}",
-                "--duration", f"{DURATION_S:.1f}",
+                "--duration", f"{duration_s:.1f}",
             ]
             run = run_cmd(cmd, repo)
             if run.returncode != 0:
@@ -195,7 +236,7 @@ def run_capture_sweep(
                     f"STDOUT:\n{run.stdout}\nSTDERR:\n{run.stderr}"
                 )
             out_csv = locate_results_csv(repo, scratch)
-            captures[float(T)] = steady_state_mean_power(out_csv)
+            captures[float(T)] = steady_state_mean_power(out_csv, float(T))
     return captures
 
 
@@ -263,6 +304,7 @@ def popt_curve_from_h5(
 CSV_COLS = [
     "T_s", "omega_rads", "P_capture_W", "P_opt_W",
     "B55_Nmsrad", "F_exc_Nm", "eta", "masked",
+    "duration_s", "dt_s", "n_settle", "n_avg",
 ]
 
 
@@ -289,6 +331,10 @@ def load_efficiency_csv(csv_path: Path) -> list[dict]:
                 "F_exc_Nm": float(r["F_exc_Nm"]),
                 "eta": float(r["eta"]) if r.get("eta", "").strip() else float("nan"),
                 "masked": str(r.get("masked", "false")).strip().lower() == "true",
+                "duration_s": float(r["duration_s"]) if r.get("duration_s", "").strip() else float("nan"),
+                "dt_s": float(r["dt_s"]) if r.get("dt_s", "").strip() else float("nan"),
+                "n_settle": int(r["n_settle"]) if r.get("n_settle", "").strip() else 0,
+                "n_avg": int(r["n_avg"]) if r.get("n_avg", "").strip() else 0,
                 "linear_popt_invalid": False,
             }
             if (
@@ -330,6 +376,10 @@ def _build_csv_rows(
             "F_exc_Nm": f"{fexc[i]:.8e}",
             "eta": "" if masked[i] or not np.isfinite(eta) else f"{eta:.8e}",
             "masked": "true" if masked[i] else "false",
+            "duration_s": f"{duration_for_period(float(T)):.8e}",
+            "dt_s": f"{TIMESTEP_S:.8e}",
+            "n_settle": str(N_SETTLE),
+            "n_avg": str(N_AVG),
         })
     return rows
 
@@ -767,6 +817,9 @@ def regenerate_plots_from_csv(
         ("passive", passive_csv_map, "passive damper", "passive"),
         ("opt_passive", opt_csv_map, "optimal passive", "opt_passive"),
     ):
+        if not csv_map:
+            print(f"[skip] no committed {ctrl} CSVs available for plotting")
+            continue
         for angle, csv_path in csv_map.items():
             rows = load_efficiency_csv(csv_path)
             out_png = repo / "analysis" / subdir / "figures" / f"capture_efficiency_VGM{angle}.png"
@@ -776,6 +829,10 @@ def regenerate_plots_from_csv(
         plot_summary(csv_map, ctrl_label, summary_png, power_ceiling, efficiency_ceiling)
 
     # --- passive vs opt_passive comparison ---
+    if not passive_csv_map or not opt_csv_map:
+        print("[skip] passive vs opt_passive comparison plots require both CSV sets")
+        return
+
     comp_dir = repo / "analysis" / "passive_vs_optpassive" / "figures"
     angles_available = sorted(set(passive_csv_map.keys()) | set(opt_csv_map.keys()))
     for angle in angles_available:
@@ -802,6 +859,14 @@ def regenerate_plots_from_csv(
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
+def existing_csv_map(repo: Path, subdir: str) -> dict[int, Path]:
+    return {
+        angle: path
+        for angle in FLAPS
+        if (path := repo / "analysis" / subdir / f"capture_efficiency_VGM{angle}.csv").exists()
+    }
+
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
@@ -833,20 +898,10 @@ def main() -> int:
         demo = repo / demo
 
     if args.plot_only:
-        passive_csv_map = {
-            angle: repo / "analysis" / "passive" / f"capture_efficiency_VGM{angle}.csv"
-            for angle in FLAPS
-        }
-        opt_csv_map = {
-            angle: repo / "analysis" / "opt_passive" / f"capture_efficiency_VGM{angle}.csv"
-            for angle in FLAPS
-        }
-        missing = [p for p in list(passive_csv_map.values()) + list(opt_csv_map.values())
-                   if not p.exists()]
-        if missing:
-            print("ERROR: Missing CSV(s) for --plot-only mode:")
-            for m in missing:
-                print(f"  - {m}")
+        passive_csv_map = existing_csv_map(repo, "passive")
+        opt_csv_map = existing_csv_map(repo, "opt_passive")
+        if not passive_csv_map and not opt_csv_map:
+            print("ERROR: No passive or opt_passive CSVs found for --plot-only mode")
             return 2
         regenerate_plots_from_csv(repo, passive_csv_map, opt_csv_map)
         return 0
