@@ -6,10 +6,11 @@
 
 ## 1. Current status — resume banner
 
-The **simulation phase is complete** — see [`docs/EOD_SUMMARY_2026-07-11.md`](EOD_SUMMARY_2026-07-11.md) for the formal phase-close record. The project is now entering the **paper / writing phase**, gated on the literature review in issue **#50**. A presentation of the three control-law block diagrams and the three-regime co-design story was **well received; reviewers want to see the paper**, which is why the writing phase is starting now. The **free-decay validation stage is closed** on the new WEC-Sim raw-time-history basis documented below.
+The **simulation phase is complete** — see [`docs/EOD_SUMMARY_2026-07-11.md`](EOD_SUMMARY_2026-07-11.md) for the formal phase-close record. The project is now entering the **paper / writing phase**.
+
+The **free-decay validation stage is closed** as of 2026-09-17, and with it the **MATLAB / WEC-Sim validation work**. The WEC-Sim reference values are embedded as constants in `scripts/freedecay_validation.py`, so no further `.mat` processing is required — subsequent campaigns are C++-only. See [`docs/RESULTS_CAMPAIGN_2026-09-17.md`](RESULTS_CAMPAIGN_2026-09-17.md).
 
 ---
-
 
 ## Recent sessions / campaign record
 
@@ -20,9 +21,10 @@ The **simulation phase is complete** — see [`docs/EOD_SUMMARY_2026-07-11.md`](
 
 ## 2. What is done (link — do not re-derive)
 
-- **Plant validation (foundation):** primary reference is now the direct WEC-Sim raw-time-history comparison, with C++ 200 s free-decay records agreeing on **ω_n within ±0.15%** and **ζ within ~4–13%** across VGM-0/10/20/45/90. Both solvers place ζ in the **25–55×10⁻⁴** range, while the paper's Table 2 ζ column is uniformly ~9–13× lower because of a **`×10⁻³` / `×10⁻⁴` exponent-labeling issue**, not a modeling error. The C++ free-decay records are now harmonized to **200 s** across all five geometries. See [`docs/freedecay_wecsim_rawdata_validation.md`](freedecay_wecsim_rawdata_validation.md) and [`docs/freedecay_validation.md`](freedecay_validation.md).
-- **Three-regime co-design relay:** CC → opt_passive → ff+PID across VGM-0/10/20/45/90 on shared T = 0.5–7 s grid at H = 0.05 m; resonance slides with flap angle (T₀ 2.99 s @ VGM-90 → 5.86 s @ VGM-0). See [`analysis/FINDINGS_3REGIME.md`](../analysis/FINDINGS_3REGIME.md) and [`scripts/three_regime_comparison.py`](../scripts/three_regime_comparison.py).
-- **Dual operating envelopes:** power hull (peak 2.34 W at T = 1.5 s, VGM-0, CC) and mask-respecting efficiency hull (CC near-Budal ~99% at short T); the power and efficiency co-design schedules diverge at long T — power favors VGM-0 opt_passive (largest excitation); efficiency favors ff+PID on more-open flaps (largest fraction of P_opt). See [`analysis/three_regime/operating_envelope.csv`](../analysis/three_regime/operating_envelope.csv) and [`operating_envelope_efficiency.csv`](../analysis/three_regime/operating_envelope_efficiency.csv).
+- **Plant validation (foundation):** primary reference is now the direct WEC-Sim raw-time-history comparison, with C++ 200 s free-decay records agreeing on **ω_n within ±0.15%** and **ζ within ~4–13%** across VGM-0/10/20/45/90. Both solvers place ζ in the 25–55×10⁻⁴ range; the paper's Table 2 ζ column is uniformly ~9–13× lower, consistent with a `×10⁻³`/`×10⁻⁴` exponent labeling issue in that table rather than a modeling error in either solver. Primary reference: [`docs/freedecay_wecsim_rawdata_validation.md`](freedecay_wecsim_rawdata_validation.md); full narrative: [`docs/freedecay_validation.md`](freedecay_validation.md). **No C++ model change is indicated by the free-decay evidence.**
+- **Density basis verified:** BEM de-normalization is correctly pinned to the H5-stored `rho`; the `rho_legacy` figure in the hydro diagnostic is a labelled back-out with no consumer, and `hydro.rho` in `config/*.yaml` is a vestigial unused key. `P_opt` is on the correct basis. See "Density basis" in [`docs/RESULTS_CAMPAIGN_2026-09-17.md`](RESULTS_CAMPAIGN_2026-09-17.md).
+- **Three-regime co-design relay:** CC → opt_passive → ff+PID across VGM-0/10/20/45/90 on shared T = 0.5–7 s grid at H = 0.05 m; resonance slides with flap angle (T₀ 2.99 s @ VGM-90 → 5.86 s @ VGM-0).
+- **Dual operating envelopes:** power hull (peak 2.34 W at T = 1.5 s, VGM-0, CC) and mask-respecting efficiency hull (CC near-Budal ~99% at short T); the power and efficiency co-design schedules differ.
 - **Reproducibility:** every dataset regenerable from documented commands. See [`docs/REPRODUCTION.md`](REPRODUCTION.md).
 
 ---
@@ -33,9 +35,9 @@ The **simulation phase is complete** — see [`docs/EOD_SUMMARY_2026-07-11.md`](
 The contribution is **not** a new control law. Two of the three controllers are textbook-mature:
 
 - **Optimal-passive** (`B_opt = |Z_intrinsic(ω₀)|`, optimal resistive loading) — foundational result; Falnes; covered as the passive baseline in Ringwood's reviews.
-- **Complex-conjugate / reactive impedance matching** — the classical theoretical optimum / Budal bound; Falnes, Ringwood 2014. Its non-causality and reactive-power requirements are extensively documented in the literature.
+- **Complex-conjugate / reactive impedance matching** — the classical theoretical optimum / Budal bound; Falnes, Ringwood 2014. Its non-causality and reactive-power requirements are extensively documented.
 
-The third, **ff+PID** (excitation feedforward + velocity-tracking PID + passive-safety guard), is an engineered causal scheme positioned in the Fusco & Ringwood excitation-feedforward / velocity-reference lineage and the passivity-guarded control literature (Bacelli, Faedo, Ringwood).
+The third, **ff+PID** (excitation feedforward + velocity-tracking PID + passive-safety guard), is an engineered causal scheme positioned in the Fusco & Ringwood excitation-feedforward / velocity-reference lineage.
 
 The **real novelty is the controller × variable-geometry (flap-angle) operating map** — the regime relay over (wave period × flap vent angle × controller).
 
@@ -46,18 +48,18 @@ The **real novelty is the controller × variable-geometry (flap-angle) operating
 - ff+PID uses **empirical (not formally optimized) gains**; formal gain optimization is the #54 second-paper scope.
 
 ### Known limitation to disclose
-ff+PID tracks the raw un-hinge-referred pitch excitation with a signed `alpha` absorbing the phase/sign mismatch — see [`docs/CONTROLLERS.md`](CONTROLLERS.md) §Known limitations. Decide in the manuscript whether to fix hinge-referencing or pre-empt it in the limitations section.
+ff+PID tracks the raw un-hinge-referred pitch excitation with a signed `alpha` absorbing the phase/sign mismatch — see [`docs/CONTROLLERS.md`](CONTROLLERS.md) §Known limitations. Decide in the drafting phase how prominently to disclose this.
 
 ### Maturity caveat
-The maturity placements above are drawn from general knowledge of the Ringwood / Fusco / Faedo body of work, **not a live citation check**. Every citation and novelty claim **must** be verified against the actual papers as part of issue **#50** before submission. Do not cite a Ringwood reference without confirming its exact framing.
+The maturity placements above are drawn from general knowledge of the Ringwood / Fusco / Faedo body of work, **not a live citation check**. Every citation and novelty claim **must** be verified against the literature before submission (#50).
 
 ---
 
 ## 4. Presentation decisions (captured so the talk is reproducible)
 
 - Three control-law block diagrams (opt_passive, CC, ff+PID) share one template: wave → F_exc source, magenta PTO block, summing junction, `G(s)` plant, `D(s)` kinematics feedback.
-- **`G(s) = 1/(ms²+cs+k)` is a deliberate schematic simplification** for the talk; the real simulated plant carries frequency-dependent added mass A₅₅(ω) and radiation-damping memory B_rad,55(ω) — state this caveat verbally or in a footnote so it does not contradict the WEC-Sim validation.
-- **Do NOT combine all three into one diagram** (too dense) — keep three separate slides or a staged build/morph where only the PTO block changes panel-to-panel. Add a summary slide ("same plant G(s), three PTO laws → three operating regimes") with an operating-envelope thumbnail.
+- **`G(s) = 1/(ms²+cs+k)` is a deliberate schematic simplification** for the talk; the real simulated plant carries frequency-dependent added mass A₅₅(ω) and radiation-damping memory B_rad,55(ω).
+- **Do NOT combine all three into one diagram** (too dense) — keep three separate slides or a staged build/morph where only the PTO block changes panel-to-panel. Add a summary slide ("same plant, three PTO laws").
 - The CC / opt_passive gains are evaluated at a design frequency ω₀ (not general Laplace s) — keep s-vs-ω notation honest in captions and any spoken clarification.
 
 ---
@@ -76,6 +78,15 @@ The maturity placements above are drawn from general knowledge of the Ringwood /
 
 ## 6. Immediate next actions
 
-1. **Kick off #50** — deep-research literature review to produce the related-work section skeleton + novelty verdict; this is the gate before any manuscript drafting begins.
-2. **Resolve the `rho` 1025-vs-1000 discrepancy** — `config/*.yaml` specifies `rho = 1025 kg/m³` while the H5 BEM hydro data carries `rho = 1000`, and the solver silently prefers the H5 value. `P_opt` scales linearly with `rho`, so this propagates into every capture-efficiency denominator. See follow-up item 2 in [`docs/RESULTS_CAMPAIGN_2026-09-17.md`](RESULTS_CAMPAIGN_2026-09-17.md).
+1. **Passive campaign** — next simulation-side work item, now that free-decay is banked.
+2. **Kick off #50** — deep-research literature review to produce the related-work section skeleton + novelty verdict; this is the gate before any manuscript drafting begins.
 3. **Refresh this file** at each subsequent phase boundary (end of lit review, start of drafting, etc.).
+
+### Minor / non-blocking cleanups
+
+Tracked as follow-up items in [`docs/RESULTS_CAMPAIGN_2026-09-17.md`](RESULTS_CAMPAIGN_2026-09-17.md); none affect results:
+
+- `--strict` writes `docs/freedecay_validation.csv` before exiting non-zero; it should refuse to write artifacts at all.
+- `[impedance] INFO: legacy A55-match rho=...` prints once per sweep row — log noise only, the value is diagnostic and feeds nothing.
+- Vestigial `hydro.rho` key in `config/*.yaml` has no consumer; remove or comment as unused.
+- VGM-20 sits above the ζ trend in **both** raw datasets — most plausibly physical, worth a look before publication.
