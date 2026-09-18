@@ -9,7 +9,6 @@
 #include <iostream>
 #include <limits>
 #include <map>
-#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -40,6 +39,9 @@ struct PitchBEMTables {
     double K_hs55 = 0.0;  ///< Pitch/pitch hydrostatic stiffness from LRS [4][4]; 0 if absent/empty
     double h5_rho = std::numeric_limits<double>::quiet_NaN();
     double g      = 9.81;
+    bool legacy_rho_info_resolved = false;
+    bool legacy_rho_differs_from_h5 = false;
+    double legacy_rho_eff_match = std::numeric_limits<double>::quiet_NaN();
 };
 
 RadCoeffs ComputeRadCoeffsFromRIRF(const seastack::hydro::HydroData& data,
@@ -205,7 +207,7 @@ FrequencyTable ReadTwoColumnDataset(H5::H5File& file, const std::string& dataset
     return table;
 }
 
-const PitchBEMTables& LoadPitchBEMTables(const std::string& h5_file, int flap_body_idx) {
+PitchBEMTables& LoadPitchBEMTables(const std::string& h5_file, int flap_body_idx) {
     static std::map<std::string, PitchBEMTables> cache;
 
     const std::string body_name = "body" + std::to_string(flap_body_idx + 1);
@@ -370,7 +372,7 @@ PitchHydroCoefficients GetPitchHydroCoefficientsAtOmega(
         throw std::runtime_error("[impedance] omega and rho_match_omega must be > 0");
     }
 
-    const auto& tables = LoadPitchBEMTables(h5_file, flap_body_idx);
+    auto& tables = LoadPitchBEMTables(h5_file, flap_body_idx);
 
     // ── Legacy RIRF-derived rho (diagnostic only) ────────────────────────────
     bool added_mass_clamped_match = false;
@@ -423,14 +425,17 @@ PitchHydroCoefficients GetPitchHydroCoefficientsAtOmega(
     coeffs.A55_existing = legacy.A;
     coeffs.omega_clamped = omega_clamped;
 
-    // ── Diagnostic: warn if legacy-match rho differs significantly from H5 rho
-    if (!std::isnan(tables.h5_rho) && std::abs(rho_eff_match - tables.h5_rho) > 1.0) {
-        static std::once_flag rho_info_once;
-        std::call_once(rho_info_once, [&]() {
-            std::cerr << "[impedance] INFO: legacy A55-match rho=" << rho_eff_match
+    // ── Diagnostic: resolve the legacy-vs-H5 rho comparison once per loaded table
+    if (!tables.legacy_rho_info_resolved) {
+        tables.legacy_rho_eff_match = rho_eff_match;
+        tables.legacy_rho_differs_from_h5 =
+            !std::isnan(tables.h5_rho) && std::abs(rho_eff_match - tables.h5_rho) > 1.0;
+        tables.legacy_rho_info_resolved = true;
+        if (tables.legacy_rho_differs_from_h5) {
+            std::cerr << "[impedance] INFO: legacy A55-match rho=" << tables.legacy_rho_eff_match
                       << " kg/m^3 differs from stored H5 rho=" << tables.h5_rho
                       << " kg/m^3; using stored H5 rho for de-normalization\n";
-        });
+        }
     }
 
     return coeffs;

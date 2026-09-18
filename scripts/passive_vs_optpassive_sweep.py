@@ -149,6 +149,8 @@ def build_period_grid(step_s: float) -> np.ndarray:
         raise ValueError(
             "period step must be compatible with the 0.01 s rounded grid representation"
         )
+    if period_grid[0] != 0.5 or period_grid[-1] != 7.0:
+        raise ValueError("period step must preserve the inclusive 0.5 s to 7.0 s sweep bounds")
     return period_grid
 
 

@@ -50,6 +50,10 @@ class PassiveOptPassiveSweepTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "0.01 s rounded grid"):
             passive_vs_optpassive_sweep.build_period_grid(0.005)
 
+    def test_period_step_rejects_grids_that_miss_the_inclusive_endpoint(self) -> None:
+        with self.assertRaisesRegex(ValueError, "inclusive 0.5 s to 7.0 s sweep bounds"):
+            passive_vs_optpassive_sweep.build_period_grid(0.2)
+
     def test_duration_for_period_uses_150_cycles_plus_ramp(self) -> None:
         self.assertEqual(passive_vs_optpassive_sweep.duration_for_period(0.5), 85.0)
         self.assertEqual(passive_vs_optpassive_sweep.duration_for_period(7.0), 1060.0)
