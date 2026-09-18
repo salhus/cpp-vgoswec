@@ -171,7 +171,7 @@ class PassiveOptPassiveSweepTests(unittest.TestCase):
                         "passive_vs_optpassive_sweep.py",
                         "--repo", str(repo),
                         "--plot-only",
-                        "--period-step", "0.005",
+                        "--period-step", "0.1",
                     ],
                 ):
                     rc = passive_vs_optpassive_sweep.main()

@@ -9,6 +9,7 @@
 #include <iostream>
 #include <limits>
 #include <map>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -426,15 +427,19 @@ PitchHydroCoefficients GetPitchHydroCoefficientsAtOmega(
     coeffs.omega_clamped = omega_clamped;
 
     // ── Diagnostic: resolve the legacy-vs-H5 rho comparison once per loaded table
-    if (!tables.legacy_rho_info_resolved) {
-        tables.legacy_rho_eff_match = rho_eff_match;
-        tables.legacy_rho_differs_from_h5 =
-            !std::isnan(tables.h5_rho) && std::abs(rho_eff_match - tables.h5_rho) > 1.0;
-        tables.legacy_rho_info_resolved = true;
-        if (tables.legacy_rho_differs_from_h5) {
-            std::cerr << "[impedance] INFO: legacy A55-match rho=" << tables.legacy_rho_eff_match
-                      << " kg/m^3 differs from stored H5 rho=" << tables.h5_rho
-                      << " kg/m^3; using stored H5 rho for de-normalization\n";
+    {
+        static std::mutex rho_info_mutex;
+        std::lock_guard<std::mutex> lock(rho_info_mutex);
+        if (!tables.legacy_rho_info_resolved) {
+            tables.legacy_rho_eff_match = rho_eff_match;
+            tables.legacy_rho_differs_from_h5 =
+                !std::isnan(tables.h5_rho) && std::abs(rho_eff_match - tables.h5_rho) > 1.0;
+            tables.legacy_rho_info_resolved = true;
+            if (tables.legacy_rho_differs_from_h5) {
+                std::cerr << "[impedance] INFO: legacy A55-match rho=" << tables.legacy_rho_eff_match
+                          << " kg/m^3 differs from stored H5 rho=" << tables.h5_rho
+                          << " kg/m^3; using stored H5 rho for de-normalization\n";
+            }
         }
     }
 
