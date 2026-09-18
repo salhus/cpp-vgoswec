@@ -6,24 +6,13 @@ output/
 *.pyc
 __pycache__/
 
-# Committed analysis data — allow sweep CSVs and figures
-!analysis/*.csv
-!analysis/cc_hinge/*.csv
-!analysis/cc/*.csv
-!analysis/passive_guarded/*.csv
-!analysis/figures/
-!analysis/figures/*.png
-!analysis/cc/figures/
-!analysis/cc/figures/*.png
-!analysis/passive_guarded/figures/
-!analysis/passive_guarded/figures/*.png
-!analysis/comparison/figures/
-!analysis/comparison/figures/*.png
-!analysis/opt_passive/*.csv
-!analysis/three_regime/
-!analysis/three_regime/*.csv
-!analysis/three_regime/figures/
-!analysis/three_regime/figures/*.png
+# Committed analysis data — all sweep CSVs and figures under analysis/
+# Recursive negation so new campaign directories are tracked by default.
+!analysis/**/*.csv
+!analysis/**/*.png
+
+# Committed docs artifacts — free-decay validation summary CSV
+!docs/*.csv
 
 # CMake
 CMakeCache.txt
@@ -42,6 +31,3 @@ CTestTestfile.cmake
 # OS
 .DS_Store
 Thumbs.db
-
-# Committed docs artifacts — free-decay validation summary CSV
-!docs/*.csv
