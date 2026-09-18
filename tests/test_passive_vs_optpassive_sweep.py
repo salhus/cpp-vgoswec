@@ -46,6 +46,10 @@ class PassiveOptPassiveSweepTests(unittest.TestCase):
         ) * len(passive_vs_optpassive_sweep.FLAPS) * 2
         self.assertAlmostEqual(total_simulated_seconds, 377850.0, places=6)
 
+    def test_period_step_rejects_duplicate_rounded_grid_points(self) -> None:
+        with self.assertRaisesRegex(ValueError, "0.01 s rounded grid"):
+            passive_vs_optpassive_sweep.build_period_grid(0.005)
+
     def test_duration_for_period_uses_150_cycles_plus_ramp(self) -> None:
         self.assertEqual(passive_vs_optpassive_sweep.duration_for_period(0.5), 85.0)
         self.assertEqual(passive_vs_optpassive_sweep.duration_for_period(7.0), 1060.0)
@@ -94,6 +98,28 @@ class PassiveOptPassiveSweepTests(unittest.TestCase):
         self.assertEqual(len(loaded), 1)
         self.assertAlmostEqual(loaded[0]["period_step_s"], 0.1)
 
+    def test_default_period_step_s_round_trips_through_efficiency_csv(self) -> None:
+        rows = passive_vs_optpassive_sweep._build_csv_rows(
+            period_grid=passive_vs_optpassive_sweep.PERIOD_GRID[:1],
+            period_step_s=passive_vs_optpassive_sweep.DEFAULT_PERIOD_STEP,
+            captures={0.5: 1.0},
+            omega=np.array([12.56637061]),
+            b55=np.array([3.0]),
+            fexc=np.array([4.0]),
+            p_opt=np.array([2.0]),
+            masked=np.array([False]),
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            csv_path = Path(tmpdir) / "capture.csv"
+            passive_vs_optpassive_sweep.write_efficiency_csv(csv_path, rows)
+            loaded = passive_vs_optpassive_sweep.load_efficiency_csv(csv_path)
+
+        self.assertEqual(len(loaded), 1)
+        self.assertAlmostEqual(
+            loaded[0]["period_step_s"], passive_vs_optpassive_sweep.DEFAULT_PERIOD_STEP
+        )
+
     def test_load_efficiency_csv_tolerates_legacy_rows_without_provenance(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             csv_path = Path(tmpdir) / "capture.csv"
@@ -137,7 +163,12 @@ class PassiveOptPassiveSweepTests(unittest.TestCase):
                 with mock.patch.object(
                     sys,
                     "argv",
-                    ["passive_vs_optpassive_sweep.py", "--repo", str(repo), "--plot-only"],
+                    [
+                        "passive_vs_optpassive_sweep.py",
+                        "--repo", str(repo),
+                        "--plot-only",
+                        "--period-step", "0.005",
+                    ],
                 ):
                     rc = passive_vs_optpassive_sweep.main()
 

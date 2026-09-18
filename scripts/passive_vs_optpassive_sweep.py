@@ -142,7 +142,14 @@ def duration_for_period(period_s: float) -> float:
 def build_period_grid(step_s: float) -> np.ndarray:
     if not (step_s > 0.0):
         raise ValueError("period step must be > 0")
-    return np.round(np.arange(0.5, 7.01, step_s), 2)
+    period_grid = np.round(np.arange(0.5, 7.01, step_s), 2)
+    if period_grid.size == 0:
+        raise ValueError("period grid is empty")
+    if np.unique(period_grid).size != period_grid.size:
+        raise ValueError(
+            "period step must be compatible with the 0.01 s rounded grid representation"
+        )
+    return period_grid
 
 
 def prepare_passive_scratch(template: Path, scratch: Path, period_s: float) -> None:
@@ -917,12 +924,6 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     plt.rcParams.update(JOURNAL_STYLE)
-    period_grid = build_period_grid(args.period_step)
-    print(
-        "[grid] period-step="
-        f"{args.period_step:g} s, points={len(period_grid)}, "
-        f"first={period_grid[0]:.2f} s, last={period_grid[-1]:.2f} s"
-    )
 
     repo = Path(args.repo).resolve()
     demo = Path(args.demo)
@@ -943,6 +944,12 @@ def main() -> int:
         print("Build first (or use --plot-only if CSVs already exist).")
         return 2
 
+    period_grid = build_period_grid(args.period_step)
+    print(
+        "[grid] period-step="
+        f"{args.period_step:g} s, points={len(period_grid)}, "
+        f"first={period_grid[0]:.2f} s, last={period_grid[-1]:.2f} s"
+    )
     passive_csv_map, opt_csv_map = compute_and_write_csvs(
         repo, demo, run_sim=True, period_grid=period_grid, period_step_s=args.period_step
     )
