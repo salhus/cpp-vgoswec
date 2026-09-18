@@ -85,10 +85,10 @@ trees.
 
 Not introduced today, but visible in the verification output:
 
-- **`[impedance] INFO: legacy A55-match rho=...` prints once per sweep row** (32×
-  in a single run). It is a static property of the H5 file, not per-frequency —
-  the de-normalization path re-resolves `rho` on every table lookup instead of
-  once at load. Log noise burying real output.
+- **`[impedance] INFO: legacy A55-match rho=...` prints on repeated hydro
+  lookups.** It is a static property of the H5 file, not per-frequency — the
+  de-normalization path re-resolves `rho` on every table lookup instead of once
+  at load. Log noise burying real output.
 - **`<-- VGM45 resonance` marker printed during a VGM-0 run.** The annotation at
   ω = 1.84 rad/s is hardcoded for the 45° flap and printed regardless of config.
   Either a stale label or the sweep is annotating the wrong body.

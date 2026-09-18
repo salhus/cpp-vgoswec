@@ -137,6 +137,9 @@ python3 scripts/passive_vs_optpassive_sweep.py --plot-only
 - **Solver behavior**
   - Default invocation runs both the `passive` and `opt_passive` arms across the
     shared `T = 0.5–7.0 s` grid using `build/demo_vgoswec`.
+  - `--period-step` can be used for a diagnostic uniform re-grid; the committed
+    default remains `0.25 s` so this sweep stays point-for-point aligned with the
+    CC and tuned `exc_ff_pid` sweeps unless you explicitly opt out.
   - The sweep is self-contained: it writes scratch configs with
     `timestep = 0.01 s`, uses `duration(T) = 10 + 150·T` seconds, and computes
     steady-state captured power from the final `20` whole wave cycles after

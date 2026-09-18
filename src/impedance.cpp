@@ -9,6 +9,7 @@
 #include <iostream>
 #include <limits>
 #include <map>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -424,9 +425,12 @@ PitchHydroCoefficients GetPitchHydroCoefficientsAtOmega(
 
     // ── Diagnostic: warn if legacy-match rho differs significantly from H5 rho
     if (!std::isnan(tables.h5_rho) && std::abs(rho_eff_match - tables.h5_rho) > 1.0) {
-        std::cerr << "[impedance] INFO: legacy A55-match rho=" << rho_eff_match
-                  << " kg/m^3 differs from stored H5 rho=" << tables.h5_rho
-                  << " kg/m^3; using stored H5 rho for de-normalization\n";
+        static std::once_flag rho_info_once;
+        std::call_once(rho_info_once, [&]() {
+            std::cerr << "[impedance] INFO: legacy A55-match rho=" << rho_eff_match
+                      << " kg/m^3 differs from stored H5 rho=" << tables.h5_rho
+                      << " kg/m^3; using stored H5 rho for de-normalization\n";
+        });
     }
 
     return coeffs;
