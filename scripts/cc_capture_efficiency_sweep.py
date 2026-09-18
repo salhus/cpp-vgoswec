@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
-"""Compute and plot capture efficiency for tuned VGOSWEC cc controllers."""
+"""Compute and plot capture efficiency for tuned VGOSWEC cc controllers.
+
+Uses the shared period-aware sweep method from sweep_method.py and flags
+reactive-cancellation-limited points where |P_capture| / P_converted is below
+the numerical-residual tolerance.
+"""
 
 from __future__ import annotations
 
 import argparse
 import csv
 import math
-import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -18,20 +22,37 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.ticker import AutoMinorLocator, MultipleLocator
 
+from sweep_method import (
+    DEFAULT_PERIOD_STEP,
+    MASK_B55_THRESHOLD,
+    N_AVG,
+    PERIOD_GRID,
+    PROVENANCE_CSV_COLS,
+    TIMESTEP_S,
+    WAVE_AMPLITUDE_M,
+    WAVE_HEIGHT_M,
+    build_period_grid,
+    duration_for_period as _duration_for_period,
+    load_output_rows,
+    parse_provenance_fields,
+    provenance_fields,
+    replace_yaml_scalar,
+    whole_cycle_tail_slice,
+    write_efficiency_csv as _write_efficiency_csv,
+)
+
 # Shared period grid T = 0.5 … 7.0 s (uniform in T, 0.25 s steps) — identical to the
 # ff+PID sweep grid so both controllers' curves share x-values point-for-point.
 # Note: above T≈3–4 s CC becomes reactive-heavy (|inj|/conv → ~0.9). These are
 # expected regime limits (CC is theoretically correct but practically demanding at
 # long periods), not errors; the reactive ratio is plotted explicitly in the comparison.
-PERIOD_GRID = np.round(np.arange(0.5, 7.01, 0.25), 2)  # T = 0.5, 0.75, 1.0, …, 7.0 s (27 points)
-WAVE_HEIGHT_M = 0.05
-WAVE_AMPLITUDE_M = WAVE_HEIGHT_M / 2.0
-# Match the existing capture sweep duration to keep settling/steady-state windows comparable.
-DURATION_S = 171.0
-MASK_B55_THRESHOLD = 1e-4
+N_SETTLE = 260
+N_CYCLES = N_SETTLE + N_AVG
 ETA_GT1_TOL = 1e-6
+REACTIVE_RESIDUAL_TOL = 1e-2
 PITCH_DOF_INDEX = 4
 MASK_NOTE = f"B55 <= {MASK_B55_THRESHOLD:.0e}"
+REACTIVE_NOTE = f"|P_capture| / P_converted < {REACTIVE_RESIDUAL_TOL:.0e}"
 
 FLAPS = {
     0: {"label": "VGM-0", "config": "config/vgoswec_0_cc.yaml", "h5": "hydroData/vgoswec_0.h5"},
@@ -56,20 +77,18 @@ def run_cmd(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, cwd=str(cwd), text=True, capture_output=True, check=False)
 
 
-def _replace_yaml_scalar(text: str, key: str, value: str) -> str:
-    pattern = re.compile(rf"^(\s*{re.escape(key)}:\s*).*$", re.MULTILINE)
-    out, n = pattern.subn(rf"\g<1>{value}", text, count=1)
-    if n != 1:
-        raise RuntimeError(f"Could not update key '{key}' in scratch config")
-    return out
+def duration_for_period(period_s: float) -> float:
+    return _duration_for_period(period_s, N_CYCLES)
 
 
 def prepare_scratch_config(template: Path, scratch: Path, period_s: float) -> None:
+    duration_s = duration_for_period(period_s)
     txt = template.read_text()
-    txt = _replace_yaml_scalar(txt, "height", f"{WAVE_HEIGHT_M}")
-    txt = _replace_yaml_scalar(txt, "period", f"{period_s}")
-    txt = _replace_yaml_scalar(txt, "duration", f"{DURATION_S}")
-    txt = _replace_yaml_scalar(txt, "design_omega", f"{(2.0 * math.pi) / period_s:.8f}")
+    txt = replace_yaml_scalar(txt, "height", f"{WAVE_HEIGHT_M}")
+    txt = replace_yaml_scalar(txt, "period", f"{period_s}")
+    txt = replace_yaml_scalar(txt, "duration", f"{duration_s}")
+    txt = replace_yaml_scalar(txt, "timestep", f"{TIMESTEP_S}")
+    txt = replace_yaml_scalar(txt, "design_omega", f"{(2.0 * math.pi) / period_s:.8f}")
     scratch.write_text(txt)
 
 
@@ -91,14 +110,9 @@ def _first_present_col(rows: list[dict[str, str]], names: list[str]) -> str:
     raise RuntimeError(f"None of expected columns found: {names}")
 
 
-def steady_state_metrics(csv_path: Path) -> tuple[float, float, float]:
-    with csv_path.open(newline="") as fh:
-        rows = list(csv.DictReader(fh))
-    if not rows:
-        raise RuntimeError(f"No rows in output CSV: {csv_path}")
-
-    # Existing sweep convention: second half of each run is treated as steady-state.
-    steady_state_slice = slice(len(rows) // 2, None)
+def steady_state_metrics(csv_path: Path, period_s: float) -> tuple[float, float, float]:
+    fieldnames, rows = load_output_rows(csv_path)
+    steady_state_slice, _ = whole_cycle_tail_slice(fieldnames, rows, period_s, N_AVG)
     p_col = _first_present_col(rows, ["power_w"])
     tau_col = _first_present_col(rows, ["pto_torque_nm"])
     vel_col = _first_present_col(rows, ["flap_pitch_vel_rads", "flap_pitch_rate_rads"])
@@ -113,12 +127,18 @@ def steady_state_metrics(csv_path: Path) -> tuple[float, float, float]:
     return float(np.mean(p_net)), p_converted, p_injected
 
 
-def run_capture_sweep(repo: Path, demo: Path, flap_angle: int) -> dict[float, tuple[float, float, float]]:
+def run_capture_sweep(
+    repo: Path,
+    demo: Path,
+    flap_angle: int,
+    period_grid: np.ndarray,
+) -> dict[float, tuple[float, float, float]]:
     cfg = repo / FLAPS[flap_angle]["config"]
     captures: dict[float, tuple[float, float, float]] = {}
-    with tempfile.TemporaryDirectory(prefix=f"cc-capture-eff-vgm{flap_angle}-") as td:
+    with tempfile.TemporaryDirectory(prefix=f"cc-capture-eff-vgm{flap_angle}-", dir="/tmp") as td:
         scratch = Path(td) / f"cc_capture_efficiency_vgm{flap_angle}.yaml"
-        for T in PERIOD_GRID:
+        for T in period_grid:
+            duration_s = duration_for_period(float(T))
             prepare_scratch_config(cfg, scratch, float(T))
             cmd = [
                 str(demo),
@@ -132,7 +152,7 @@ def run_capture_sweep(repo: Path, demo: Path, flap_angle: int) -> dict[float, tu
                 "--wave-height",
                 f"{WAVE_HEIGHT_M:.4f}",
                 "--duration",
-                f"{DURATION_S:.1f}",
+                f"{duration_s:.1f}",
             ]
             run = run_cmd(cmd, repo)
             if run.returncode != 0:
@@ -141,7 +161,7 @@ def run_capture_sweep(repo: Path, demo: Path, flap_angle: int) -> dict[float, tu
                     f"STDOUT:\n{run.stdout}\nSTDERR:\n{run.stderr}"
                 )
             out_csv = locate_results_csv(repo, scratch)
-            captures[float(T)] = steady_state_metrics(out_csv)
+            captures[float(T)] = steady_state_metrics(out_csv, float(T))
     return captures
 
 
@@ -192,37 +212,64 @@ def popt_curve_from_h5(h5_path: Path, periods_s: np.ndarray) -> tuple[np.ndarray
     return omega_targets, b55_t, fexc_t, p_opt_t, masked
 
 
+CSV_COLS = [
+    "T_s",
+    "omega_rads",
+    "P_capture_W",
+    "P_opt_W",
+    "B55_Nmsrad",
+    "F_exc_Nm",
+    "P_converted_W",
+    "P_injected_W",
+    "eta",
+    "masked",
+    "linear_popt_invalid",
+    "reactive_cancellation_limited",
+    *PROVENANCE_CSV_COLS,
+]
+
+
+def _reactive_cancellation_limited(p_capture: float, p_converted: float) -> bool:
+    if not (np.isfinite(p_capture) and np.isfinite(p_converted)):
+        return False
+    if p_converted <= 0.0:
+        return False
+    return abs(p_capture) / p_converted < REACTIVE_RESIDUAL_TOL
+
+
+def _row_excluded(row: dict) -> bool:
+    return bool(
+        row.get("masked", False)
+        or row.get("linear_popt_invalid", False)
+        or row.get("reactive_cancellation_limited", False)
+    )
+
+
 def write_efficiency_csv(out_csv: Path, rows: list[dict]) -> None:
-    out_csv.parent.mkdir(parents=True, exist_ok=True)
-    cols = [
-        "T_s", "omega_rads", "P_capture_W", "P_opt_W", "B55_Nmsrad", "F_exc_Nm",
-        "P_converted_W", "P_injected_W", "eta", "masked", "linear_popt_invalid",
-    ]
-    with out_csv.open("w", newline="") as fh:
-        writer = csv.DictWriter(fh, fieldnames=cols)
-        writer.writeheader()
-        for r in rows:
-            writer.writerow(r)
+    _write_efficiency_csv(out_csv, rows, CSV_COLS)
 
 
 def load_efficiency_csv(csv_path: Path) -> list[dict]:
     rows = []
-    with csv_path.open(newline="") as fh:
-        reader = csv.DictReader(fh)
-        for r in reader:
-            rows.append(
-                {
-                    "T_s": float(r["T_s"]),
-                    "P_capture_W": float(r["P_capture_W"]) if r["P_capture_W"].strip() else float("nan"),
-                    "P_opt_W": float(r["P_opt_W"]) if r["P_opt_W"].strip() else float("nan"),
-                    "P_converted_W": float(r["P_converted_W"]) if r["P_converted_W"].strip() else float("nan"),
-                    "P_injected_W": float(r["P_injected_W"]) if r["P_injected_W"].strip() else float("nan"),
-                    "eta": float(r["eta"]) if r["eta"].strip() else float("nan"),
-                    "masked": str(r["masked"]).strip().lower() == "true",
-                    "linear_popt_invalid": str(r.get("linear_popt_invalid", "false")).strip().lower() == "true",
-                }
-            )
-    for row in rows:
+    _, raw_rows = load_output_rows(csv_path)
+    for r in raw_rows:
+        row = {
+            "T_s": float(r["T_s"]),
+            "omega_rads": float(r["omega_rads"]) if r.get("omega_rads", "").strip() else float("nan"),
+            "P_capture_W": float(r["P_capture_W"]) if r.get("P_capture_W", "").strip() else float("nan"),
+            "P_opt_W": float(r["P_opt_W"]) if r.get("P_opt_W", "").strip() else float("nan"),
+            "B55_Nmsrad": float(r["B55_Nmsrad"]) if r.get("B55_Nmsrad", "").strip() else float("nan"),
+            "F_exc_Nm": float(r["F_exc_Nm"]) if r.get("F_exc_Nm", "").strip() else float("nan"),
+            "P_converted_W": float(r["P_converted_W"]) if r.get("P_converted_W", "").strip() else float("nan"),
+            "P_injected_W": float(r["P_injected_W"]) if r.get("P_injected_W", "").strip() else float("nan"),
+            "eta": float(r["eta"]) if r.get("eta", "").strip() else float("nan"),
+            "masked": str(r.get("masked", "false")).strip().lower() == "true",
+            "linear_popt_invalid": str(r.get("linear_popt_invalid", "false")).strip().lower() == "true",
+            "reactive_cancellation_limited": str(
+                r.get("reactive_cancellation_limited", "false")
+            ).strip().lower() == "true",
+            **parse_provenance_fields(r),
+        }
         if (
             (not row["masked"])
             and (not np.isfinite(row["eta"]))
@@ -234,6 +281,13 @@ def load_efficiency_csv(csv_path: Path) -> list[dict]:
         row["linear_popt_invalid"] = bool(
             row["linear_popt_invalid"] or (np.isfinite(row["eta"]) and row["eta"] > (1.0 + ETA_GT1_TOL))
         )
+        row["reactive_cancellation_limited"] = bool(
+            row["reactive_cancellation_limited"]
+            or _reactive_cancellation_limited(row["P_capture_W"], row["P_converted_W"])
+        )
+        if row["reactive_cancellation_limited"]:
+            row["eta"] = float("nan")
+        rows.append(row)
     rows.sort(key=lambda d: d["T_s"])
     return rows
 
@@ -354,6 +408,10 @@ def _breakdown_power_ceiling(csv_map: dict[int, Path]) -> float:
     return _ceil_to_step(max(maxima) if maxima else float("nan"), 0.25)
 
 
+def _display_mask(rows: list[dict]) -> np.ndarray:
+    return np.array([_row_excluded(r) for r in rows], dtype=bool)
+
+
 def plot_per_flap(rows: list[dict], flap_angle: int, out_png: Path, power_ceiling: float, efficiency_ceiling: float) -> None:
     meta = FLAPS[flap_angle]
     T = np.array([r["T_s"] for r in rows], dtype=float)
@@ -361,15 +419,18 @@ def plot_per_flap(rows: list[dict], flap_angle: int, out_png: Path, power_ceilin
     p_opt = np.array([r["P_opt_W"] for r in rows], dtype=float)
     eta = np.array([r["eta"] for r in rows], dtype=float) * 100.0
     masked = np.array([r["masked"] for r in rows], dtype=bool)
+    display_mask = _display_mask(rows)
     fig, (ax0, ax1) = plt.subplots(2, 1, figsize=(8.2, 6.0), sharex=True)
-    ax0.plot(T, p_cap, marker="o", color="tab:blue", linewidth=1.8, label="captured", zorder=3)
+    valid_cap = (~display_mask) & np.isfinite(p_cap)
+    if np.any(valid_cap):
+        ax0.plot(T[valid_cap], p_cap[valid_cap], marker="o", color="tab:blue", linewidth=1.8, label="captured", zorder=3)
     ax0.plot(T, p_opt, marker="s", color="k", linestyle="--", linewidth=1.4, label="$P_{opt}$", zorder=3)
-    valid_eta = (~masked) & np.isfinite(eta)
+    valid_eta = (~display_mask) & np.isfinite(eta)
     if np.any(valid_eta):
         ax1.plot(T[valid_eta], eta[valid_eta], marker="o", color="tab:green", linewidth=1.8, label="$\\eta$", zorder=3)
     for ax in (ax0, ax1):
         _style_period_axis(ax)
-        _add_masked_spans(ax, T, masked)
+        _add_masked_spans(ax, T, display_mask)
         _style_common_axes(ax)
     _style_power_axis(ax0)
     _style_efficiency_axis(ax1)
@@ -381,20 +442,26 @@ def plot_per_flap(rows: list[dict], flap_angle: int, out_png: Path, power_ceilin
     ax0.set_title(f"{meta['label']} capture efficiency (cc)")
     ax0.legend(loc="best", fontsize=8)
     ax1.legend(loc="best", fontsize=8)
-    spans = _masked_spans(T, masked)
+    spans = _masked_spans(T, display_mask)
     if spans:
         x0, x1 = spans[len(spans) // 2]
         ax0.text(
             (x0 + x1) / 2.0,
             0.07,
-            "masked: B55 ≤ 1e-4 ($P_{opt}$ undefined)",
+            "hatched: masked / cancellation-limited",
             transform=ax0.get_xaxis_transform(),
             ha="center",
             va="bottom",
             fontsize=7,
             color="0.35",
         )
-    fig.text(0.01, 0.01, f"Mask rule: {MASK_NOTE} N·m·s/rad (reactive-limited notch).", fontsize=7, color="0.35")
+    fig.text(
+        0.01,
+        0.01,
+        f"Hatched exclusions: {MASK_NOTE} or {REACTIVE_NOTE}.",
+        fontsize=7,
+        color="0.35",
+    )
     fig.tight_layout(rect=[0, 0.03, 1, 1])
     out_png.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_png)
@@ -409,10 +476,11 @@ def plot_summary(csv_map: dict[int, Path], out_png: Path, power_ceiling: float, 
         T = np.array([r["T_s"] for r in rows], dtype=float)
         p_cap = np.array([r["P_capture_W"] for r in rows], dtype=float)
         eta = np.array([r["eta"] for r in rows], dtype=float) * 100.0
-        masked = np.array([r["masked"] for r in rows], dtype=bool)
+        display_mask = _display_mask(rows)
         label = FLAPS[angle]["label"]
-        valid_eta = (~masked) & np.isfinite(eta)
-        ax0.plot(T, p_cap, marker="o", linewidth=1.8, color=color, label=label, zorder=3)
+        valid_eta = (~display_mask) & np.isfinite(eta)
+        valid_cap = (~display_mask) & np.isfinite(p_cap)
+        ax0.plot(T[valid_cap], p_cap[valid_cap], marker="o", linewidth=1.8, color=color, label=label, zorder=3)
         ax1.plot(T[valid_eta], eta[valid_eta], marker="o", linewidth=1.8, color=color, label=label, zorder=3)
     ax0.set_ylabel("Power [W]")
     ax0.set_title("Capture summary — tuned cc across VGOSWEC flap variants")
@@ -437,16 +505,17 @@ def plot_summary(csv_map: dict[int, Path], out_png: Path, power_ceiling: float, 
 def plot_power_breakdown(rows: list[dict], flap_angle: int, out_png: Path, breakdown_ceiling: float) -> None:
     meta = FLAPS[flap_angle]
     T = np.array([r["T_s"] for r in rows], dtype=float)
-    masked = np.array([r["masked"] for r in rows], dtype=bool)
+    display_mask = _display_mask(rows)
     converted = np.array([r["P_converted_W"] for r in rows], dtype=float)
     injected = np.array([r["P_injected_W"] for r in rows], dtype=float)
     captured = np.array([r["P_capture_W"] for r in rows], dtype=float)
 
     fig, ax = plt.subplots(figsize=(8.4, 4.8))
-    ax.plot(T, injected, marker="x", linestyle="--", linewidth=1.5, color="tab:orange", label="injected", zorder=3)
-    ax.plot(T, converted, marker="o", linewidth=1.8, color="tab:blue", label="converted", zorder=3)
-    ax.plot(T, captured, marker="s", linewidth=1.8, color="tab:green", label="captured", zorder=3)
-    _add_masked_spans(ax, T, masked)
+    valid = ~display_mask
+    ax.plot(T[valid], injected[valid], marker="x", linestyle="--", linewidth=1.5, color="tab:orange", label="injected", zorder=3)
+    ax.plot(T[valid], converted[valid], marker="o", linewidth=1.8, color="tab:blue", label="converted", zorder=3)
+    ax.plot(T[valid], captured[valid], marker="s", linewidth=1.8, color="tab:green", label="captured", zorder=3)
+    _add_masked_spans(ax, T, display_mask)
     ax.set_xlabel("Wave period $T$ [s]")
     ax.set_ylabel("Power [W]")
     ax.set_title(f"{meta['label']} CC power breakdown")
@@ -469,7 +538,57 @@ def plot_power_breakdown(rows: list[dict], flap_angle: int, out_png: Path, break
     plt.close(fig)
 
 
-def compute_and_write_csvs(repo: Path, demo: Path, run_sim: bool) -> dict[int, Path]:
+def _build_csv_rows(
+    period_grid: np.ndarray,
+    period_step_s: float,
+    captures: dict[float, tuple[float, float, float]],
+    omega: np.ndarray,
+    b55: np.ndarray,
+    fexc: np.ndarray,
+    p_opt: np.ndarray,
+    masked: np.ndarray,
+) -> list[dict]:
+    rows: list[dict] = []
+    for i, T in enumerate(period_grid):
+        p_capture, p_converted, p_injected = captures.get(
+            float(T), (float("nan"), float("nan"), float("nan"))
+        )
+        linear_popt_invalid = False
+        reactive_cancellation_limited = _reactive_cancellation_limited(p_capture, p_converted)
+        eta = float("nan")
+        if not masked[i] and not reactive_cancellation_limited and np.isfinite(p_capture) and p_opt[i] > 0.0:
+            eta_candidate = p_capture / p_opt[i]
+            if eta_candidate > (1.0 + ETA_GT1_TOL):
+                linear_popt_invalid = True
+            else:
+                eta = eta_candidate
+        rows.append(
+            {
+                "T_s": f"{T:.2f}",
+                "omega_rads": f"{omega[i]:.8f}",
+                "P_capture_W": f"{p_capture:.8e}" if np.isfinite(p_capture) else "",
+                "P_opt_W": "" if masked[i] else f"{p_opt[i]:.8e}",
+                "B55_Nmsrad": f"{b55[i]:.8e}",
+                "F_exc_Nm": f"{fexc[i]:.8e}",
+                "P_converted_W": f"{p_converted:.8e}" if np.isfinite(p_converted) else "",
+                "P_injected_W": f"{p_injected:.8e}" if np.isfinite(p_injected) else "",
+                "eta": "" if masked[i] or reactive_cancellation_limited or linear_popt_invalid or not np.isfinite(eta) else f"{eta:.8e}",
+                "masked": "true" if masked[i] else "false",
+                "linear_popt_invalid": "true" if linear_popt_invalid else "false",
+                "reactive_cancellation_limited": "true" if reactive_cancellation_limited else "false",
+                **provenance_fields(float(T), period_step_s, N_SETTLE, N_AVG, N_CYCLES),
+            }
+        )
+    return rows
+
+
+def compute_and_write_csvs(
+    repo: Path,
+    demo: Path,
+    run_sim: bool,
+    period_grid: np.ndarray,
+    period_step_s: float,
+) -> dict[int, Path]:
     csv_map: dict[int, Path] = {}
     for angle, meta in FLAPS.items():
         cfg = repo / meta["config"]
@@ -484,34 +603,10 @@ def compute_and_write_csvs(repo: Path, demo: Path, run_sim: bool) -> dict[int, P
         captures: dict[float, tuple[float, float, float]] = {}
         if run_sim:
             print(f"[run] sweeping capture power for {meta['label']}...")
-            captures = run_capture_sweep(repo, demo, angle)
+            captures = run_capture_sweep(repo, demo, angle, period_grid)
 
-        omega, b55, fexc, p_opt, masked = popt_curve_from_h5(h5, PERIOD_GRID)
-        rows: list[dict] = []
-        for i, T in enumerate(PERIOD_GRID):
-            p_capture, p_converted, p_injected = captures.get(float(T), (float("nan"), float("nan"), float("nan")))
-            eta = float("nan")
-            linear_popt_invalid = False
-            if not masked[i] and np.isfinite(p_capture):
-                eta_candidate = p_capture / p_opt[i]
-                if eta_candidate > (1.0 + ETA_GT1_TOL):
-                    linear_popt_invalid = True
-                eta = eta_candidate
-            rows.append(
-                {
-                    "T_s": f"{T:.2f}",
-                    "omega_rads": f"{omega[i]:.8f}",
-                    "P_capture_W": f"{p_capture:.8e}",
-                    "P_opt_W": "" if masked[i] else f"{p_opt[i]:.8e}",
-                    "B55_Nmsrad": f"{b55[i]:.8e}",
-                    "F_exc_Nm": f"{fexc[i]:.8e}",
-                    "P_converted_W": f"{p_converted:.8e}",
-                    "P_injected_W": f"{p_injected:.8e}",
-                    "eta": "" if masked[i] or not np.isfinite(eta) else f"{eta:.8e}",
-                    "masked": "true" if masked[i] else "false",
-                    "linear_popt_invalid": "true" if linear_popt_invalid else "false",
-                }
-            )
+        omega, b55, fexc, p_opt, masked = popt_curve_from_h5(h5, period_grid)
+        rows = _build_csv_rows(period_grid, period_step_s, captures, omega, b55, fexc, p_opt, masked)
         out_csv = repo / "analysis" / "cc" / f"capture_efficiency_VGM{angle}.csv"
         write_efficiency_csv(out_csv, rows)
         csv_map[angle] = out_csv
@@ -541,6 +636,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--repo", default=str(Path(__file__).resolve().parents[1]), help="Repository root")
     p.add_argument("--demo", default="build/demo_vgoswec", help="Path to demo binary, relative to repo if not absolute")
     p.add_argument("--plot-only", action="store_true", help="Skip simulations/CSV generation and regenerate figures from committed CSVs")
+    p.add_argument(
+        "--period-step",
+        type=float,
+        default=DEFAULT_PERIOD_STEP,
+        help="Period grid step in seconds (default: %(default)s)",
+    )
     return p.parse_args()
 
 
@@ -563,7 +664,19 @@ def main() -> int:
         print(f"ERROR: Missing binary: {demo}")
         print("Build first (or use --plot-only if CSVs already exist).")
         return 2
-    csv_map = compute_and_write_csvs(repo, demo, run_sim=True)
+    period_grid = build_period_grid(args.period_step)
+    print(
+        "[grid] period-step="
+        f"{args.period_step:g} s, points={len(period_grid)}, "
+        f"first={period_grid[0]:.2f} s, last={period_grid[-1]:.2f} s"
+    )
+    csv_map = compute_and_write_csvs(
+        repo,
+        demo,
+        run_sim=True,
+        period_grid=period_grid,
+        period_step_s=args.period_step,
+    )
     if not csv_map:
         print("ERROR: No flap configurations were available to process")
         return 2

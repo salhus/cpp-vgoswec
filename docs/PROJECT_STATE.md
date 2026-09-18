@@ -6,9 +6,9 @@
 
 ## 1. Current status — resume banner
 
-The **simulation phase is complete** — see [`docs/EOD_SUMMARY_2026-07-11.md`](EOD_SUMMARY_2026-07-11.md) for the formal phase-close record. The project is now entering the **paper / writing phase**.
-
 The **free-decay validation stage is closed** as of 2026-09-17, and with it the **MATLAB / WEC-Sim validation work**. The WEC-Sim reference values are embedded as constants in `scripts/freedecay_validation.py`, so no further `.mat` processing is required — subsequent campaigns are C++-only. See [`docs/RESULTS_CAMPAIGN_2026-09-17.md`](RESULTS_CAMPAIGN_2026-09-17.md).
+
+The **passive / opt_passive sweep is closed** on the shared `0.25 s` grid with both arms committed. The **CC + ff+PID method-unification patch has landed in code/docs and is awaiting the owner re-run** under the shared sweep method (`10 + 280·T`, final `20` whole cycles, `dt = 0.01 s`). After that rerun, the next first-paper critical-path item remains **#50 literature review / related-work verification**.
 
 ---
 
@@ -86,11 +86,9 @@ The maturity placements above are drawn from general knowledge of the Ringwood /
 
 ## 6. Immediate next actions
 
-1. **Passive-campaign write-up** — carry the measured period-step, timestep, and
-   retuning findings into the paper-facing narrative and keep the fixed-passive
-   framing honest.
-2. **Kick off #50** — deep-research literature review to produce the related-work section skeleton + novelty verdict; this is the gate before any manuscript drafting begins.
-3. **Refresh this file** at each subsequent phase boundary (end of lit review, start of drafting, etc.).
+1. **Owner rerun pending** — re-run the CC and ff+PID sweeps under the unified shared method (`27` periods × `5` flaps each, `10 + 280·T` seconds per point), then refresh the derived figures / CSV-backed findings.
+2. **Kick off #50** — deep-research literature review to produce the related-work section skeleton + novelty verdict; this remains the manuscript gate once the unified reruns are committed.
+3. **Refresh this file** after the reruns land, and again at each later phase boundary.
 
 ### Minor / non-blocking cleanups
 

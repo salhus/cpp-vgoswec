@@ -165,15 +165,24 @@ correlation margin at the short-period edge.
 
 Use `scripts/capture_efficiency_sweep.py` to compute:
 
-- `P_capture(T)`: steady-state (second-half) mean absorbed power from the tuned per-flap `exc_ff_pid` configs.
+- `P_capture(T)`: steady-state mean absorbed power from the tuned per-flap
+  `exc_ff_pid` configs, averaged over the final `20` whole wave cycles.
 - `P_opt(T)`: theoretical optimum from each flap H5 using `body1` pitch hydrodynamics (`radiation_damping/components/5_5`, excitation DOF5), with WEC-Sim de-normalization:
   - `B55 = B55_norm * rho * omega`
   - `|F_exc| = mag * rho * g * A`, with `A = H/2 = 0.025 m` (`H = 0.05 m`)
 - `eta(T) = P_capture / P_opt` where defined.
 
+The shared capture-efficiency sweep method is documented in
+[`docs/SWEEP_METHOD.md`](SWEEP_METHOD.md). For the tuned `exc_ff_pid` arm this
+means:
+
+- default grid `T = 0.5–7.0 s` in `0.25 s` steps, with optional `--period-step`
+- `dt = 0.01 s`
+- `N_SETTLE = 260`, `N_AVG = 20`, `duration(T) = 10 + 280·T`
+- provenance columns `duration_s`, `dt_s`, `period_step_s`, `n_settle`, `n_avg`
+
 Masking/flagging rules:
 - Reactive-limited masking is mandatory: periods with `B55 <= 1e-4` are reported as undefined (`masked=true`) and are shaded/hatched in figures. This is expected near the known pitch radiation-damping notch behavior.
-- CC linear-validity guard: when `eta > 1 + 1e-6`, the linear single-DOF `P_opt` bound is treated as locally invalid (`linear_popt_invalid=true`), so `eta` is intentionally left blank and marked separately from the B55 notch mask. This typically appears in the short-period range (about `T < 1 s`), where nonlinear behavior can make the linear bound non-applicable.
 
 Note: below T≈1.5 s, `exc_ff_pid` is outside its tuned band (designed for T = 2–7 s). Low power capture at short periods is expected and not an error.
 

@@ -20,6 +20,9 @@ Matching efficiency figures are also generated:
 
 Use --plot-only to regenerate figures from committed CSVs without simulations.
 
+Rows flagged `reactive_cancellation_limited=true` in CC CSVs are excluded from
+the overlays and reactive-ratio plots.
+
 Two-regime result (VGM-0):
   CC wins short periods T≈0.5–1 s (low reactive burden).
   ff+PID wins long periods T≳4 s (outside CC's clean absorption range).
@@ -81,6 +84,9 @@ def _load_cc_csv(csv_path: Path) -> list[dict]:
                 "eta": float(r["eta"]) if r.get("eta", "").strip() else float("nan"),
                 "masked": str(r.get("masked", "false")).strip().lower() == "true",
                 "linear_popt_invalid": str(r.get("linear_popt_invalid", "false")).strip().lower() == "true",
+                "reactive_cancellation_limited": str(
+                    r.get("reactive_cancellation_limited", "false")
+                ).strip().lower() == "true",
             })
     rows.sort(key=lambda d: d["T_s"])
     return rows
@@ -99,6 +105,9 @@ def _load_ffpid_csv(csv_path: Path) -> list[dict]:
                 "eta": float(r["eta"]) if r.get("eta", "").strip() else float("nan"),
                 "masked": str(r.get("masked", "false")).strip().lower() == "true",
                 "linear_popt_invalid": str(r.get("linear_popt_invalid", "false")).strip().lower() == "true",
+                "reactive_cancellation_limited": str(
+                    r.get("reactive_cancellation_limited", "false")
+                ).strip().lower() == "true",
             })
     rows.sort(key=lambda d: d["T_s"])
     return rows
@@ -114,8 +123,21 @@ def _eta_with_flag(row: dict) -> tuple[float, bool]:
         and row["P_opt_W"] > 0.0
     ):
         eta = row["P_capture_W"] / row["P_opt_W"]
-    invalid = bool(row.get("linear_popt_invalid", False) or (math.isfinite(eta) and eta > (1.0 + ETA_GT1_TOL)))
+    invalid = bool(
+        row.get("masked", False)
+        or row.get("linear_popt_invalid", False)
+        or row.get("reactive_cancellation_limited", False)
+        or (math.isfinite(eta) and eta > (1.0 + ETA_GT1_TOL))
+    )
     return eta, invalid
+
+
+def _row_excluded(row: dict) -> bool:
+    return bool(
+        row.get("masked", False)
+        or row.get("linear_popt_invalid", False)
+        or row.get("reactive_cancellation_limited", False)
+    )
 
 
 def _reactive_ratio(p_injected: float, p_converted: float) -> float:
@@ -218,7 +240,7 @@ def _compute_efficiency_ceiling(cc_csv_map: dict[int, Path], fp_csv_map: dict[in
             rows = loader(path)
             for r in rows:
                 eta, _ = _eta_with_flag(r)
-                if (not r["masked"]) and math.isfinite(eta):
+                if (not _row_excluded(r)) and math.isfinite(eta):
                     maxima.append(float(eta * 100.0))
     return _ceil_to_step(max(maxima) if maxima else float("nan"), 5.0)
 
@@ -271,11 +293,13 @@ def plot_per_flap_comparison(
     p_conv = np.array([r["P_converted_W"] for r in cc_rows], dtype=float)
     p_inj = np.array([r["P_injected_W"] for r in cc_rows], dtype=float)
     p_opt = np.array([r["P_opt_W"] for r in cc_rows], dtype=float)
-    masked_cc = np.array([r["masked"] for r in cc_rows], dtype=bool)
+    masked_cc = np.array([_row_excluded(r) for r in cc_rows], dtype=bool)
+    p_cc = np.where(masked_cc, np.nan, p_cc)
 
     T_fp = np.array([r["T_s"] for r in fp_rows], dtype=float)
     p_fp = np.array([r["P_capture_W"] for r in fp_rows], dtype=float)
-    masked_fp = np.array([r["masked"] for r in fp_rows], dtype=bool)
+    masked_fp = np.array([_row_excluded(r) for r in fp_rows], dtype=bool)
+    p_fp = np.where(masked_fp, np.nan, p_fp)
 
     # Reactive ratio per point (guard against divide-by-zero and masked rows)
     react_ratio = np.array([
@@ -288,10 +312,10 @@ def plot_per_flap_comparison(
     fig, (ax0, ax1) = plt.subplots(2, 1, figsize=(8.4, 7.0), sharex=True)
 
     # --- Top panel: P_capture comparison ---
-    ax0.plot(T_cc, p_cc, marker="o", color="tab:blue", linewidth=1.8,
+    ax0.plot(T_cc[~masked_cc], p_cc[~masked_cc], marker="o", color="tab:blue", linewidth=1.8,
              zorder=3,
              label="CC captured")
-    ax0.plot(T_fp, p_fp, marker="s", color="tab:orange", linewidth=1.8,
+    ax0.plot(T_fp[~masked_fp], p_fp[~masked_fp], marker="s", color="tab:orange", linewidth=1.8,
              zorder=3,
              label="ff+PID captured")
     finite_popt = np.isfinite(p_opt)
@@ -341,7 +365,7 @@ def plot_per_flap_comparison(
     ax0.set_ylim(0.0, power_ceiling)
 
     # --- Bottom panel: CC reactive ratio ---
-    ax1.plot(T_cc, react_ratio, marker="o", color="tab:red", linewidth=1.8,
+    ax1.plot(T_cc[~masked_cc], react_ratio[~masked_cc], marker="o", color="tab:red", linewidth=1.8,
              zorder=3,
              label="CC reactive ratio $|P_{inj}|/P_{conv}$")
     ax1.axhline(REACTIVE_HEAVY_THRESHOLD, color="0.4", linestyle=":", linewidth=1.2)
@@ -394,13 +418,17 @@ def plot_summary_comparison(
             cc_rows = _load_cc_csv(cc_csv_map[angle])
             T_cc = np.array([r["T_s"] for r in cc_rows], dtype=float)
             p_cc = np.array([r["P_capture_W"] for r in cc_rows], dtype=float)
-            ax.plot(T_cc, p_cc, marker="o", linewidth=1.6, color=color,
+            masked_cc = np.array([_row_excluded(r) for r in cc_rows], dtype=bool)
+            valid_cc = (~masked_cc) & np.isfinite(p_cc)
+            ax.plot(T_cc[valid_cc], p_cc[valid_cc], marker="o", linewidth=1.6, color=color,
                     linestyle="-", label=f"{lbl} CC", zorder=3)
         if angle in fp_csv_map and fp_csv_map[angle].exists():
             fp_rows = _load_ffpid_csv(fp_csv_map[angle])
             T_fp = np.array([r["T_s"] for r in fp_rows], dtype=float)
             p_fp = np.array([r["P_capture_W"] for r in fp_rows], dtype=float)
-            ax.plot(T_fp, p_fp, marker="s", linewidth=1.4, color=color,
+            masked_fp = np.array([_row_excluded(r) for r in fp_rows], dtype=bool)
+            valid_fp = (~masked_fp) & np.isfinite(p_fp)
+            ax.plot(T_fp[valid_fp], p_fp[valid_fp], marker="s", linewidth=1.4, color=color,
                     linestyle="--", label=f"{lbl} ff+PID", alpha=0.85, zorder=3)
 
     ax.set_xlabel("Wave period $T$ [s]")
@@ -428,12 +456,12 @@ def plot_per_flap_efficiency_comparison(
 ) -> None:
     label = FLAP_LABELS[flap_angle]
     T_cc = np.array([r["T_s"] for r in cc_rows], dtype=float)
-    masked_cc = np.array([r["masked"] for r in cc_rows], dtype=bool)
+    masked_cc = np.array([_row_excluded(r) for r in cc_rows], dtype=bool)
     eta_cc_info = [_eta_with_flag(r) for r in cc_rows]
     eta_cc = np.array([v[0] for v in eta_cc_info], dtype=float) * 100.0
 
     T_fp = np.array([r["T_s"] for r in fp_rows], dtype=float)
-    masked_fp = np.array([r["masked"] for r in fp_rows], dtype=bool)
+    masked_fp = np.array([_row_excluded(r) for r in fp_rows], dtype=bool)
     eta_fp_info = [_eta_with_flag(r) for r in fp_rows]
     eta_fp = np.array([v[0] for v in eta_fp_info], dtype=float) * 100.0
 
@@ -483,7 +511,7 @@ def plot_summary_efficiency_comparison(
             T_cc = np.array([r["T_s"] for r in cc_rows], dtype=float)
             eta_cc_info = [_eta_with_flag(r) for r in cc_rows]
             eta_cc = np.array([v[0] for v in eta_cc_info], dtype=float) * 100.0
-            masked_cc = np.array([r["masked"] for r in cc_rows], dtype=bool)
+            masked_cc = np.array([_row_excluded(r) for r in cc_rows], dtype=bool)
             valid_cc = (~masked_cc) & np.isfinite(eta_cc)
             ax.plot(T_cc[valid_cc], eta_cc[valid_cc], marker="o", linewidth=1.6, color=color, linestyle="-", label=f"{lbl} CC", zorder=3)
         if angle in fp_csv_map and fp_csv_map[angle].exists():
@@ -491,7 +519,7 @@ def plot_summary_efficiency_comparison(
             T_fp = np.array([r["T_s"] for r in fp_rows], dtype=float)
             eta_fp_info = [_eta_with_flag(r) for r in fp_rows]
             eta_fp = np.array([v[0] for v in eta_fp_info], dtype=float) * 100.0
-            masked_fp = np.array([r["masked"] for r in fp_rows], dtype=bool)
+            masked_fp = np.array([_row_excluded(r) for r in fp_rows], dtype=bool)
             valid_fp = (~masked_fp) & np.isfinite(eta_fp)
             ax.plot(T_fp[valid_fp], eta_fp[valid_fp], marker="s", linewidth=1.4, color=color, linestyle="--", label=f"{lbl} ff+PID", alpha=0.85, zorder=3)
 

@@ -89,7 +89,20 @@ python3 scripts/cc_capture_efficiency_sweep.py --plot-only
 - **Solver behavior**
   - Default invocation runs the sweep across the shared `T = 0.5–7.0 s` grid
     using `build/demo_vgoswec`.
+  - `--period-step` can be used for a diagnostic uniform re-grid; the committed
+    default remains `0.25 s` so CC stays point-for-point aligned with the other
+    two sweep arms unless you explicitly opt out.
+  - The sweep is self-contained: it writes scratch configs with
+    `timestep = 0.01 s`, uses `duration(T) = 10 + 280·T` seconds, discards
+    `260` settle cycles, and computes steady-state power from the final `20`
+    whole wave cycles.
+  - Output CSVs now carry method-provenance columns:
+    `duration_s`, `dt_s`, `period_step_s`, `n_settle`, `n_avg`.
+  - CC also emits `reactive_cancellation_limited`, which flags points where
+    `|P_capture| / P_converted < 1e-2`; those rows are excluded from η and from
+    downstream comparison/envelope selection.
   - `--plot-only` reuses committed CSVs and does not call the solver.
+  - Full method note: [`docs/SWEEP_METHOD.md`](SWEEP_METHOD.md)
 - **Inputs consumed**
   - Solver configs: `config/vgoswec_{0,10,20,45,90}_cc.yaml`
   - Hydro inputs: `hydroData/vgoswec_{0,10,20,45,90}.h5`
@@ -113,7 +126,16 @@ python3 scripts/capture_efficiency_sweep.py --plot-only
 - **Solver behavior**
   - Default invocation runs the sweep across the shared `T = 0.5–7.0 s` grid
     using `build/demo_vgoswec`.
+  - `--period-step` can be used for a diagnostic uniform re-grid; the committed
+    default remains `0.25 s`.
+  - The sweep is self-contained: it writes scratch configs with
+    `timestep = 0.01 s`, uses `duration(T) = 10 + 280·T` seconds, discards
+    `260` settle cycles, and computes steady-state power from the final `20`
+    whole wave cycles.
+  - Output CSVs now carry method-provenance columns:
+    `duration_s`, `dt_s`, `period_step_s`, `n_settle`, `n_avg`.
   - `--plot-only` reuses committed CSVs and does not call the solver.
+  - Full method note: [`docs/SWEEP_METHOD.md`](SWEEP_METHOD.md)
 - **Inputs consumed**
   - Solver configs: `config/vgoswec_{0,10,20,45,90}_exc_ff_pid.yaml`
   - Hydro inputs: `hydroData/vgoswec_{0,10,20,45,90}.h5`
@@ -146,7 +168,7 @@ python3 scripts/passive_vs_optpassive_sweep.py --plot-only
     discarding `130` settle cycles.
   - `--plot-only` reuses committed CSVs and does not call the solver.
   - Full method note:
-    [`docs/PASSIVE_CAMPAIGN_METHOD.md`](PASSIVE_CAMPAIGN_METHOD.md)
+    [`docs/SWEEP_METHOD.md`](SWEEP_METHOD.md)
 - **Inputs consumed**
   - Solver configs:
     `config/vgoswec_{0,10,20,45,90}_passive.yaml`,
@@ -173,6 +195,9 @@ python3 scripts/cc_vs_ffpid_comparison.py --plot-only
 - **Solver behavior**
   - This is an analysis-only overlay script; it consumes existing sweep CSVs and
     does not invoke `build/demo_vgoswec`.
+  - Rows flagged `reactive_cancellation_limited=true` in CC CSVs are treated the
+    same way as existing masked / invalid rows in overlays and reactive-ratio
+    plots. Legacy CSVs lacking the column are still accepted.
 - **Inputs consumed**
   - `analysis/cc/capture_efficiency_VGM{0,10,20,45,90}.csv`
   - `analysis/passive_guarded/capture_efficiency_VGM{0,10,20,45,90}.csv`
@@ -191,6 +216,9 @@ python3 scripts/three_regime_comparison.py --plot-only
 - **Solver behavior**
   - This is an analysis-only summary script; it consumes existing sweep CSVs and
     does not invoke `build/demo_vgoswec`.
+  - Rows flagged `reactive_cancellation_limited=true` in CC CSVs are excluded
+    from per-flap overlays and from both the power and efficiency operating
+    envelopes. Legacy CSVs lacking the column are still accepted.
 - **Inputs consumed**
   - `analysis/cc/capture_efficiency_VGM{0,10,20,45,90}.csv`
   - `analysis/opt_passive/capture_efficiency_VGM{0,10,20,45,90}.csv`
