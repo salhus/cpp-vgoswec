@@ -35,6 +35,9 @@ Three-regime key result:
   feedforward controller at resonance with a single tuning-free damping coefficient.
   ff+PID carries the long tail past resonance.
 
+Rows flagged `reactive_cancellation_limited=true` in CC CSVs are excluded from
+overlays and from both operating envelopes.
+
 Run in --plot-only mode (default) to regenerate all figures from committed CSVs:
   python3 scripts/three_regime_comparison.py --plot-only
 """
@@ -97,6 +100,9 @@ def _load_cc_csv(csv_path: Path) -> list[dict]:
                 "eta": float(r["eta"]) if r.get("eta", "").strip() else float("nan"),
                 "masked": str(r.get("masked", "false")).strip().lower() == "true",
                 "linear_popt_invalid": str(r.get("linear_popt_invalid", "false")).strip().lower() == "true",
+                "reactive_cancellation_limited": str(
+                    r.get("reactive_cancellation_limited", "false")
+                ).strip().lower() == "true",
             })
     rows.sort(key=lambda d: d["T_s"])
     return rows
@@ -115,6 +121,9 @@ def _load_opt_passive_csv(csv_path: Path) -> list[dict]:
                 "B55_Nmsrad": float(r["B55_Nmsrad"]) if r.get("B55_Nmsrad", "").strip() else float("nan"),
                 "eta": float(r["eta"]) if r.get("eta", "").strip() else float("nan"),
                 "masked": str(r.get("masked", "false")).strip().lower() == "true",
+                "reactive_cancellation_limited": str(
+                    r.get("reactive_cancellation_limited", "false")
+                ).strip().lower() == "true",
             })
     rows.sort(key=lambda d: d["T_s"])
     return rows
@@ -132,6 +141,9 @@ def _load_ffpid_csv(csv_path: Path) -> list[dict]:
                 "P_opt_W": float(r["P_opt_W"]) if r.get("P_opt_W", "").strip() else float("nan"),
                 "eta": float(r["eta"]) if r.get("eta", "").strip() else float("nan"),
                 "masked": str(r.get("masked", "false")).strip().lower() == "true",
+                "reactive_cancellation_limited": str(
+                    r.get("reactive_cancellation_limited", "false")
+                ).strip().lower() == "true",
             })
     rows.sort(key=lambda d: d["T_s"])
     return rows
@@ -153,10 +165,20 @@ def _eta_valid(row: dict, is_cc: bool = False) -> tuple[float, bool]:
         else:
             return float("nan"), True
     invalid = bool(
-        row.get("linear_popt_invalid", False)
+        row.get("masked", False)
+        or row.get("reactive_cancellation_limited", False)
+        or row.get("linear_popt_invalid", False)
         or (math.isfinite(eta) and eta > (1.0 + ETA_GT1_TOL))
     )
     return eta, invalid
+
+
+def _row_excluded(row: dict) -> bool:
+    return bool(
+        row.get("masked", False)
+        or row.get("linear_popt_invalid", False)
+        or row.get("reactive_cancellation_limited", False)
+    )
 
 
 def _masked_spans(periods: np.ndarray, masked: np.ndarray) -> list[tuple[float, float]]:
@@ -270,7 +292,7 @@ def _compute_ceilings(
                 p = r.get("P_capture_W", float("nan"))
                 if math.isfinite(p):
                     p_maxima.append(float(p))
-                if not r.get("masked", False):
+                if not _row_excluded(r):
                     eta, inv = _eta_valid(r, is_cc)
                     if math.isfinite(eta) and not inv:
                         e_maxima.append(float(eta * 100.0))
@@ -313,16 +335,16 @@ def plot_per_flap_power(
     label = FLAP_LABELS[flap_angle]
 
     T_cc = np.array([r["T_s"] for r in cc_rows], dtype=float)
-    p_cc = np.array([r["P_capture_W"] for r in cc_rows], dtype=float)
-    masked_cc = np.array([r["masked"] for r in cc_rows], dtype=bool)
+    masked_cc = np.array([_row_excluded(r) for r in cc_rows], dtype=bool)
+    p_cc = np.where(masked_cc, np.nan, np.array([r["P_capture_W"] for r in cc_rows], dtype=float))
 
     T_op = np.array([r["T_s"] for r in op_rows], dtype=float)
     p_op = np.array([r["P_capture_W"] for r in op_rows], dtype=float)
-    masked_op = np.array([r["masked"] for r in op_rows], dtype=bool)
+    masked_op = np.array([_row_excluded(r) for r in op_rows], dtype=bool)
 
     T_fp = np.array([r["T_s"] for r in fp_rows], dtype=float)
     p_fp = np.array([r["P_capture_W"] for r in fp_rows], dtype=float)
-    masked_fp = np.array([r["masked"] for r in fp_rows], dtype=bool)
+    masked_fp = np.array([_row_excluded(r) for r in fp_rows], dtype=bool)
 
     # Crossover points
     cc_xover = _find_crossover(T_cc, p_cc, T_op, p_op)
@@ -352,11 +374,11 @@ def plot_per_flap_power(
     _add_masked_spans(ax, T_all, combined_masked, label="masked / low-power region")
 
     # Plot curves
-    ax.plot(T_cc, p_cc, marker="o", color="tab:blue", linewidth=1.8,
+    ax.plot(T_cc[~masked_cc], p_cc[~masked_cc], marker="o", color="tab:blue", linewidth=1.8,
             zorder=3, label="CC")
-    ax.plot(T_op, p_op, marker="s", color="tab:green", linewidth=1.8,
+    ax.plot(T_op[~masked_op], p_op[~masked_op], marker="s", color="tab:green", linewidth=1.8,
             linestyle="--", zorder=3, label="opt_passive")
-    ax.plot(T_fp, p_fp, marker="^", color="tab:orange", linewidth=1.8,
+    ax.plot(T_fp[~masked_fp], p_fp[~masked_fp], marker="^", color="tab:orange", linewidth=1.8,
             linestyle="--", zorder=3, label="ff+PID")
 
     # Crossover markers
@@ -417,20 +439,20 @@ def plot_per_flap_efficiency(
     label = FLAP_LABELS[flap_angle]
 
     T_cc = np.array([r["T_s"] for r in cc_rows], dtype=float)
-    masked_cc = np.array([r["masked"] for r in cc_rows], dtype=bool)
+    masked_cc = np.array([_row_excluded(r) for r in cc_rows], dtype=bool)
     eta_cc = np.array([
         _eta_valid(r, is_cc=True)[0] for r in cc_rows
     ], dtype=float) * 100.0
     inv_cc = np.array([_eta_valid(r, is_cc=True)[1] for r in cc_rows], dtype=bool)
 
     T_op = np.array([r["T_s"] for r in op_rows], dtype=float)
-    masked_op = np.array([r["masked"] for r in op_rows], dtype=bool)
+    masked_op = np.array([_row_excluded(r) for r in op_rows], dtype=bool)
     eta_op = np.array([
         _eta_valid(r)[0] for r in op_rows
     ], dtype=float) * 100.0
 
     T_fp = np.array([r["T_s"] for r in fp_rows], dtype=float)
-    masked_fp = np.array([r["masked"] for r in fp_rows], dtype=bool)
+    masked_fp = np.array([_row_excluded(r) for r in fp_rows], dtype=bool)
     eta_fp = np.array([
         _eta_valid(r)[0] for r in fp_rows
     ], dtype=float) * 100.0
@@ -496,20 +518,26 @@ def plot_summary_power(
         if angle in cc_map and cc_map[angle].exists():
             rows = _load_cc_csv(cc_map[angle])
             T = np.array([r["T_s"] for r in rows], dtype=float)
+            masked = np.array([_row_excluded(r) for r in rows], dtype=bool)
             p = np.array([r["P_capture_W"] for r in rows], dtype=float)
-            ax.plot(T, p, marker="o", linewidth=1.5, color=color, linestyle="-",
+            valid = (~masked) & np.isfinite(p)
+            ax.plot(T[valid], p[valid], marker="o", linewidth=1.5, color=color, linestyle="-",
                     label=f"{lbl} CC", zorder=3)
         if angle in op_map and op_map[angle].exists():
             rows = _load_opt_passive_csv(op_map[angle])
             T = np.array([r["T_s"] for r in rows], dtype=float)
+            masked = np.array([_row_excluded(r) for r in rows], dtype=bool)
             p = np.array([r["P_capture_W"] for r in rows], dtype=float)
-            ax.plot(T, p, marker="s", linewidth=1.3, color=color, linestyle="--",
+            valid = (~masked) & np.isfinite(p)
+            ax.plot(T[valid], p[valid], marker="s", linewidth=1.3, color=color, linestyle="--",
                     alpha=0.85, label=f"{lbl} opt_p", zorder=3)
         if angle in fp_map and fp_map[angle].exists():
             rows = _load_ffpid_csv(fp_map[angle])
             T = np.array([r["T_s"] for r in rows], dtype=float)
+            masked = np.array([_row_excluded(r) for r in rows], dtype=bool)
             p = np.array([r["P_capture_W"] for r in rows], dtype=float)
-            ax.plot(T, p, marker="^", linewidth=1.3, color=color, linestyle=":",
+            valid = (~masked) & np.isfinite(p)
+            ax.plot(T[valid], p[valid], marker="^", linewidth=1.3, color=color, linestyle=":",
                     alpha=0.80, label=f"{lbl} ff+PID", zorder=3)
 
     ax.set_xlabel("Wave period $T$ [s]")
@@ -543,7 +571,7 @@ def plot_summary_efficiency(
         if angle in cc_map and cc_map[angle].exists():
             rows = _load_cc_csv(cc_map[angle])
             T = np.array([r["T_s"] for r in rows], dtype=float)
-            masked = np.array([r["masked"] for r in rows], dtype=bool)
+            masked = np.array([_row_excluded(r) for r in rows], dtype=bool)
             inv = np.array([_eta_valid(r, True)[1] for r in rows], dtype=bool)
             eta = np.array([_eta_valid(r, True)[0] for r in rows], dtype=float) * 100.0
             valid = (~masked) & (~inv) & np.isfinite(eta)
@@ -552,7 +580,7 @@ def plot_summary_efficiency(
         if angle in op_map and op_map[angle].exists():
             rows = _load_opt_passive_csv(op_map[angle])
             T = np.array([r["T_s"] for r in rows], dtype=float)
-            masked = np.array([r["masked"] for r in rows], dtype=bool)
+            masked = np.array([_row_excluded(r) for r in rows], dtype=bool)
             eta = np.array([_eta_valid(r)[0] for r in rows], dtype=float) * 100.0
             valid = (~masked) & np.isfinite(eta)
             ax.plot(T[valid], eta[valid], marker="s", linewidth=1.3, color=color,
@@ -560,7 +588,7 @@ def plot_summary_efficiency(
         if angle in fp_map and fp_map[angle].exists():
             rows = _load_ffpid_csv(fp_map[angle])
             T = np.array([r["T_s"] for r in rows], dtype=float)
-            masked = np.array([r["masked"] for r in rows], dtype=bool)
+            masked = np.array([_row_excluded(r) for r in rows], dtype=bool)
             eta = np.array([_eta_valid(r)[0] for r in rows], dtype=float) * 100.0
             valid = (~masked) & np.isfinite(eta)
             ax.plot(T[valid], eta[valid], marker="^", linewidth=1.3, color=color,
@@ -631,6 +659,8 @@ def _build_envelope(
                 for r in rows:
                     if abs(r["T_s"] - T) < 1e-6:
                         p = r.get("P_capture_W", float("nan"))
+                        if _row_excluded(r):
+                            break
                         if math.isfinite(p) and p > best_p:
                             best_p = p
                             best_ctrl = ctrl_name
@@ -797,8 +827,7 @@ def _build_efficiency_envelope(
                         # Found the unique row for this T (rows are sorted; at most
                         # one row matches per T). break exits the row loop; the outer
                         # (angle, ctrl) loops continue to the next candidate.
-                        if (r.get("masked", False)
-                                or r.get("linear_popt_invalid", False)):
+                        if _row_excluded(r):
                             break
                         eta, invalid = _eta_valid(r, is_cc)
                         if invalid or not math.isfinite(eta):

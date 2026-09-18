@@ -3,7 +3,7 @@
 
 For each flap angle variant (VGM-0,10,20,45,90) across T=0.5..7.0 s:
   - Run tuned controller headless and compute steady-state mean absorbed power
-    (second half of run) => P_capture(T)
+    over the final N_AVG whole wave cycles => P_capture(T)
   - Compute P_opt(T) from body1 pitch hydrodynamics in H5
     (radiation_damping/components/5_5 + excitation/mag[dof=5,dir=0], de-normalized)
   - Mask reactive-limited points where B55 <= 1e-4
@@ -21,7 +21,6 @@ from __future__ import annotations
 import argparse
 import csv
 import math
-import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -33,15 +32,31 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.ticker import AutoMinorLocator, MultipleLocator
 
+from sweep_method import (
+    DEFAULT_PERIOD_STEP,
+    MASK_B55_THRESHOLD,
+    N_AVG,
+    PERIOD_GRID,
+    PROVENANCE_CSV_COLS,
+    TIMESTEP_S,
+    WAVE_AMPLITUDE_M,
+    WAVE_HEIGHT_M,
+    build_period_grid,
+    duration_for_period as _duration_for_period,
+    load_output_rows,
+    parse_provenance_fields,
+    provenance_fields,
+    replace_yaml_scalar,
+    whole_cycle_tail_slice,
+    write_efficiency_csv as _write_efficiency_csv,
+)
+
 # Shared period grid T = 0.5 … 7.0 s (uniform in T, 0.25 s steps) — identical to the
 # CC sweep grid so both controllers' curves share x-values point-for-point.
 # Note: below T≈1.5 s, exc_ff_pid is outside its tuned band (designed for T=2–7 s);
 # expected low power capture in the short-period region is not an error.
-PERIOD_GRID = np.round(np.arange(0.5, 7.01, 0.25), 2)  # T = 0.5, 0.75, 1.0, …, 7.0 s (27 points)
-WAVE_HEIGHT_M = 0.05
-WAVE_AMPLITUDE_M = WAVE_HEIGHT_M / 2.0
-DURATION_S = 171.0
-MASK_B55_THRESHOLD = 1e-4
+N_SETTLE = 260
+N_CYCLES = N_SETTLE + N_AVG
 ETA_GT1_TOL = 1e-6
 PITCH_DOF_INDEX = 4  # 0-based, DOF5 (pitch)
 MASK_NOTE = f"B55 <= {MASK_B55_THRESHOLD:.0e}"
@@ -89,19 +104,17 @@ def run_cmd(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, cwd=str(cwd), text=True, capture_output=True, check=False)
 
 
-def _replace_yaml_scalar(text: str, key: str, value: str) -> str:
-    pattern = re.compile(rf"^(\s*{re.escape(key)}:\s*).*$", re.MULTILINE)
-    out, n = pattern.subn(rf"\g<1>{value}", text, count=1)
-    if n != 1:
-        raise RuntimeError(f"Could not update key '{key}' in scratch config")
-    return out
+def duration_for_period(period_s: float) -> float:
+    return _duration_for_period(period_s, N_CYCLES)
 
 
 def prepare_scratch_config(template: Path, scratch: Path, period_s: float) -> None:
+    duration_s = duration_for_period(period_s)
     txt = template.read_text()
-    txt = _replace_yaml_scalar(txt, "height", f"{WAVE_HEIGHT_M}")
-    txt = _replace_yaml_scalar(txt, "period", f"{period_s}")
-    txt = _replace_yaml_scalar(txt, "duration", f"{DURATION_S}")
+    txt = replace_yaml_scalar(txt, "height", f"{WAVE_HEIGHT_M}")
+    txt = replace_yaml_scalar(txt, "period", f"{period_s}")
+    txt = replace_yaml_scalar(txt, "duration", f"{duration_s}")
+    txt = replace_yaml_scalar(txt, "timestep", f"{TIMESTEP_S}")
     scratch.write_text(txt)
 
 
@@ -115,21 +128,20 @@ def locate_results_csv(repo: Path, scratch: Path) -> Path:
     raise FileNotFoundError(f"No results CSV found for scratch config '{scratch.name}'")
 
 
-def steady_state_mean_power(csv_path: Path) -> float:
-    with csv_path.open(newline="") as fh:
-        rows = list(csv.DictReader(fh))
-    if not rows:
-        raise RuntimeError(f"No rows in output CSV: {csv_path}")
+def steady_state_mean_power(csv_path: Path, period_s: float) -> float:
+    fieldnames, rows = load_output_rows(csv_path)
+    steady_state_slice, _ = whole_cycle_tail_slice(fieldnames, rows, period_s, N_AVG)
     pw = np.array([float(r["power_w"]) for r in rows], dtype=float)
-    return float(np.mean(pw[len(pw) // 2 :]))
+    return float(np.mean(pw[steady_state_slice]))
 
 
-def run_capture_sweep(repo: Path, demo: Path, flap_angle: int) -> dict[float, float]:
+def run_capture_sweep(repo: Path, demo: Path, flap_angle: int, period_grid: np.ndarray) -> dict[float, float]:
     cfg = repo / FLAPS[flap_angle]["config"]
     captures: dict[float, float] = {}
     with tempfile.TemporaryDirectory(prefix=f"capture-eff-vgm{flap_angle}-", dir="/tmp") as td:
         scratch = Path(td) / f"capture_efficiency_vgm{flap_angle}.yaml"
-        for T in PERIOD_GRID:
+        for T in period_grid:
+            duration_s = duration_for_period(float(T))
             prepare_scratch_config(cfg, scratch, float(T))
             cmd = [
                 str(demo),
@@ -143,7 +155,7 @@ def run_capture_sweep(repo: Path, demo: Path, flap_angle: int) -> dict[float, fl
                 "--wave-height",
                 f"{WAVE_HEIGHT_M:.4f}",
                 "--duration",
-                f"{DURATION_S:.1f}",
+                f"{duration_s:.1f}",
             ]
             run = run_cmd(cmd, repo)
             if run.returncode != 0:
@@ -152,7 +164,7 @@ def run_capture_sweep(repo: Path, demo: Path, flap_angle: int) -> dict[float, fl
                     f"STDOUT:\n{run.stdout}\nSTDERR:\n{run.stderr}"
                 )
             out_csv = locate_results_csv(repo, scratch)
-            captures[float(T)] = steady_state_mean_power(out_csv)
+            captures[float(T)] = steady_state_mean_power(out_csv, float(T))
     return captures
 
 
@@ -211,51 +223,51 @@ def popt_curve_from_h5(h5_path: Path, periods_s: np.ndarray) -> tuple[np.ndarray
     return omega_targets, b55_t, fexc_t, p_opt_t, masked
 
 
+CSV_COLS = [
+    "T_s",
+    "omega_rads",
+    "P_capture_W",
+    "P_opt_W",
+    "B55_Nmsrad",
+    "F_exc_Nm",
+    "eta",
+    "masked",
+    *PROVENANCE_CSV_COLS,
+]
+
+
 def write_efficiency_csv(out_csv: Path, rows: list[dict]) -> None:
-    out_csv.parent.mkdir(parents=True, exist_ok=True)
-    cols = [
-        "T_s",
-        "omega_rads",
-        "P_capture_W",
-        "P_opt_W",
-        "B55_Nmsrad",
-        "F_exc_Nm",
-        "eta",
-        "masked",
-    ]
-    with out_csv.open("w", newline="") as fh:
-        w = csv.DictWriter(fh, fieldnames=cols)
-        w.writeheader()
-        for r in rows:
-            w.writerow(r)
+    _write_efficiency_csv(out_csv, rows, CSV_COLS)
 
 
 def load_efficiency_csv(csv_path: Path) -> list[dict]:
     rows = []
-    with csv_path.open(newline="") as fh:
-        reader = csv.DictReader(fh)
-        for r in reader:
-            out = {
-                "T_s": float(r["T_s"]),
-                "omega_rads": float(r["omega_rads"]),
-                "P_capture_W": float(r["P_capture_W"]) if r["P_capture_W"].strip() else float("nan"),
-                "P_opt_W": float(r["P_opt_W"]) if r["P_opt_W"].strip() else float("nan"),
-                "B55_Nmsrad": float(r["B55_Nmsrad"]),
-                "F_exc_Nm": float(r["F_exc_Nm"]),
-                "eta": float(r["eta"]) if r["eta"].strip() else float("nan"),
-                "masked": str(r["masked"]).strip().lower() == "true",
-                "linear_popt_invalid": str(r.get("linear_popt_invalid", "false")).strip().lower() == "true",
-            }
-            if (
-                (not out["masked"])
-                and (not np.isfinite(out["eta"]))
-                and np.isfinite(out["P_capture_W"])
-                and np.isfinite(out["P_opt_W"])
-                and out["P_opt_W"] > 0.0
-            ):
-                out["eta"] = out["P_capture_W"] / out["P_opt_W"]
-            out["linear_popt_invalid"] = bool(out["linear_popt_invalid"] or (np.isfinite(out["eta"]) and out["eta"] > (1.0 + ETA_GT1_TOL)))
-            rows.append(out)
+    _, raw_rows = load_output_rows(csv_path)
+    for r in raw_rows:
+        out = {
+            "T_s": float(r["T_s"]),
+            "omega_rads": float(r["omega_rads"]),
+            "P_capture_W": float(r["P_capture_W"]) if r.get("P_capture_W", "").strip() else float("nan"),
+            "P_opt_W": float(r["P_opt_W"]) if r.get("P_opt_W", "").strip() else float("nan"),
+            "B55_Nmsrad": float(r["B55_Nmsrad"]),
+            "F_exc_Nm": float(r["F_exc_Nm"]),
+            "eta": float(r["eta"]) if r.get("eta", "").strip() else float("nan"),
+            "masked": str(r.get("masked", "false")).strip().lower() == "true",
+            "linear_popt_invalid": str(r.get("linear_popt_invalid", "false")).strip().lower() == "true",
+            **parse_provenance_fields(r),
+        }
+        if (
+            (not out["masked"])
+            and (not np.isfinite(out["eta"]))
+            and np.isfinite(out["P_capture_W"])
+            and np.isfinite(out["P_opt_W"])
+            and out["P_opt_W"] > 0.0
+        ):
+            out["eta"] = out["P_capture_W"] / out["P_opt_W"]
+        out["linear_popt_invalid"] = bool(
+            out["linear_popt_invalid"] or (np.isfinite(out["eta"]) and out["eta"] > (1.0 + ETA_GT1_TOL))
+        )
+        rows.append(out)
     rows.sort(key=lambda d: d["T_s"])
     return rows
 
@@ -448,34 +460,55 @@ def plot_summary(csv_map: dict[int, Path], out_png: Path, power_ceiling: float, 
     plt.close(fig)
 
 
-def compute_and_write_csvs(repo: Path, demo: Path, run_sim: bool) -> dict[int, Path]:
+def _build_csv_rows(
+    period_grid: np.ndarray,
+    period_step_s: float,
+    captures: dict[float, float],
+    omega: np.ndarray,
+    b55: np.ndarray,
+    fexc: np.ndarray,
+    p_opt: np.ndarray,
+    masked: np.ndarray,
+) -> list[dict]:
+    rows: list[dict] = []
+    for i, T in enumerate(period_grid):
+        p_capture = captures.get(float(T), float("nan"))
+        eta = float("nan")
+        if not masked[i] and np.isfinite(p_capture) and p_opt[i] > 0.0:
+            eta = p_capture / p_opt[i]
+        rows.append(
+            {
+                "T_s": f"{T:.2f}",
+                "omega_rads": f"{omega[i]:.8f}",
+                "P_capture_W": f"{p_capture:.8e}" if np.isfinite(p_capture) else "",
+                "P_opt_W": "" if masked[i] else f"{p_opt[i]:.8e}",
+                "B55_Nmsrad": f"{b55[i]:.8e}",
+                "F_exc_Nm": f"{fexc[i]:.8e}",
+                "eta": "" if masked[i] or not np.isfinite(eta) else f"{eta:.8e}",
+                "masked": "true" if masked[i] else "false",
+                **provenance_fields(float(T), period_step_s, N_SETTLE, N_AVG, N_CYCLES),
+            }
+        )
+    return rows
+
+
+def compute_and_write_csvs(
+    repo: Path,
+    demo: Path,
+    run_sim: bool,
+    period_grid: np.ndarray,
+    period_step_s: float,
+) -> dict[int, Path]:
     csv_map: dict[int, Path] = {}
 
     for angle, meta in FLAPS.items():
         captures = {}
         if run_sim:
             print(f"[run] sweeping capture power for {meta['label']}...")
-            captures = run_capture_sweep(repo, demo, angle)
+            captures = run_capture_sweep(repo, demo, angle, period_grid)
 
-        omega, b55, fexc, p_opt, masked = popt_curve_from_h5(repo / meta["h5"], PERIOD_GRID)
-        rows: list[dict] = []
-        for i, T in enumerate(PERIOD_GRID):
-            p_capture = captures.get(float(T), float("nan"))
-            eta = float("nan")
-            if not masked[i] and np.isfinite(p_capture):
-                eta = p_capture / p_opt[i]
-            rows.append(
-                {
-                    "T_s": f"{T:.2f}",
-                    "omega_rads": f"{omega[i]:.8f}",
-                    "P_capture_W": f"{p_capture:.8e}",
-                    "P_opt_W": "" if masked[i] else f"{p_opt[i]:.8e}",
-                    "B55_Nmsrad": f"{b55[i]:.8e}",
-                    "F_exc_Nm": f"{fexc[i]:.8e}",
-                    "eta": "" if masked[i] or not np.isfinite(eta) else f"{eta:.8e}",
-                    "masked": "true" if masked[i] else "false",
-                }
-            )
+        omega, b55, fexc, p_opt, masked = popt_curve_from_h5(repo / meta["h5"], period_grid)
+        rows = _build_csv_rows(period_grid, period_step_s, captures, omega, b55, fexc, p_opt, masked)
 
         out_csv = repo / "analysis" / "passive_guarded" / f"capture_efficiency_VGM{angle}.csv"
         write_efficiency_csv(out_csv, rows)
@@ -504,6 +537,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--repo", default=str(Path(__file__).resolve().parents[1]), help="Repository root")
     p.add_argument("--demo", default="build/demo_vgoswec", help="Path to demo binary, relative to repo if not absolute")
     p.add_argument("--plot-only", action="store_true", help="Skip simulations/CSV generation and regenerate figures from committed CSVs")
+    p.add_argument(
+        "--period-step",
+        type=float,
+        default=DEFAULT_PERIOD_STEP,
+        help="Period grid step in seconds (default: %(default)s)",
+    )
     return p.parse_args()
 
 
@@ -532,7 +571,19 @@ def main() -> int:
         print("Build first (or use --plot-only if CSVs already exist).")
         return 2
 
-    csv_map = compute_and_write_csvs(repo, demo, run_sim=True)
+    period_grid = build_period_grid(args.period_step)
+    print(
+        "[grid] period-step="
+        f"{args.period_step:g} s, points={len(period_grid)}, "
+        f"first={period_grid[0]:.2f} s, last={period_grid[-1]:.2f} s"
+    )
+    csv_map = compute_and_write_csvs(
+        repo,
+        demo,
+        run_sim=True,
+        period_grid=period_grid,
+        period_step_s=args.period_step,
+    )
     regenerate_plots_from_csv(repo, csv_map)
     return 0
 

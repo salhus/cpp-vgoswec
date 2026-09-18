@@ -149,7 +149,7 @@ was never a repository-state problem.
 
 ## 4. Passive campaign method — reworked (PR #61, merged `ec56b4f`)
 
-Full reasoning: [`docs/PASSIVE_CAMPAIGN_METHOD.md`](PASSIVE_CAMPAIGN_METHOD.md)
+Full reasoning: [`docs/SWEEP_METHOD.md`](SWEEP_METHOD.md)
 
 ### What was wrong
 
@@ -389,7 +389,7 @@ tell them apart.
 |---|---|
 | [`docs/RESULTS_CAMPAIGN_2026-09-17.md`](RESULTS_CAMPAIGN_2026-09-17.md) | Free-decay closure record. `rho` issue replaced with verified "Density basis" section. |
 | [`docs/PROJECT_STATE.md`](PROJECT_STATE.md) | Refreshed. Next actions: passive campaign → #50. |
-| [`docs/PASSIVE_CAMPAIGN_METHOD.md`](PASSIVE_CAMPAIGN_METHOD.md) | **New.** Duration/averaging/timestep derivation. |
+| [`docs/SWEEP_METHOD.md`](SWEEP_METHOD.md) | **New.** Duration/averaging/timestep derivation. |
 | [`docs/REPRODUCTION.md`](REPRODUCTION.md) | Passive section updated for the new method. |
 | [`docs/freedecay_wecsim_rawdata_validation.md`](freedecay_wecsim_rawdata_validation.md) | Primary ω_n / ζ reference. Unchanged. |
 

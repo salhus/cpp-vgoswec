@@ -10,6 +10,14 @@ Controller co-design study across VGOSWEC flap variants (VGM-0/10/20/45/90) over
 All results are reproducible from committed CSVs under
 `analysis/{cc,opt_passive,passive_guarded}/` via `--plot-only`. No solver runs required.
 
+> **Method-unification status note (important):** the committed **CC** and
+> **ff+PID** numbers in this file predate the shared sweep-method unification.
+> Code and docs now target the common method documented in
+> [`../docs/SWEEP_METHOD.md`](../docs/SWEEP_METHOD.md), but the owner still needs
+> to re-run those two campaigns. Until that rerun lands, treat CC / ff+PID
+> numerical values here as the pre-unification record rather than silently fresh
+> campaign output.
+
 > **Validated-plant foundation:** The controller/flap co-design results below
 > rest on the free-decay WEC-Sim plant validation in
 > [`../docs/freedecay_validation.md`](../docs/freedecay_validation.md), which
@@ -220,33 +228,41 @@ efficiency fraction simultaneously.
 
 ---
 
-## 5. Appendix: why fixed-passive was pruned (degenerate arm)
+## 5. Appendix: why fixed-passive is dominated off resonance
 
 `B_pto = B55(ω₀)` is the radiation damping coefficient at the free-decay resonance.
 For all five VGOSWEC flap variants this value is in the range **~1e-4 to ~4e-4 N·m·s/rad**
 (with VGM-0 at 3.2e-7, deep in the pitch-radiation notch):
 
 | Flap  | B55(ω₀) [N·m·s/rad] | |Z_intrinsic(ω₀)| (approx.) | ratio (approx.) |
-|-------|----------------------|---------------------------|-------|
+|-------|----------------------|-----------------------------|-----------------|
 | VGM-0  | 3.19e-7 (pitch notch) | ~1e-2 to 1e-3 | ~10⁴–10⁵× smaller |
 | VGM-10 | 1.27e-4 | ~1e-2 | ~100× smaller |
 | VGM-20 | 1.51e-4 | ~1e-2 | ~100× smaller |
 | VGM-45 | 2.53e-4 | ~1e-2 | ~50× smaller |
 | VGM-90 | 3.91e-4 | ~1e-2 | ~25× smaller |
 
-`B_pto = B55(ω₀)` is **10⁴–10⁵× smaller than** `|Z_intrinsic(ω₀)|` that opt_passive
-uses as its damping coefficient. A resistive PTO with this tiny coefficient dissipates
-essentially zero power against the full intrinsic impedance of the device —
-**passive captures ≈ 0 W across the entire T = 0.5–7 s band for all flaps.**
+This is why fixed-passive is the **retained non-adaptive lower bound**, not why it
+is discarded. Because `B_pto = B55(ω₀)` is far smaller than the off-resonant
+`|Z_intrinsic(ω)|` values that govern the tuned `opt_passive` arm, fixed-passive
+is expected to be **dominated away from resonance**. That is exactly what the
+committed passive CSVs now show:
+
+- at **VGM-10, `T = 3.25 s`**, passive reaches about **12%** while `opt_passive`
+  reaches about **15.5%**;
+- at **VGM-90, `T = 0.50 s`**, passive reaches about **10.7%** while
+  `opt_passive` reaches about **85.5%**.
+
+Near resonance the gap can be modest; off resonance it can be dramatic. That is
+the useful physics of the passive arm: it quantifies the cost of **not**
+retuning the resistive load with wave period.
 
 Additionally, B55 has a high-frequency lobe at ω ≈ 8 rad/s, but the flap resonances
 span ω ∈ [1.07, 2.09] rad/s (T₀ = 2.99–5.86 s) — so the radiation-damping lobe
-never aligns with any flap's operating band. Radiation-damping-matched passive is
-degenerate for every VGOSWEC variant.
-
-The `passive` controller type remains available in the code for tank-test tuning
-(`config/vgoswec_*_passive.yaml`, `B_pto: 0.5` placeholder, TODO annotation).
-It was simply not part of the three-regime study and is excluded from all figures.
+never aligns with any flap's operating band. So radiation-damping-matched
+passive remains a structurally weak choice for this device family except close
+to its own design point. That is why `opt_passive` and the adaptive arms own the
+envelope, while fixed-passive remains the honest non-adaptive comparator.
 
 ---
 

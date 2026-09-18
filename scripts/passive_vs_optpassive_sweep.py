@@ -37,9 +37,7 @@ This removes the fixed-duration / fixed-sample-fraction bias from the previous m
 from __future__ import annotations
 
 import argparse
-import csv
 import math
-import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -51,21 +49,31 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.ticker import AutoMinorLocator, MultipleLocator
 
+from sweep_method import (
+    DEFAULT_PERIOD_STEP,
+    MASK_B55_THRESHOLD,
+    N_AVG,
+    PERIOD_GRID,
+    PROVENANCE_CSV_COLS,
+    RAMP_S,
+    TIMESTEP_S,
+    WAVE_AMPLITUDE_M,
+    WAVE_HEIGHT_M,
+    build_period_grid,
+    duration_for_period as _duration_for_period,
+    load_output_rows,
+    parse_provenance_fields,
+    provenance_fields,
+    replace_yaml_scalar,
+    whole_cycle_tail_slice,
+    write_efficiency_csv as _write_efficiency_csv,
+)
+
 # ---------------------------------------------------------------------------
 # Shared constants (match the CC / ff+PID sweep scripts exactly)
 # ---------------------------------------------------------------------------
-DEFAULT_PERIOD_STEP = 0.25
-PERIOD_GRID = np.round(
-    np.arange(0.5, 7.01, DEFAULT_PERIOD_STEP), 2
-)  # T = 0.5, 0.75, …, 7.0 s (27 pts)
-WAVE_HEIGHT_M = 0.05
-WAVE_AMPLITUDE_M = WAVE_HEIGHT_M / 2.0
-RAMP_S = 10.0
 N_SETTLE = 130
-N_AVG = 20
 N_CYCLES = N_SETTLE + N_AVG
-TIMESTEP_S = 0.01
-MASK_B55_THRESHOLD = 1e-4
 ETA_GT1_TOL = 1e-6
 PITCH_DOF_INDEX = 4  # 0-based, DOF5 (pitch)
 MASK_NOTE = f"B55 <= {MASK_B55_THRESHOLD:.0e}"
@@ -127,52 +135,29 @@ def run_cmd(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, cwd=str(cwd), text=True, capture_output=True, check=False)
 
 
-def _replace_yaml_scalar(text: str, key: str, value: str) -> str:
-    pattern = re.compile(rf"^(\s*{re.escape(key)}:\s*).*$", re.MULTILINE)
-    out, n = pattern.subn(rf"\g<1>{value}", text, count=1)
-    if n != 1:
-        raise RuntimeError(f"Could not update key '{key}' in scratch config")
-    return out
-
-
 def duration_for_period(period_s: float) -> float:
-    return RAMP_S + N_CYCLES * period_s
-
-
-def build_period_grid(step_s: float) -> np.ndarray:
-    if not (step_s > 0.0):
-        raise ValueError("period step must be > 0")
-    period_grid = np.round(np.arange(0.5, 7.01, step_s), 2)
-    if period_grid.size == 0:
-        raise ValueError("period grid is empty")
-    if np.unique(period_grid).size != period_grid.size:
-        raise ValueError(
-            "period step must be compatible with the 0.01 s rounded grid representation"
-        )
-    if period_grid[0] != 0.5 or period_grid[-1] != 7.0:
-        raise ValueError("period step must preserve the inclusive 0.5 s to 7.0 s sweep bounds")
-    return period_grid
+    return _duration_for_period(period_s, N_CYCLES)
 
 
 def prepare_passive_scratch(template: Path, scratch: Path, period_s: float) -> None:
     duration_s = duration_for_period(period_s)
     txt = template.read_text()
-    txt = _replace_yaml_scalar(txt, "height", f"{WAVE_HEIGHT_M}")
-    txt = _replace_yaml_scalar(txt, "period", f"{period_s}")
-    txt = _replace_yaml_scalar(txt, "duration", f"{duration_s}")
-    txt = _replace_yaml_scalar(txt, "timestep", f"{TIMESTEP_S}")
+    txt = replace_yaml_scalar(txt, "height", f"{WAVE_HEIGHT_M}")
+    txt = replace_yaml_scalar(txt, "period", f"{period_s}")
+    txt = replace_yaml_scalar(txt, "duration", f"{duration_s}")
+    txt = replace_yaml_scalar(txt, "timestep", f"{TIMESTEP_S}")
     scratch.write_text(txt)
 
 
 def prepare_opt_passive_scratch(template: Path, scratch: Path, period_s: float) -> None:
     duration_s = duration_for_period(period_s)
     txt = template.read_text()
-    txt = _replace_yaml_scalar(txt, "height", f"{WAVE_HEIGHT_M}")
-    txt = _replace_yaml_scalar(txt, "period", f"{period_s}")
-    txt = _replace_yaml_scalar(txt, "duration", f"{duration_s}")
-    txt = _replace_yaml_scalar(txt, "timestep", f"{TIMESTEP_S}")
+    txt = replace_yaml_scalar(txt, "height", f"{WAVE_HEIGHT_M}")
+    txt = replace_yaml_scalar(txt, "period", f"{period_s}")
+    txt = replace_yaml_scalar(txt, "duration", f"{duration_s}")
+    txt = replace_yaml_scalar(txt, "timestep", f"{TIMESTEP_S}")
     # Update design_omega to match this period's excitation frequency
-    txt = _replace_yaml_scalar(txt, "design_omega", f"{(2.0 * math.pi) / period_s:.8f}")
+    txt = replace_yaml_scalar(txt, "design_omega", f"{(2.0 * math.pi) / period_s:.8f}")
     scratch.write_text(txt)
 
 
@@ -186,33 +171,11 @@ def locate_results_csv(repo: Path, scratch: Path) -> Path:
     raise FileNotFoundError(f"No results CSV found for scratch config '{scratch.name}'")
 
 
-def _time_column_name(fieldnames: list[str] | None) -> str:
-    if not fieldnames:
-        raise RuntimeError("Output CSV is missing a header row")
-    for key in ("time_s", "time", "t_s", "t"):
-        if key in fieldnames:
-            return key
-    raise RuntimeError(f"Could not find a time column in output CSV header: {fieldnames}")
-
-
 def steady_state_mean_power(csv_path: Path, period_s: float) -> float:
-    with csv_path.open(newline="") as fh:
-        reader = csv.DictReader(fh)
-        rows = list(reader)
-    if not rows:
-        raise RuntimeError(f"No rows in output CSV: {csv_path}")
-    time_key = _time_column_name(reader.fieldnames)
-    times = np.array([float(r[time_key]) for r in rows], dtype=float)
+    fieldnames, rows = load_output_rows(csv_path)
+    steady_state_slice, _ = whole_cycle_tail_slice(fieldnames, rows, period_s, N_AVG)
     pw = np.array([float(r["power_w"]) for r in rows], dtype=float)
-    t_end = float(times[-1])
-    window_start = t_end - (N_AVG * period_s)
-    mask = times >= window_start
-    if int(np.count_nonzero(mask)) < 10:
-        raise RuntimeError(
-            f"Steady-state averaging window is undersampled for {csv_path}: "
-            f"{np.count_nonzero(mask)} samples over final {N_AVG} cycles"
-        )
-    return float(np.mean(pw[mask]))
+    return float(np.mean(pw[steady_state_slice]))
 
 
 def run_capture_sweep(
@@ -323,52 +286,42 @@ def popt_curve_from_h5(
 CSV_COLS = [
     "T_s", "omega_rads", "P_capture_W", "P_opt_W",
     "B55_Nmsrad", "F_exc_Nm", "eta", "masked",
-    "duration_s", "dt_s", "period_step_s", "n_settle", "n_avg",
+    *PROVENANCE_CSV_COLS,
 ]
 
 
 def write_efficiency_csv(out_csv: Path, rows: list[dict]) -> None:
-    out_csv.parent.mkdir(parents=True, exist_ok=True)
-    with out_csv.open("w", newline="") as fh:
-        w = csv.DictWriter(fh, fieldnames=CSV_COLS)
-        w.writeheader()
-        for r in rows:
-            w.writerow(r)
+    _write_efficiency_csv(out_csv, rows, CSV_COLS)
 
 
 def load_efficiency_csv(csv_path: Path) -> list[dict]:
     rows = []
-    with csv_path.open(newline="") as fh:
-        reader = csv.DictReader(fh)
-        for r in reader:
-            out = {
-                "T_s": float(r["T_s"]),
-                "omega_rads": float(r["omega_rads"]),
-                "P_capture_W": float(r["P_capture_W"]) if r.get("P_capture_W", "").strip() else float("nan"),
-                "P_opt_W": float(r["P_opt_W"]) if r.get("P_opt_W", "").strip() else float("nan"),
-                "B55_Nmsrad": float(r["B55_Nmsrad"]),
-                "F_exc_Nm": float(r["F_exc_Nm"]),
-                "eta": float(r["eta"]) if r.get("eta", "").strip() else float("nan"),
-                "masked": str(r.get("masked", "false")).strip().lower() == "true",
-                "duration_s": float(r["duration_s"]) if r.get("duration_s", "").strip() else float("nan"),
-                "dt_s": float(r["dt_s"]) if r.get("dt_s", "").strip() else float("nan"),
-                "period_step_s": float(r["period_step_s"]) if r.get("period_step_s", "").strip() else float("nan"),
-                "n_settle": int(r["n_settle"]) if r.get("n_settle", "").strip() else 0,
-                "n_avg": int(r["n_avg"]) if r.get("n_avg", "").strip() else 0,
-                "linear_popt_invalid": False,
-            }
-            if (
-                (not out["masked"])
-                and (not np.isfinite(out["eta"]))
-                and np.isfinite(out["P_capture_W"])
-                and np.isfinite(out["P_opt_W"])
-                and out["P_opt_W"] > 0.0
-            ):
-                out["eta"] = out["P_capture_W"] / out["P_opt_W"]
-            out["linear_popt_invalid"] = bool(
-                np.isfinite(out["eta"]) and out["eta"] > (1.0 + ETA_GT1_TOL)
-            )
-            rows.append(out)
+    _, raw_rows = load_output_rows(csv_path)
+    for r in raw_rows:
+        out = {
+            "T_s": float(r["T_s"]),
+            "omega_rads": float(r["omega_rads"]),
+            "P_capture_W": float(r["P_capture_W"]) if r.get("P_capture_W", "").strip() else float("nan"),
+            "P_opt_W": float(r["P_opt_W"]) if r.get("P_opt_W", "").strip() else float("nan"),
+            "B55_Nmsrad": float(r["B55_Nmsrad"]),
+            "F_exc_Nm": float(r["F_exc_Nm"]),
+            "eta": float(r["eta"]) if r.get("eta", "").strip() else float("nan"),
+            "masked": str(r.get("masked", "false")).strip().lower() == "true",
+            "linear_popt_invalid": False,
+            **parse_provenance_fields(r),
+        }
+        if (
+            (not out["masked"])
+            and (not np.isfinite(out["eta"]))
+            and np.isfinite(out["P_capture_W"])
+            and np.isfinite(out["P_opt_W"])
+            and out["P_opt_W"] > 0.0
+        ):
+            out["eta"] = out["P_capture_W"] / out["P_opt_W"]
+        out["linear_popt_invalid"] = bool(
+            np.isfinite(out["eta"]) and out["eta"] > (1.0 + ETA_GT1_TOL)
+        )
+        rows.append(out)
     rows.sort(key=lambda d: d["T_s"])
     return rows
 
@@ -398,11 +351,7 @@ def _build_csv_rows(
             "F_exc_Nm": f"{fexc[i]:.8e}",
             "eta": "" if masked[i] or not np.isfinite(eta) else f"{eta:.8e}",
             "masked": "true" if masked[i] else "false",
-            "duration_s": f"{duration_for_period(float(T)):.8e}",
-            "dt_s": f"{TIMESTEP_S:.8e}",
-            "period_step_s": f"{period_step_s:.8e}",
-            "n_settle": str(N_SETTLE),
-            "n_avg": str(N_AVG),
+            **provenance_fields(float(T), period_step_s, N_SETTLE, N_AVG, N_CYCLES),
         })
     return rows
 

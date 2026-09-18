@@ -17,6 +17,11 @@
 set -euo pipefail
 
 BIN="${BIN:-./build/demo_vgoswec}"
+# Provenance note: the committed ff+PID gains in config/vgoswec_*_exc_ff_pid.yaml
+# were selected under the old fixed-duration / half-record sweep method:
+# DURATION=171 s with the second half used for averages. They have NOT been
+# re-optimized under the unified whole-cycle method; formal gain optimization
+# remains issue #54 scope.
 DURATION=171   # [s]  ≥ 40×T_res for all flaps; second half used for averages
 OUTDIR="analysis"
 mkdir -p "$OUTDIR"
