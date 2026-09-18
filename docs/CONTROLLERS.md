@@ -297,18 +297,29 @@ python3 scripts/cc_vs_ffpid_comparison.py --plot-only
 
 ---
 
-## Passive vs optimal-passive sweep (deprecated from study — passive is degenerate)
+## Passive vs optimal-passive sweep
 
-> **Note:** Fixed-passive (`B_pto = B55(ω₀)`) is degenerate for all five VGOSWEC flap
-> variants (see `analysis/FINDINGS_3REGIME.md` §Appendix). `B_pto = B55(ω₀)` is
-> 10⁴–10⁵× smaller than `|Z_intrinsic(ω₀)|`, so passive captures ≈ 0 W across the
-> entire T = 0.5–7 s band. The fixed-passive arm has been **removed from the study**.
-> The `passive` controller type remains in the code for tank-test tuning, with a
-> `B_pto: 0.5` placeholder (TODO annotation) in `config/vgoswec_*_passive.yaml`.
+Fixed-passive (`B_pto = B55(ω₀)`) is **dominated by construction** in this
+comparison: `opt_passive` retunes `B_opt = |Z_intrinsic(ω)|` per period, while
+`passive` holds a single `B_pto` fixed. The two coincide at resonance and
+`opt_passive` wins off resonance.
 
-`scripts/passive_vs_optpassive_sweep.py` remains in the repo for reference.
-The opt_passive CSVs (`analysis/opt_passive/capture_efficiency_VGM*.csv`) are committed
-and used by the three-regime comparison script above.
+That does **not** make `passive` useless. It is retained as the
+**non-adaptive lower bound** — the only arm here representing a bolt-on damper
+that requires no wave-frequency knowledge. The gap to `opt_passive` is itself a
+headline result because it quantifies the value of frequency-dependent retuning.
+
+Examples from the committed sweep:
+
+- VGM-10 at `T = 3.25 s`: `η ≈ 12%` (`passive`) vs `≈ 15.5%` (`opt_passive`)
+- VGM-90 at `T = 0.50 s`: `η ≈ 10.7%` (`passive`) vs `≈ 85.5%` (`opt_passive`)
+
+Physical reading: retuning buys **little near resonance** and **a great deal
+off it**. That is exactly the variable-geometry argument in controller form.
+
+Both passive-arm CSV sets (`analysis/passive/capture_efficiency_VGM*.csv` and
+`analysis/opt_passive/capture_efficiency_VGM*.csv`) are committed, and
+`scripts/passive_vs_optpassive_sweep.py` remains the reproducer.
 
 ### Per-flap design_omega for opt_passive
 

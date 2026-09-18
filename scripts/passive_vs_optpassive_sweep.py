@@ -54,7 +54,10 @@ from matplotlib.ticker import AutoMinorLocator, MultipleLocator
 # ---------------------------------------------------------------------------
 # Shared constants (match the CC / ff+PID sweep scripts exactly)
 # ---------------------------------------------------------------------------
-PERIOD_GRID = np.round(np.arange(0.5, 7.01, 0.25), 2)  # T = 0.5, 0.75, …, 7.0 s (27 pts)
+DEFAULT_PERIOD_STEP = 0.25
+PERIOD_GRID = np.round(
+    np.arange(0.5, 7.01, DEFAULT_PERIOD_STEP), 2
+)  # T = 0.5, 0.75, …, 7.0 s (27 pts)
 WAVE_HEIGHT_M = 0.05
 WAVE_AMPLITUDE_M = WAVE_HEIGHT_M / 2.0
 RAMP_S = 10.0
@@ -136,6 +139,21 @@ def duration_for_period(period_s: float) -> float:
     return RAMP_S + N_CYCLES * period_s
 
 
+def build_period_grid(step_s: float) -> np.ndarray:
+    if not (step_s > 0.0):
+        raise ValueError("period step must be > 0")
+    period_grid = np.round(np.arange(0.5, 7.01, step_s), 2)
+    if period_grid.size == 0:
+        raise ValueError("period grid is empty")
+    if np.unique(period_grid).size != period_grid.size:
+        raise ValueError(
+            "period step must be compatible with the 0.01 s rounded grid representation"
+        )
+    if period_grid[0] != 0.5 or period_grid[-1] != 7.0:
+        raise ValueError("period step must preserve the inclusive 0.5 s to 7.0 s sweep bounds")
+    return period_grid
+
+
 def prepare_passive_scratch(template: Path, scratch: Path, period_s: float) -> None:
     duration_s = duration_for_period(period_s)
     txt = template.read_text()
@@ -202,8 +220,9 @@ def run_capture_sweep(
     demo: Path,
     flap_angle: int,
     controller_type: str,
+    period_grid: np.ndarray,
 ) -> dict[float, float]:
-    """Run a single-controller capture sweep across PERIOD_GRID.
+    """Run a single-controller capture sweep across period_grid.
 
     controller_type: 'passive' or 'opt_passive'
     """
@@ -217,7 +236,7 @@ def run_capture_sweep(
         prefix=f"{controller_type}-vgm{flap_angle}-", dir="/tmp"
     ) as td:
         scratch = Path(td) / f"{controller_type}_vgm{flap_angle}.yaml"
-        for T in PERIOD_GRID:
+        for T in period_grid:
             duration_s = duration_for_period(float(T))
             prepare_fn(cfg, scratch, float(T))
             cmd = [
@@ -304,7 +323,7 @@ def popt_curve_from_h5(
 CSV_COLS = [
     "T_s", "omega_rads", "P_capture_W", "P_opt_W",
     "B55_Nmsrad", "F_exc_Nm", "eta", "masked",
-    "duration_s", "dt_s", "n_settle", "n_avg",
+    "duration_s", "dt_s", "period_step_s", "n_settle", "n_avg",
 ]
 
 
@@ -333,6 +352,7 @@ def load_efficiency_csv(csv_path: Path) -> list[dict]:
                 "masked": str(r.get("masked", "false")).strip().lower() == "true",
                 "duration_s": float(r["duration_s"]) if r.get("duration_s", "").strip() else float("nan"),
                 "dt_s": float(r["dt_s"]) if r.get("dt_s", "").strip() else float("nan"),
+                "period_step_s": float(r["period_step_s"]) if r.get("period_step_s", "").strip() else float("nan"),
                 "n_settle": int(r["n_settle"]) if r.get("n_settle", "").strip() else 0,
                 "n_avg": int(r["n_avg"]) if r.get("n_avg", "").strip() else 0,
                 "linear_popt_invalid": False,
@@ -354,6 +374,8 @@ def load_efficiency_csv(csv_path: Path) -> list[dict]:
 
 
 def _build_csv_rows(
+    period_grid: np.ndarray,
+    period_step_s: float,
     captures: dict[float, float],
     omega: np.ndarray,
     b55: np.ndarray,
@@ -362,7 +384,7 @@ def _build_csv_rows(
     masked: np.ndarray,
 ) -> list[dict]:
     rows: list[dict] = []
-    for i, T in enumerate(PERIOD_GRID):
+    for i, T in enumerate(period_grid):
         p_capture = captures.get(float(T), float("nan"))
         eta = float("nan")
         if not masked[i] and np.isfinite(p_capture) and p_opt[i] > 0:
@@ -378,6 +400,7 @@ def _build_csv_rows(
             "masked": "true" if masked[i] else "false",
             "duration_s": f"{duration_for_period(float(T)):.8e}",
             "dt_s": f"{TIMESTEP_S:.8e}",
+            "period_step_s": f"{period_step_s:.8e}",
             "n_settle": str(N_SETTLE),
             "n_avg": str(N_AVG),
         })
@@ -766,7 +789,13 @@ def plot_summary_efficiency_comparison(
 # Main sweep + CSV writing
 # ---------------------------------------------------------------------------
 
-def compute_and_write_csvs(repo: Path, demo: Path, run_sim: bool) -> tuple[dict[int, Path], dict[int, Path]]:
+def compute_and_write_csvs(
+    repo: Path,
+    demo: Path,
+    run_sim: bool,
+    period_grid: np.ndarray,
+    period_step_s: float,
+) -> tuple[dict[int, Path], dict[int, Path]]:
     passive_csv_map: dict[int, Path] = {}
     opt_csv_map: dict[int, Path] = {}
 
@@ -776,7 +805,7 @@ def compute_and_write_csvs(repo: Path, demo: Path, run_sim: bool) -> tuple[dict[
             print(f"[warn] skipping {meta['label']}: missing hydro H5 {h5_path}")
             continue
 
-        omega, b55, fexc, p_opt, masked = popt_curve_from_h5(h5_path, PERIOD_GRID)
+        omega, b55, fexc, p_opt, masked = popt_curve_from_h5(h5_path, period_grid)
 
         for ctrl in ("passive", "opt_passive"):
             cfg_path = repo / meta[f"{ctrl}_config"]
@@ -787,9 +816,9 @@ def compute_and_write_csvs(repo: Path, demo: Path, run_sim: bool) -> tuple[dict[
             captures: dict[float, float] = {}
             if run_sim:
                 print(f"[run] sweeping {ctrl} for {meta['label']}...")
-                captures = run_capture_sweep(repo, demo, angle, ctrl)
+                captures = run_capture_sweep(repo, demo, angle, ctrl, period_grid)
 
-            rows = _build_csv_rows(captures, omega, b55, fexc, p_opt, masked)
+            rows = _build_csv_rows(period_grid, period_step_s, captures, omega, b55, fexc, p_opt, masked)
 
             if ctrl == "passive":
                 out_csv = repo / "analysis" / "passive" / f"capture_efficiency_VGM{angle}.csv"
@@ -885,6 +914,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Skip simulations/CSV generation and regenerate figures from committed CSVs",
     )
+    p.add_argument(
+        "--period-step",
+        type=float,
+        default=DEFAULT_PERIOD_STEP,
+        help="Period grid step in seconds (default: %(default)s)",
+    )
     return p.parse_args()
 
 
@@ -911,7 +946,15 @@ def main() -> int:
         print("Build first (or use --plot-only if CSVs already exist).")
         return 2
 
-    passive_csv_map, opt_csv_map = compute_and_write_csvs(repo, demo, run_sim=True)
+    period_grid = build_period_grid(args.period_step)
+    print(
+        "[grid] period-step="
+        f"{args.period_step:g} s, points={len(period_grid)}, "
+        f"first={period_grid[0]:.2f} s, last={period_grid[-1]:.2f} s"
+    )
+    passive_csv_map, opt_csv_map = compute_and_write_csvs(
+        repo, demo, run_sim=True, period_grid=period_grid, period_step_s=args.period_step
+    )
     if not passive_csv_map and not opt_csv_map:
         print("ERROR: No flap configurations were available to process")
         return 2

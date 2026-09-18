@@ -1,6 +1,6 @@
 # Project State — Session Handoff
 
-**Last updated: 2026-09-17** · Refresh this file at each phase boundary so any new session can resume exactly here.
+**Last updated: 2026-09-18** · Refresh this file at each phase boundary so any new session can resume exactly here.
 
 ---
 
@@ -43,7 +43,15 @@ The **real novelty is the controller × variable-geometry (flap-angle) operating
 
 ### Honest-framing rules to preserve in the manuscript
 - Regime ordering is physically expected → frame as **systematic simulated quantification**, not discovery.
-- Fixed-passive was pruned as degenerate → do not promote it as a meaningful arm.
+- Fixed-passive is retained as the non-adaptive lower bound: it is dominated by
+  `opt_passive` by construction off resonance, and the gap between the two arms
+  quantifies the value of frequency-dependent retuning. It is also the only arm
+  here that does **not** require wave-frequency knowledge; CC, `opt_passive`,
+  and tuned `exc_ff_pid` all do.
+  Representative gaps: VGM-10 at `T = 3.25 s` runs about `12%` (`passive`) vs
+  `15.5%` (`opt_passive`), while VGM-90 at `T = 0.50 s` runs about `10.7%` vs
+  `85.5%`. Physical reading: retuning buys little near resonance and a great
+  deal off it.
 - ff+PID "ties opt_passive at resonance" — do **not** claim it is universally optimal.
 - ff+PID uses **empirical (not formally optimized) gains**; formal gain optimization is the #54 second-paper scope.
 
@@ -78,7 +86,9 @@ The maturity placements above are drawn from general knowledge of the Ringwood /
 
 ## 6. Immediate next actions
 
-1. **Passive campaign** — next simulation-side work item, now that free-decay is banked.
+1. **Passive-campaign write-up** — carry the measured period-step, timestep, and
+   retuning findings into the paper-facing narrative and keep the fixed-passive
+   framing honest.
 2. **Kick off #50** — deep-research literature review to produce the related-work section skeleton + novelty verdict; this is the gate before any manuscript drafting begins.
 3. **Refresh this file** at each subsequent phase boundary (end of lit review, start of drafting, etc.).
 
@@ -87,6 +97,5 @@ The maturity placements above are drawn from general knowledge of the Ringwood /
 Tracked as follow-up items in [`docs/RESULTS_CAMPAIGN_2026-09-17.md`](RESULTS_CAMPAIGN_2026-09-17.md); none affect results:
 
 - `--strict` writes `docs/freedecay_validation.csv` before exiting non-zero; it should refuse to write artifacts at all.
-- `[impedance] INFO: legacy A55-match rho=...` prints once per sweep row — log noise only, the value is diagnostic and feeds nothing.
 - Vestigial `hydro.rho` key in `config/*.yaml` has no consumer; remove or comment as unused.
 - VGM-20 sits above the ζ trend in **both** raw datasets — most plausibly physical, worth a look before publication.

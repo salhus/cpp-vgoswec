@@ -1,8 +1,12 @@
 # End-of-day summary — 2026-09-17
 
 **Session outcome:** free-decay validation stage **closed**; MATLAB/WEC-Sim
-validation work **complete**; passive-campaign method reworked and documented;
-full passive/opt_passive sweep **launched and still running at end of session**.
+validation work **complete**; passive-campaign method reworked and documented.
+
+**2026-09-18 follow-up:** the passive / `opt_passive` sweep completed under the
+PR #61 method (150 cycles, whole-cycle averaging, `dt = 0.01`) and the
+measured conclusions below supersede the open questions recorded in the
+original draft of this note.
 
 This file is written to be self-contained. If the chat session is lost, this
 document plus the linked files is sufficient to resume without re-deriving
@@ -288,23 +292,33 @@ awk -F, 'FNR>1 && $7!="" && $7+0>1 {print FILENAME, "T="$1, "eta="$7}' \
   analysis/opt_passive/capture_efficiency_VGM*.csv
 ```
 
-η > 1 is unphysical against the Budal bound. If whole-cycle averaging worked,
-there should be **fewer** than before. Any survivors are most likely
-mask-boundary artifacts where `B55` is near the `1e-4` threshold and `P_opt`
-blows up — physics/masking, not averaging bias.
+Result: **no** η > 1 points anywhere across the ten passive / `opt_passive`
+CSVs. This passed the Budal-bound audit cleanly. The earlier speculation that
+partial-cycle averaging might have contributed to spurious η > 1 flags is **not
+supported by the data**.
 
 ### Check 3 — old vs new `P_capture` delta
 
-This quantifies what the bias was worth, and is the headline result of the
-method change.
+This quantifies what the bias was worth. It turned out to be small enough that
+the previous results were **not materially wrong**.
 
 ```bash
 diff <(cut -d, -f1,3 /tmp/vgm90_opt_OLD.csv) \
      <(cut -d, -f1,3 analysis/opt_passive/capture_efficiency_VGM90.csv)
 ```
 
-Old baseline reference point: **VGM-90 opt_passive, T = 0.50 s, η = 82.32%**,
-`P_capture = 2.32311101e-01 W`, `P_opt = 2.82206595e-01 W`.
+Measured VGM-90 `opt_passive` deltas:
+
+| T [s] | old | new | delta |
+|---:|---:|---:|---:|
+| 2.25 | 1.15509970e-01 | 1.15774391e-01 | +0.23% |
+| 2.50 | 5.08708353e-01 | 5.07947697e-01 | −0.15% |
+| 2.75 | 2.03070970e-01 | 2.02150933e-01 | −0.45% |
+
+So the PR #61 method change is justified on **rigor, determinism, and
+defensibility** — the whole-cycle residual is identically zero and the
+period-aware duration fixes the inconsistent cycle-count issue — not on having
+moved the physics in a significant way.
 
 If `/tmp` was cleared, recover old values with:
 
@@ -313,6 +327,43 @@ git show HEAD:analysis/opt_passive/capture_efficiency_VGM90.csv | head -3
 ```
 
 (valid only before committing the new CSVs).
+
+### Check 4 — `dt = 0.01` in the low-damping regime
+
+The original `T = 7.0 s` convergence check was the easy case because damping is
+high there. A stricter follow-up was run at **T = 2.50 s, VGM-90
+`opt_passive`, `design_omega = 2.51327412`**, where `B55 ≈ 4.11e-4` and the
+mask threshold is only `1e-4`:
+
+| dt | `P_capture` [W] |
+|---:|---:|
+| 0.01 | 5.079e-01 |
+| 0.005 | 5.099e-01 |
+
+These are **0.4% apart**. `dt = 0.01` is therefore confirmed converged in the
+demanding low-damping case, not just at `T = 7.0 s`.
+
+### Check 5 — T = 2.50 s retuning effect
+
+The spike at `T = 2.50 s` for VGM-90 `opt_passive` is real and survives every
+numerical audit:
+
+- `P_capture = 5.08e-01 W` at `T = 2.50 s`, versus `1.16e-01 W` at `T = 2.25 s`
+  and `2.02e-01 W` at `T = 2.75 s` — a **4.4×** jump.
+- `B55` is smooth and monotone through the spike
+  (`3.66e-4 → 4.11e-4 → 4.11e-4`), so this is **not** a denominator or masking
+  artifact.
+- It is **not** a timestep artifact (`dt = 0.01` vs `0.005`: 0.4% apart).
+- It is **not** an averaging artifact (old vs new moved only by a few tenths of
+  a percent).
+- It **is** a controller-tuning effect: at the same `T = 2.50 s`, changing only
+  `design_omega` from `2.094` to `2.51327412` moves `P_capture` from
+  `0.218 W` to `0.510 W` — a **2.3×** change from damper tuning alone.
+
+A similar bump appears in VGM-45 `opt_passive` near `T = 3.0 s`, and VGM-90
+`passive` shows a smaller bump near `T = 2.75 s` in the summary figure. This is
+worth investigating across flaps and across both passive arms, but the record
+should stay descriptive: no stronger mechanism claim is justified yet.
 
 ### Expected quirk — VGM-90 near its own resonance
 
@@ -342,20 +393,22 @@ tell them apart.
 | [`docs/REPRODUCTION.md`](REPRODUCTION.md) | Passive section updated for the new method. |
 | [`docs/freedecay_wecsim_rawdata_validation.md`](freedecay_wecsim_rawdata_validation.md) | Primary ω_n / ζ reference. Unchanged. |
 
-No known fictitious or stale issues remain in the documentation.
+The passive-campaign notes now require one correction in
+[`docs/PROJECT_STATE.md`](PROJECT_STATE.md): fixed-passive should be described
+as a dominated but informative non-adaptive lower bound, not as a degenerate
+arm to discard.
 
 ---
 
 ## 7. Open items
 
 ### Next session
-1. **Read the sweep results** — §5 checks 1–3.
-2. **Commit the new CSVs and figures** once reviewed, with a note that they were
-   produced under the 150-cycle / whole-cycle / `dt = 0.01` method.
-3. **Decide the fixed-passive question.** `PROJECT_STATE.md` records fixed-passive
-   as "pruned as degenerate." The sweep regenerates both arms — worth confirming
-   from the new data whether that call still holds, since the averaging fix
-   changes the comparison.
+1. **Keep passive in the study as the non-adaptive lower bound.** It is
+   dominated by construction because `opt_passive` retunes per period, but the
+   gap between the two arms is itself the quantified value of frequency-aware
+   damper retuning.
+2. **If a finer diagnostic sweep is needed, use a uniform re-grid via**
+   `--period-step` rather than changing the committed default 0.25 s grid.
 
 ### Then
 4. **Kick off #50** — literature positioning / related-work verification. This is
@@ -364,10 +417,9 @@ No known fictitious or stale issues remain in the documentation.
 ### Minor, non-blocking
 - `--strict` in `freedecay_validation.py` writes artifacts before exiting
   non-zero; should refuse to write at all.
-- `[impedance] INFO: legacy A55-match rho=...` prints once per hydro-sweep row —
-  observed firing far more than the "32×" previously documented. Pure log noise
-  (the value is diagnostic), but it bloats captured stderr across 270 runs.
-  Resolve `rho` once at load.
+- `[impedance] INFO: legacy A55-match rho=...` was firing once per hydro-sweep
+  lookup — far more than the old "32×" note claimed. Pure log noise only; it
+  should be emitted at most once per process.
 - Vestigial `hydro.rho` in `config/*.yaml` — no consumer; remove or comment.
 - VGM-20 sits above the ζ trend in **both** independently-processed datasets —
   most plausibly physical (20°-geometry hydrodynamic coupling), worth a look

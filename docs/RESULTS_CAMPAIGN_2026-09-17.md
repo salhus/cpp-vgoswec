@@ -193,11 +193,10 @@ None of these block the free-decay stage. All are tracked here for the record.
    fallback rows still writes `docs/freedecay_validation.csv` before exiting
    non-zero, leaving a `source=fallback` row in the tracked CSV. It should
    refuse to write artifacts at all.
-3. **`[impedance] INFO: legacy A55-match rho=...` log spam.** Printed once per
-   sweep row (32× in a single run) despite being a static property of the H5
-   file, resolved once at load rather than on every table lookup. Purely log
-   noise — the printed value is a diagnostic, not an input to any computation.
-   Carried over from `docs/EOD_SUMMARY_2026-09-16.md`.
+3. **`[impedance] INFO: legacy A55-match rho=...` log spam.** This was being
+   printed on repeated hydro lookups despite being a static property of the H5
+   file. Purely log noise — the printed value is a diagnostic, not an input to
+   any computation. Carried over from `docs/EOD_SUMMARY_2026-09-16.md`.
 4. **Vestigial `hydro.rho` key in `config/*.yaml`.** The configs carry
    `rho = 1025 kg/m³`, parsed into `SimConfig::rho` by `config_loader.cpp`, but
    nothing downstream consumes it. De-normalization is pinned to the H5-stored
