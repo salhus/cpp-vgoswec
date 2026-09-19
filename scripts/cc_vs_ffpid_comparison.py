@@ -546,6 +546,7 @@ def plot_summary_efficiency_comparison(
     cc_csv_map: dict[int, Path],
     fp_csv_map: dict[int, Path],
     out_png: Path,
+    efficiency_ceiling: float,
 ) -> None:
     fig, ax = plt.subplots(figsize=(9.0, 5.0))
     cmap = plt.cm.viridis(np.linspace(0.15, 0.9, len(FLAP_ANGLES)))
@@ -583,7 +584,7 @@ def plot_summary_efficiency_comparison(
         ydata = np.asarray(lines.get_ydata(), dtype=float)
         if ydata.size:
             eta_series.append(ydata)
-    ax.set_ylim(*_show_all_limits(*eta_series, ceiling=_compute_efficiency_ceiling(cc_csv_map, fp_csv_map)))
+    ax.set_ylim(*_show_all_limits(*eta_series, ceiling=efficiency_ceiling))
     ax.legend(loc="best", fontsize=7, ncol=2)
 
     fig.tight_layout()
@@ -675,7 +676,7 @@ def main() -> int:
     summary_png = out_dir / f"cc_vs_ffpid_summary{suffix}.png"
     plot_summary_comparison(cc_present, fp_present, summary_png, power_ceiling)
     summary_eta_png = out_dir / f"cc_vs_ffpid_efficiency_summary{suffix}.png"
-    plot_summary_efficiency_comparison(cc_present, fp_present, summary_eta_png)
+    plot_summary_efficiency_comparison(cc_present, fp_present, summary_eta_png, efficiency_ceiling)
 
     return 0
 
