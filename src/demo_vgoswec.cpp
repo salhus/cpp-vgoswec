@@ -357,6 +357,8 @@ int main(int argc, char* argv[]) {
   auto exc_provider = std::make_shared<vgoswec::ExcitationForceProvider>(0, 4);
   auto controller = BuildController(
       cfg, args.controller_override, h5_file, impedance_h5_file, hydro_data, exc_provider);
+  auto exc_ff_pid_controller =
+      std::dynamic_pointer_cast<vgoswec::ExcitationVelocityController>(controller);
 
   // RSDA: applies PTO torque at every force-assembly sub-step via RsdaPtoFunctor.
   // This replaces the per-outer-step ChLinkMotorRotationTorque + ChFunctionConst pattern.
@@ -733,6 +735,22 @@ int main(int argc, char* argv[]) {
               << "Rebuild with GUI support or use --no-viz.\n";
     return 2;
 #endif
+  }
+
+  if (exc_ff_pid_controller) {
+    const double guard_pct = 100.0 * exc_ff_pid_controller->GetGuardFireFraction();
+    const double clip_pct = 100.0 * exc_ff_pid_controller->GetClipFraction();
+    std::cout << "=== EXC_FF_PID GUARD DIAGNOSTIC ===\n"
+              << "  ComputeForce calls   = " << exc_ff_pid_controller->GetCallCount() << "\n"
+              << std::fixed << std::setprecision(2)
+              << "  Guard fires          = " << exc_ff_pid_controller->GetGuardFireCount()
+              << "  (" << guard_pct << "%)\n"
+              << "  Clip saturations     = " << exc_ff_pid_controller->GetClipCount()
+              << "  (" << clip_pct << "%)\n"
+              << "===================================\n"
+              << std::setprecision(6)
+              << "GUARD_FIRE_FRACTION: " << exc_ff_pid_controller->GetGuardFireFraction() << "\n"
+              << "CLIP_FRACTION: " << exc_ff_pid_controller->GetClipFraction() << "\n";
   }
 
   std::filesystem::create_directories("output");

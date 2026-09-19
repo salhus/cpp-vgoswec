@@ -370,7 +370,10 @@ measuring the effective hinge impedance via `revolute->GetReactionTorque()`.
 **Observable consequences:**
 1. The capture peak sits **below** each flap's resonance frequency (not at it).
 2. At short periods (high frequencies), the controller injects energy — which the
-   `passive_safe` guard is designed to contain.
+   `passive_safe` guard is designed to contain. This is now instrumented at runtime:
+   `demo_vgoswec` prints an `=== EXC_FF_PID GUARD DIAGNOSTIC ===` block plus stable
+   `GUARD_FIRE_FRACTION:` / `CLIP_FRACTION:` stdout lines after each `exc_ff_pid`
+   run, so the override rate can be checked directly.
 3. `alpha` must be positive (empirically) to paper over the phase/sign mismatch.
 
 **Impact on tuning results:** All shipped gain sets are validated as passive-safe and

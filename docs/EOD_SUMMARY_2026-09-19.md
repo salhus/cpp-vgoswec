@@ -129,7 +129,7 @@ The owner should be able to `git pull` and immediately re-run the `opt_passive` 
 
 ## 7. Open items carried forward
 
-1. **Highest priority:** ff+PID guard-fire fraction was never measured. Instrument `ExcitationVelocityController::ComputeForce` to count `tau*vel > 0` events and run VGM-0 at `T = 4.50 s`. If the guard fires near 100% of the time, the long-period band is the passive-safety floor rather than feedforward control, and the claim *"ff+PID carries the long-period tail"* must be rewritten.
+1. **Highest priority:** ff+PID guard-fire instrumentation now exists in `ExcitationVelocityController::ComputeForce` and `demo_vgoswec` prints the guard-fire / clip fractions after each `exc_ff_pid` run. What remains is the actual VGM-0 `T = 4.50 s` run and interpretation: if the guard fires near 100% of the time, the long-period band is the passive-safety floor rather than feedforward control, and the claim *"ff+PID carries the long-period tail"* must be rewritten.
 2. The `2.44488972 W` headline is still unconfirmed as settled (`430 s` vs `760 s` check still needed).
 3. **Resolved in follow-up PR:** sweep post-processing now reads hinge-referenced
    `hydroData/hinged_vgoswec_*.h5`, clamps de-normalized `B55 >= 0` in Python to
