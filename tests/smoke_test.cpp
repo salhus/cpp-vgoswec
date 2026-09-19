@@ -271,6 +271,9 @@ TEST(ExcitationVelocityController, Clipping) {
 
     exc->UpdateDirect(10.0, 0.0);  // vel_ref = 10, pid error = 10 - 0 = 10, tau_pid = 100 -> clamp
     EXPECT_EQ(controller.ComputeForce(0.0, 0.0, 0.0), 5.0);
+    EXPECT_EQ(controller.GetClipCount(), 1u);
+    EXPECT_EQ(controller.GetCallCount(), 1u);
+    EXPECT_DOUBLE_EQ(controller.GetClipFraction(), 1.0);
 }
 
 TEST(ExcitationVelocityController, PidTermUsesInternalClampBeforeFinalClamp) {
@@ -303,6 +306,8 @@ TEST(ExcitationVelocityControllerPassiveSafe, GuardTriggersWhenCommandWouldInjec
 
     // vel=2: tau_raw = +7 → injecting; guard replaces with tau_damp = -1.0
     EXPECT_NEAR(controller.ComputeForce(0.0, 2.0, 0.0), -1.0, 1e-9);
+    EXPECT_EQ(controller.GetGuardFireCount(), 1u);
+    EXPECT_EQ(controller.GetCallCount(), 1u);
 }
 
 TEST(ExcitationVelocityControllerPassiveSafe, GuardNoOpWhenCommandIsDissipative) {
@@ -319,6 +324,8 @@ TEST(ExcitationVelocityControllerPassiveSafe, GuardNoOpWhenCommandIsDissipative)
 
     // tau = -5.5: dissipative (same direction as restoring), guard is a no-op
     EXPECT_NEAR(controller.ComputeForce(0.0, 1.0, 0.0), -5.5, 1e-9);
+    EXPECT_EQ(controller.GetGuardFireCount(), 0u);
+    EXPECT_EQ(controller.GetCallCount(), 1u);
 }
 
 TEST(ExcitationVelocityControllerPassiveSafe, GuardDisabledRestoresUngardedBehavior) {
@@ -334,6 +341,26 @@ TEST(ExcitationVelocityControllerPassiveSafe, GuardDisabledRestoresUngardedBehav
 
     // tau_raw = +7: injecting, but guard is off → passes through as +7
     EXPECT_NEAR(controller.ComputeForce(0.0, 2.0, 0.0), 7.0, 1e-9);
+    EXPECT_EQ(controller.GetGuardFireCount(), 0u);
+    EXPECT_EQ(controller.GetCallCount(), 1u);
+}
+
+TEST(ExcitationVelocityControllerPassiveSafe, GuardFireFractionTracksMixedSequence) {
+    auto exc = std::make_shared<vgoswec::ExcitationForceProvider>(0, 4);
+    exc->UpdateDirect(10.0, 0.0);
+
+    vgoswec::ExcitationVelocityController controller(
+        exc, /*B_ctrl=*/0.5, /*alpha=*/1.0, MakeVelocityPid(/*kp=*/1.0), /*clip=*/100.0,
+        /*passive_safe=*/true);
+
+    EXPECT_NEAR(controller.ComputeForce(0.0, 2.0, 0.0), -1.0, 1e-9);   // fires
+    EXPECT_NEAR(controller.ComputeForce(0.0, -2.0, 0.01), 13.0, 1e-9); // dissipative
+    EXPECT_NEAR(controller.ComputeForce(0.0, 2.0, 0.02), -1.0, 1e-9);  // fires
+    EXPECT_NEAR(controller.ComputeForce(0.0, -2.0, 0.03), 13.0, 1e-9); // dissipative
+
+    EXPECT_EQ(controller.GetGuardFireCount(), 2u);
+    EXPECT_EQ(controller.GetCallCount(), 4u);
+    EXPECT_DOUBLE_EQ(controller.GetGuardFireFraction(), 0.5);
 }
 
 TEST(ConfigLoader, ExcitationVelocityControllerSchema) {

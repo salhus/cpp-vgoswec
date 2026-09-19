@@ -16,6 +16,7 @@
 #ifndef VGOSWEC_ACTIVE_PTO_H
 #define VGOSWEC_ACTIVE_PTO_H
 
+#include <cstddef>
 #include <memory>
 #include <seastack/pto/pto_model.h>
 #include "excitation_force_provider.h"
@@ -101,6 +102,11 @@ class ExcitationVelocityController : public seastack::pto::IPTOModel {
                                  bool passive_safe = true);
 
     double ComputeForce(double disp, double vel, double t) override;
+    std::size_t GetCallCount() const;
+    std::size_t GetGuardFireCount() const;
+    std::size_t GetClipCount() const;
+    double GetGuardFireFraction() const;
+    double GetClipFraction() const;
 
  private:
     std::shared_ptr<ExcitationForceProvider> f_exc_source_;
@@ -109,6 +115,9 @@ class ExcitationVelocityController : public seastack::pto::IPTOModel {
     double clip_;
     bool   passive_safe_;
     std::unique_ptr<PIDController> pid_;
+    std::size_t n_calls_{0};
+    std::size_t n_guard_fires_{0};
+    std::size_t n_clipped_{0};
 };
 
 }  // namespace vgoswec

@@ -50,6 +50,7 @@ ExcitationVelocityController::ExcitationVelocityController(
       pid_(std::move(pid)) {}
 
 double ExcitationVelocityController::ComputeForce(double /*disp*/, double vel, double t) {
+    ++n_calls_;
     const double f_exc = f_exc_source_->GetLatestExcitationTorque();
     const double vel_ref = alpha_ * f_exc;
     pid_->SetSetpoint(vel_ref);
@@ -61,9 +62,33 @@ double ExcitationVelocityController::ComputeForce(double /*disp*/, double vel, d
     // replace it with the guaranteed-dissipative damping floor. The floor
     // cannot inject energy because it always opposes velocity.
     if (passive_safe_ && (tau * vel > 0.0)) {
+        ++n_guard_fires_;
         tau = tau_damp;
     }
+    if (tau < -clip_ || tau > clip_) {
+        ++n_clipped_;
+    }
     return std::clamp(tau, -clip_, clip_);
+}
+
+std::size_t ExcitationVelocityController::GetCallCount() const {
+    return n_calls_;
+}
+
+std::size_t ExcitationVelocityController::GetGuardFireCount() const {
+    return n_guard_fires_;
+}
+
+std::size_t ExcitationVelocityController::GetClipCount() const {
+    return n_clipped_;
+}
+
+double ExcitationVelocityController::GetGuardFireFraction() const {
+    return (n_calls_ == 0) ? 0.0 : static_cast<double>(n_guard_fires_) / static_cast<double>(n_calls_);
+}
+
+double ExcitationVelocityController::GetClipFraction() const {
+    return (n_calls_ == 0) ? 0.0 : static_cast<double>(n_clipped_) / static_cast<double>(n_calls_);
 }
 
 }  // namespace vgoswec
