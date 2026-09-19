@@ -29,13 +29,13 @@ single source of truth; the sweep script and the per-flap configs must agree.
 
 ## Hydrodynamics
 - **Physical plant coordinate:** the time-domain solver measures `P_capture` in the **hinge DOF**.
-- **Current post-processing basis:** the committed benchmark still tabulates
-  `F_exc_Nm` / `B55_Nmsrad` from the CG-referenced H5 files
-  (`hydroData/vgoswec_{0,10,20,45,90}.h5`).
-- **Implication:** `P_opt = |F_exc|^2 / (8 * B55)` is invariant under the CG↔hinge
-  referral, so the efficiency denominator is only mildly affected, but the
-  **masking** rule is basis-sensitive. A hinge-basis re-tabulation remains an open
-  post-processing task.
+- **Post-processing basis:** the committed capture-efficiency CSVs now tabulate
+  `F_exc_Nm` / `B55_Nmsrad` from the **hinge-referenced** H5 files
+  (`hydroData/hinged_vgoswec_{0,10,20,45,90}.h5`), matching the hinge DOF used by
+  the controller and `P_capture`.
+- **Implication:** `P_opt = |F_exc|^2 / (8 * B55)` remains basis-invariant in exact
+  referral, and the `masked` rule is now applied on the same hinge basis as the
+  time-domain capture curves.
 - **Hinge-referenced impedance files now matter elsewhere:** controller gain
   computation (`opt_passive`, CC) now explicitly uses
   `hydro.impedance_h5_file = hydroData/hinged_vgoswec_*.h5`. See
@@ -43,9 +43,10 @@ single source of truth; the sweep script and the per-flap configs must agree.
 - **P_opt (Budal / Falnes bound):** `P_opt = |F_exc|^2 / (8 * B55)`, computed from
   body1 pitch hydro (`radiation_damping/components/5_5` and
   `excitation/mag[dof=5,dir=0]`), at H = 0.05 m.
-- **De-normalization (WEC-Sim / BEMIO convention, rho and g read from each H5,
-  rho = 1000, g = 9.80665):**
-  - `B55 = B55_norm * rho * omega`  [N*m/(rad/s)]  (peak ~3, matches BEMRosetta)
+- **De-normalization (WEC-Sim / BEMIO convention, `rho` and `g` read from each H5;
+  hinged files currently store `rho = 1025`, whereas the earlier CG-basis notes
+  assumed `rho = 1000`):**
+  - `B55 = max(0, B55_norm * rho * omega)`  [N*m/(rad/s)]  (peak ~3, matches BEMRosetta)
   - `F_exc = F_exc_norm * rho * g * a`  [N*m]  (per-amplitude ~174 N*m/m, matches BEMRosetta)
 - **Mask rule:** points with `B55 <= 1e-04 N*m*s/rad` are treated as
   reactive-limited and omitted. On the 4-12 band all five flaps clear this
@@ -69,15 +70,11 @@ single source of truth; the sweep script and the per-flap configs must agree.
   omega = 7.0 and 7.5). At the 0.5 rad/s grid spacing this edge is under-resolved,
   so the exact peak height (~34 %) is grid-sensitive; the shape and location are
   robust. Refining the grid near omega ~ 7 would pin the peak value.
-- **CG- vs hinge-referenced:** P_opt/eta here use CG-referenced free-flap pitch
-  hydro, not the hinge-referenced flap. `F_exc` is the raw un-hinge-referred pitch
-  moment and `alpha` is signed positive to paper over the resulting phase/sign
-  mismatch.
+- **Hinge-referenced tabulation:** P_opt/eta and the `masked` rule are now tabulated
+  from hinge-referenced flap hydro, so the benchmark notes no longer rely on a
+  CG-basis workaround or sign-convention patch-up in post-processing.
 
 ## Follow-up (next milestone)
-- Re-tabulate `F_exc`, `B55`, and the `masked` column from the
-  **hinge-referenced** coefficients (`hinged_vgoswec_*.h5`) so benchmark masking is
-  consistent with the hinge DOF used by the plant.
 - Implement true complex-conjugate control (theoretical eta_max reference) with
   hinge-referenced K_r / B_r, then causal approximations (Korde) and constrained
   MPC (Ringwood). Resonance markers return once resonance is defined consistently
