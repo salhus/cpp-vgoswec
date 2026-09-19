@@ -160,10 +160,11 @@ static std::shared_ptr<seastack::pto::IPTOModel> BuildController(
   // External spring C_ext (hinge-referenced) equals its CG-referred value for a
   // pure torsional spring, so pass directly to impedance functions.
   const double C_ext_cg = cfg.hinge_external_stiffness;
+  const double K_gb = cfg.hinge_gravity_buoyancy_stiffness;
   // Hinge-referenced pitch inertia for analytic impedance/gain formulas.
   // The closed-form expressions have no kinematic constraint to synthesise the
-  // parallel-axis term m·r_g²; they must use I_hinge = I_cg + m·r_g² = 0.652 kg·m²
-  // (= 0.21 + 6.676·0.265² ≈ 0.21 + 0.469 = 0.652, WEC-Sim validated).
+  // parallel-axis term m·r_g²; they must use I_hinge = I_cg + m·r_g² = 0.6788 kg·m²
+  // (= 0.21 + 6.676·0.265² ≈ 0.21 + 0.4688 = 0.6788, WEC-Sim validated).
   // (Chrono dynamics use I_cg via SetInertiaXX; the revolute constraint adds m·r_g².)
   const double r_g_ctrl = std::abs(cfg.flap.cog[2] - cfg.hinge_z);
   const double I_hinge_ctrl = cfg.flap.inertia_yy + cfg.flap.mass * r_g_ctrl * r_g_ctrl;
@@ -178,7 +179,7 @@ static std::shared_ptr<seastack::pto::IPTOModel> BuildController(
 
   if (type == "opt_passive") {
     const double B_opt = vgoswec::PitchImpedanceMagnitude(
-        hydro_data, impedance_h5_file, 0, omega0, I_hinge_ctrl, C_ext_cg);
+        hydro_data, impedance_h5_file, 0, omega0, I_hinge_ctrl, C_ext_cg, K_gb);
     return std::make_shared<vgoswec::OptimalPassive>(B_opt, cfg.controller.opt_passive.clip_torque);
   }
 
@@ -187,7 +188,7 @@ static std::shared_ptr<seastack::pto::IPTOModel> BuildController(
     double B_r = cfg.controller.cc.B_r_override;
     if (K_r == 0.0 && B_r == 0.0) {
       const auto gains = vgoswec::ComputeCCGains(
-          hydro_data, impedance_h5_file, 0, omega0, I_hinge_ctrl, C_ext_cg);
+          hydro_data, impedance_h5_file, 0, omega0, I_hinge_ctrl, C_ext_cg, K_gb);
       K_r = gains.K_r;
       B_r = gains.B_r;
     }
@@ -240,6 +241,10 @@ int main(int argc, char* argv[]) {
       cfg.impedance_h5_file.empty() ? "" : resolve(cfg.impedance_h5_file);
   const std::string impedance_h5_file =
       resolved_impedance_h5_file.empty() ? h5_file : resolved_impedance_h5_file;
+  if (resolved_impedance_h5_file.empty()) {
+    std::cerr << "[impedance] NOTE: impedance_h5_file not set; falling back to h5_file ("
+              << h5_file << ") for gain computation\n";
+  }
   const std::string flap_mesh = resolve(cfg.flap.mesh);
   const std::string base_mesh = resolve(cfg.base.mesh);
 
@@ -278,7 +283,7 @@ int main(int argc, char* argv[]) {
     for (const double T_s : periods_s) {
       const double omega = 2.0 * M_PI / T_s;
       const auto coeffs = vgoswec::GetPitchHydroCoefficientsAtOmega(
-          hydro_data, h5_file, kBody, omega, rho_match_omega);
+          hydro_data, impedance_h5_file, kBody, omega, rho_match_omega);
       const double F_exc = coeffs.Fexc55 * wave_a;
       const bool floor_applied = coeffs.B55 < kB55Floor;
       const double B55_for_power = floor_applied ? kB55Floor : coeffs.B55;
@@ -308,7 +313,7 @@ int main(int argc, char* argv[]) {
   flap_body->SetPos(ChVector3d(cfg.flap.cog[0], cfg.flap.cog[1], cfg.flap.cog[2]));
   flap_body->SetMass(cfg.flap.mass);
   // Inertia about CG — SetInertiaXX receives the CG value (0.21 kg·m²), NOT the hinge
-  // value (0.652 kg·m²).  The revolute constraint at the hinge automatically synthesises
+  // value (0.6788 kg·m²).  The revolute constraint at the hinge automatically synthesises
   // the parallel-axis term m·r_g² when the CG swings on its arc, so passing the hinge
   // inertia here would double-count m·r_g² and drive the dynamic resonance too low.
   // Body frame = world frame when the flap is upright; the revolute is initialized with
@@ -413,17 +418,18 @@ int main(int argc, char* argv[]) {
     const double I_cg   = cfg.flap.inertia_yy;
     // Hinge-referenced inertia for the natural-frequency prediction.
     // The analytic ωn formula has no kinematic constraint to add m·r_g²; it must
-    // use I_hinge = I_cg + m·r_g² = 0.652 kg·m² (= 0.21 + 6.676·0.265², WEC-Sim validated).
+    // use I_hinge = I_cg + m·r_g² = 0.6788 kg·m² (= 0.21 + 6.676·0.265², WEC-Sim validated).
     // (Chrono's revolute constraint already adds m·r_g² dynamically from I_cg.)
     const double r_g_diag   = std::abs(cfg.flap.cog[2] - cfg.hinge_z);
     const double I_hinge    = I_cg + cfg.flap.mass * r_g_diag * r_g_diag;
     // C_ext: external hinge spring from config (all controllers, all times).
     const double C_ext = cfg.hinge_external_stiffness;
-    // K_hs_eff: combined hydrostatic + external spring restoring stiffness.
+    const double K_gb = cfg.hinge_gravity_buoyancy_stiffness;
+    // K_hs_eff: combined hydrostatic + external spring + gravity-buoyancy restoring stiffness.
     // K_hs55 comes from the impedance H5 (hinged-frame); for hinged files K_hs55 = 0,
-    // so K_hs_eff = C_ext = 6.57 N·m/rad.
+    // so K_hs_eff = C_ext + K_gb = 7.437 N·m/rad for the VGM configs.
     // C_ext is a pure torsional spring so its hinge value equals its CG-referred value.
-    const double K_hs_eff = K_hs55 + C_ext;
+    const double K_hs_eff = K_hs55 + C_ext + K_gb;
     // Guarded natural-frequency prediction (two estimates: A55_inf and A55(omega0)).
     // Uses I_hinge so the denominator is (I_hinge + A55); A55 from impedance H5.
     const double num_pred     = K_hs_eff;
@@ -445,7 +451,8 @@ int main(int argc, char* argv[]) {
               << "  r_g          = " << r_g_diag  << " m  (CG above hinge)\n"
               << "  I_hinge      = " << I_hinge  << " kg*m^2  (= I_cg + m*r_g^2; used in impedance math)\n"
               << "  C_ext (hinge)= " << C_ext    << " N*m/rad  [torsional spring, CG-referred = same]\n"
-              << "  K_hs_eff     = " << K_hs_eff << " N*m/rad  (K_hs55 + C_ext)\n";
+              << "  K_gb         = " << K_gb     << " N*m/rad  [measured gravity-buoyancy restoring couple]\n"
+              << "  K_hs_eff     = " << K_hs_eff << " N*m/rad  (K_hs55 + C_ext + K_gb)\n";
     if (num_pred <= 0.0) {
       std::cout << "  omega_n_pred = N/A (K_hs_eff <= 0: hydrostatically unstable)\n"
                 << "  Ts_pred      = N/A\n";
@@ -468,7 +475,7 @@ int main(int argc, char* argv[]) {
       double diag_B_r = cfg.controller.cc.B_r_override;
       if (diag_K_r == 0.0 && diag_B_r == 0.0) {
         const auto gains = vgoswec::ComputeCCGains(
-            hydro_data, impedance_h5_file, kBody, omega0, I_hinge, C_ext);
+            hydro_data, impedance_h5_file, kBody, omega0, I_hinge, C_ext, K_gb);
         diag_K_r = gains.K_r;
         diag_B_r = gains.B_r;
       }
@@ -492,15 +499,18 @@ int main(int argc, char* argv[]) {
   // ── HYDRO FREQUENCY SWEEP (printed once at startup, side-effect free) ────────
   {
     constexpr int kBodySw  = 0;
-    const double K_hs55_sw = hydro_data.GetHydrostaticStiffnessVal(kBodySw, 4, 4);
-    // Effective restoring stiffness includes the external hinge spring.
-    const double K_hs_eff_sw = K_hs55_sw + cfg.hinge_external_stiffness;
-    // Hinge-referenced inertia for K_r sweep (same reasoning as HYDRO DIAGNOSTIC).
-    const double r_g_sw   = std::abs(cfg.flap.cog[2] - cfg.hinge_z);
-    const double I_hinge_sw = cfg.flap.inertia_yy + cfg.flap.mass * r_g_sw * r_g_sw;
     const double rho_match_omega = (cfg.controller.opt_passive.design_omega > 0.0)
                                        ? cfg.controller.opt_passive.design_omega
                                        : 2.0 * M_PI / cfg.wave.period;
+    const auto coeffs_sw_ref = vgoswec::GetPitchHydroCoefficientsAtOmega(
+        hydro_data, impedance_h5_file, kBodySw, rho_match_omega, rho_match_omega);
+    const double K_hs55_sw = coeffs_sw_ref.K_hs55;
+    // Effective restoring stiffness includes the external hinge spring and measured gravity-buoyancy couple.
+    const double K_hs_eff_sw =
+        K_hs55_sw + cfg.hinge_external_stiffness + cfg.hinge_gravity_buoyancy_stiffness;
+    // Hinge-referenced inertia for K_r sweep (same reasoning as HYDRO DIAGNOSTIC).
+    const double r_g_sw     = std::abs(cfg.flap.cog[2] - cfg.hinge_z);
+    const double I_hinge_sw = cfg.flap.inertia_yy + cfg.flap.mass * r_g_sw * r_g_sw;
 
     // Sweep ω = 1.0–4.0 rad/s (operating band containing VGM 45 resonance at ~1.88 rad/s).
     // Δω = 0.1 rad/s (31 rows).  B55 is clamped ≥ 0 in GetPitchRadCoeffsAtOmega
@@ -511,7 +521,7 @@ int main(int argc, char* argv[]) {
     auto PrintSweepRow = [&](double w_sw, const char* note = nullptr) {
       const double T_sw = 2.0 * M_PI / w_sw;
       const auto [A55_sw, B55_sw] = vgoswec::GetPitchRadCoeffsAtOmega(
-          hydro_data, h5_file, kBodySw, w_sw, rho_match_omega);
+          hydro_data, impedance_h5_file, kBodySw, w_sw, rho_match_omega);
       const double K_r_sw = w_sw * w_sw * (I_hinge_sw + A55_sw) - K_hs_eff_sw;
       const double B_r_sw = B55_sw;
       std::cout << std::setw(8)  << T_sw

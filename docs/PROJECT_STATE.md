@@ -1,6 +1,6 @@
 # Project State — Session Handoff
 
-**Last updated: 2026-09-18** · Refresh this file at each phase boundary so any new session can resume exactly here.
+**Last updated: 2026-09-19** · Refresh this file at each phase boundary so any new session can resume exactly here.
 
 ---
 
@@ -8,7 +8,7 @@
 
 The **free-decay validation stage is closed** as of 2026-09-17, and with it the **MATLAB / WEC-Sim validation work**. The WEC-Sim reference values are embedded as constants in `scripts/freedecay_validation.py`, so no further `.mat` processing is required — subsequent campaigns are C++-only. See [`docs/RESULTS_CAMPAIGN_2026-09-17.md`](RESULTS_CAMPAIGN_2026-09-17.md).
 
-The **passive / opt_passive sweep is closed** on the shared `0.25 s` grid with both arms committed. The **CC + ff+PID method-unification patch has landed in code/docs and is awaiting the owner re-run** under the shared sweep method (`10 + 280·T`, final `20` whole cycles, `dt = 0.01 s`). After that rerun, the next first-paper critical-path item remains **#50 literature review / related-work verification**.
+The **CC + ff+PID unified-method work landed** on 2026-09-19, but the same day also closed an impedance-basis audit showing that the committed **`opt_passive` results are invalid pending re-run**: gain computation had been mixing hinge inertia/spring with CG-referenced impedance coefficients and omitted the measured gravity-buoyancy restoring couple. The fixes are now in code/config/docs/tests; the owner's next action after merge is to re-run `python3 scripts/passive_vs_optpassive_sweep.py`. Canonical record: [`docs/IMPEDANCE_BASIS.md`](IMPEDANCE_BASIS.md).
 
 ---
 
@@ -23,6 +23,7 @@ The **passive / opt_passive sweep is closed** on the shared `0.25 s` grid with b
 
 - **Plant validation (foundation):** primary reference is now the direct WEC-Sim raw-time-history comparison, with C++ 200 s free-decay records agreeing on **ω_n within ±0.15%** and **ζ within ~4–13%** across VGM-0/10/20/45/90. Both solvers place ζ in the 25–55×10⁻⁴ range; the paper's Table 2 ζ column is uniformly ~9–13× lower, consistent with a `×10⁻³`/`×10⁻⁴` exponent labeling issue in that table rather than a modeling error in either solver. Primary reference: [`docs/freedecay_wecsim_rawdata_validation.md`](freedecay_wecsim_rawdata_validation.md); full narrative: [`docs/freedecay_validation.md`](freedecay_validation.md). **No C++ model change is indicated by the free-decay evidence.**
 - **Density basis verified:** BEM de-normalization is correctly pinned to the H5-stored `rho`; the `rho_legacy` figure in the hydro diagnostic is a labelled back-out with no consumer, and `hydro.rho` in `config/*.yaml` is a vestigial unused key. `P_opt` is on the correct basis. See "Density basis" in [`docs/RESULTS_CAMPAIGN_2026-09-17.md`](RESULTS_CAMPAIGN_2026-09-17.md).
+- **Impedance-basis audit closed:** `src/impedance.cpp` now de-normalizes `K_hs55` by `rho*g`, analytic gain formulas use `K_hs_eff = K_hs55 + C_ext + K_gb`, and all `opt_passive` configs now explicitly point gain computation at hinge-referenced `hydro.impedance_h5_file`. See [`docs/IMPEDANCE_BASIS.md`](IMPEDANCE_BASIS.md).
 - **Three-regime co-design relay:** CC → opt_passive → ff+PID across VGM-0/10/20/45/90 on shared T = 0.5–7 s grid at H = 0.05 m; resonance slides with flap angle (T₀ 2.99 s @ VGM-90 → 5.86 s @ VGM-0).
 - **Dual operating envelopes:** power hull (peak 2.34 W at T = 1.5 s, VGM-0, CC) and mask-respecting efficiency hull (CC near-Budal ~99% at short T); the power and efficiency co-design schedules differ.
 - **Reproducibility:** every dataset regenerable from documented commands. See [`docs/REPRODUCTION.md`](REPRODUCTION.md).
@@ -86,9 +87,10 @@ The maturity placements above are drawn from general knowledge of the Ringwood /
 
 ## 6. Immediate next actions
 
-1. **Owner rerun pending** — re-run the CC and ff+PID sweeps under the unified shared method (`27` periods × `5` flaps each, `10 + 280·T` seconds per point), then refresh the derived figures / CSV-backed findings.
-2. **Kick off #50** — deep-research literature review to produce the related-work section skeleton + novelty verdict; this remains the manuscript gate once the unified reruns are committed.
-3. **Refresh this file** after the reruns land, and again at each later phase boundary.
+1. **Owner rerun pending** — re-run the **`opt_passive`** sweep under the corrected impedance basis (`hydro.impedance_h5_file = hinged_*`, `K_gb = 0.867`), then refresh any derived figures / CSV-backed findings that consume `analysis/opt_passive/`.
+2. **Outstanding check** — confirm whether the new CC headline `2.44488972 W` at VGM-0 `T = 1.50 s` is truly settled (`430 s` vs `760 s` check still open).
+3. **Kick off #50** — deep-research literature review to produce the related-work section skeleton + novelty verdict; this remains the manuscript gate once the rerun / confirmation work is closed.
+4. **Refresh this file** after those updates land, and again at each later phase boundary.
 
 ### Minor / non-blocking cleanups
 

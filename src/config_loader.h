@@ -79,7 +79,7 @@ struct BodyConfig {
     /// Pitch about hinge Y-axis = body Iyy (body frame = world frame when upright).
     /// Default 0.21 kg·m² is the WEC-Sim-validated CG pitch inertia.
     /// The hinge pitch inertia used by the analytic impedance formulas is
-    ///   I_hinge = I_cg + m·r_g² = 0.21 + 6.676·0.265² = 0.652 kg·m².
+    ///   I_hinge = I_cg + m·r_g² = 0.21 + 6.676·0.265² = 0.6788 kg·m².
     double inertia_xx{0.32};        ///< [kg·m²] CG roll inertia  (about body X)
     double inertia_yy{0.21};        ///< [kg·m²] CG pitch inertia (about body Y = hinge axis)
     double inertia_zz{0.12};        ///< [kg·m²] CG yaw inertia   (about body Z)
@@ -109,6 +109,11 @@ struct SimConfig {
     /// Default 0.0 (disabled) so existing behaviour is opt-in; set to 6.57 in
     /// all VGM config files.
     double hinge_external_stiffness{0.0};
+    /// Measured gravity-buoyancy restoring couple about the hinge [N·m/rad].
+    /// This is a property of the submerged apparatus (not of the controller):
+    /// K_gb = m·g·(r_b - r_g). Default 0.0 so existing behaviour remains opt-in;
+    /// set to 0.867 in the VGM config files.
+    double hinge_gravity_buoyancy_stiffness{0.0};
 
     // Hydro
     std::string h5_file;

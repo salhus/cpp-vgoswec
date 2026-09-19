@@ -360,6 +360,12 @@ double InterpolateClamped(const FrequencyTable& table, double omega0, bool* clam
     return v_lo + alpha * (v_hi - v_lo);
 }
 
+double ComposeEffectivePitchRestoringStiffness(double K_hs55,
+                                               double C_ext_cg,
+                                               double K_gb) {
+    return K_hs55 + C_ext_cg + K_gb;
+}
+
 }  // anonymous namespace
 
 PitchHydroCoefficients GetPitchHydroCoefficientsAtOmega(
@@ -418,7 +424,7 @@ PitchHydroCoefficients GetPitchHydroCoefficientsAtOmega(
     coeffs.A55          = mu55 * rho_eff;
     coeffs.B55          = std::max(0.0, lambda55 * rho_eff * omega0);
     coeffs.Fexc55       = ex55 * rho_eff * tables.g;
-    coeffs.K_hs55       = tables.K_hs55;
+    coeffs.K_hs55       = tables.K_hs55 * rho_eff * tables.g;
     coeffs.rho_eff      = rho_eff;
     coeffs.rho_eff_match = rho_eff_match;
     coeffs.h5_rho       = tables.h5_rho;
@@ -462,12 +468,13 @@ double PitchImpedanceMagnitude(const seastack::hydro::HydroData& data,
                                 int flap_body_idx,
                                 double omega0,
                                 double I_flap_kgm2,
-                                double C_ext_cg) {
+                                double C_ext_cg,
+                                double K_gb) {
     const auto coeffs =
         GetPitchHydroCoefficientsAtOmega(data, h5_file, flap_body_idx, omega0, omega0);
     // K_hs55 is read from the impedance H5 (not the CG HydroData object) so the
     // reference frame matches the BEM tables.  For hinge-referenced files, K_hs55 = 0.
-    const double K_hs_eff = coeffs.K_hs55 + C_ext_cg;
+    const double K_hs_eff = ComposeEffectivePitchRestoringStiffness(coeffs.K_hs55, C_ext_cg, K_gb);
 
     // Z_intrinsic = B_rad + i·(ω·(I + A(ω)) − K_hs_eff/ω)
     const double Z_real = coeffs.B55;
@@ -480,17 +487,18 @@ CCGains ComputeCCGains(const seastack::hydro::HydroData& data,
                         int flap_body_idx,
                         double omega0,
                         double I_flap_kgm2,
-                        double C_ext_cg) {
+                        double C_ext_cg,
+                        double K_gb) {
     const auto coeffs =
         GetPitchHydroCoefficientsAtOmega(data, h5_file, flap_body_idx, omega0, omega0);
     // K_hs55 is read from the impedance H5 (not the CG HydroData object) so the
     // reference frame matches the BEM tables.  For hinge-referenced files, K_hs55 = 0.
-    const double K_hs_eff = coeffs.K_hs55 + C_ext_cg;
+    const double K_hs_eff = ComposeEffectivePitchRestoringStiffness(coeffs.K_hs55, C_ext_cg, K_gb);
 
     CCGains gains;
     // K_r is the intrinsic pitch reactance to be cancelled by CC.
     // With the external spring already in the physical dynamics, the effective
-    // restoring stiffness is K_hs_eff = K_hs55 + C_ext_cg, and CC must cancel
+    // restoring stiffness is K_hs_eff = K_hs55 + C_ext_cg + K_gb, and CC must cancel
     // the remaining reactive term: K_r = ω0²(I+A55) − K_hs_eff.
     // At resonance (ω0 = ωn), K_r = 0 and the controller is purely absorbing.
     gains.K_r = omega0 * omega0 * (I_flap_kgm2 + coeffs.A55) - K_hs_eff;

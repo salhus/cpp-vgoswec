@@ -113,6 +113,8 @@ SimConfig LoadConfig(const std::string& yaml_path) {
     if (root["hinge"]) {
         cfg.hinge_z = ReadOpt<double>(root["hinge"], "position_z", -0.7658);
         cfg.hinge_external_stiffness = ReadOpt<double>(root["hinge"], "external_stiffness", 0.0);
+        cfg.hinge_gravity_buoyancy_stiffness =
+            ReadOpt<double>(root["hinge"], "gravity_buoyancy_stiffness", 0.0);
     }
 
     if (root["hydro"]) {

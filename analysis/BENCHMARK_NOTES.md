@@ -28,12 +28,21 @@ single source of truth; the sweep script and the per-flap configs must agree.
   numerical floor and a few points dip below the mask threshold.
 
 ## Hydrodynamics
-- **Reference frame:** CG-referenced H5 files (`hydroData/vgoswec_{0,10,20,45,90}.h5`).
-  Hinge-referenced files (prefixed `hinged_`) are NOT used by this benchmark.
+- **Physical plant coordinate:** the time-domain solver measures `P_capture` in the **hinge DOF**.
+- **Current post-processing basis:** the committed benchmark still tabulates
+  `F_exc_Nm` / `B55_Nmsrad` from the CG-referenced H5 files
+  (`hydroData/vgoswec_{0,10,20,45,90}.h5`).
+- **Implication:** `P_opt = |F_exc|^2 / (8 * B55)` is invariant under the CG↔hinge
+  referral, so the efficiency denominator is only mildly affected, but the
+  **masking** rule is basis-sensitive. A hinge-basis re-tabulation remains an open
+  post-processing task.
+- **Hinge-referenced impedance files now matter elsewhere:** controller gain
+  computation (`opt_passive`, CC) now explicitly uses
+  `hydro.impedance_h5_file = hydroData/hinged_vgoswec_*.h5`. See
+  [`../docs/IMPEDANCE_BASIS.md`](../docs/IMPEDANCE_BASIS.md).
 - **P_opt (Budal / Falnes bound):** `P_opt = |F_exc|^2 / (8 * B55)`, computed from
   body1 pitch hydro (`radiation_damping/components/5_5` and
-  `excitation/mag[dof=5,dir=0]`), at H = 0.05 m. This is the single-DOF optimal for
-  a **free-flap (CG-referenced) pitch mode** — NOT the hinge-referenced flap optimum.
+  `excitation/mag[dof=5,dir=0]`), at H = 0.05 m.
 - **De-normalization (WEC-Sim / BEMIO convention, rho and g read from each H5,
   rho = 1000, g = 9.80665):**
   - `B55 = B55_norm * rho * omega`  [N*m/(rad/s)]  (peak ~3, matches BEMRosetta)
@@ -66,8 +75,9 @@ single source of truth; the sweep script and the per-flap configs must agree.
   mismatch.
 
 ## Follow-up (next milestone)
-- Recompute P_opt and eta from the **hinge-referenced** coefficients
-  (`hinged_vgoswec_*.h5`), removing the `alpha` fudge.
+- Re-tabulate `F_exc`, `B55`, and the `masked` column from the
+  **hinge-referenced** coefficients (`hinged_vgoswec_*.h5`) so benchmark masking is
+  consistent with the hinge DOF used by the plant.
 - Implement true complex-conjugate control (theoretical eta_max reference) with
   hinge-referenced K_r / B_r, then causal approximations (Korde) and constrained
   MPC (Ringwood). Resonance markers return once resonance is defined consistently

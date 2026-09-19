@@ -7,9 +7,14 @@
 // =============================================================================
 
 #include <gtest/gtest.h>
+#include <H5Cpp.h>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <limits>
+#include <map>
+#include <sstream>
+#include <vector>
 
 #include "config_loader.h"
 #include "pid_controller.h"
@@ -114,6 +119,98 @@ std::unique_ptr<vgoswec::PIDController> MakeVelocityPid(double kp,
     params.u_max = u_max;
     params.dt_expected = dt_expected;
     return std::make_unique<vgoswec::PIDController>(params);
+}
+
+double ReadPitchLrsRaw(const std::filesystem::path& h5_path) {
+    H5::H5File file(h5_path.string(), H5F_ACC_RDONLY);
+    H5::DataSet dataset = file.openDataSet("body1/hydro_coeffs/linear_restoring_stiffness");
+    H5::DataSpace filespace = dataset.getSpace();
+    hsize_t dims[2] = {0, 0};
+    const int rank = filespace.getSimpleExtentDims(dims);
+    EXPECT_EQ(rank, 2);
+    EXPECT_GE(dims[0], 5u);
+    EXPECT_GE(dims[1], 5u);
+    std::vector<double> buffer(static_cast<size_t>(dims[0] * dims[1]), 0.0);
+    dataset.read(buffer.data(), H5::PredType::NATIVE_DOUBLE);
+    return buffer[static_cast<size_t>(4 * dims[1] + 4)];
+}
+
+std::map<std::string, double> ReadFreeDecayZeroCrossFrequencies(
+    const std::filesystem::path& csv_path) {
+    std::ifstream csv(csv_path);
+    EXPECT_TRUE(csv.is_open()) << "Could not open " << csv_path;
+    std::map<std::string, double> by_config;
+    std::string line;
+    if (!std::getline(csv, line)) {
+        ADD_FAILURE() << "Could not read header from " << csv_path;
+        return by_config;
+    }
+    while (std::getline(csv, line)) {
+        if (line.empty()) {
+            continue;
+        }
+        std::stringstream ss(line);
+        std::string cell;
+        std::vector<std::string> row;
+        while (std::getline(ss, cell, ',')) {
+            row.push_back(cell);
+        }
+        if (row.size() < 7u) {
+            ADD_FAILURE() << "Unexpected freedecay_validation.csv row: " << line;
+            continue;
+        }
+        by_config[row[0]] = std::stod(row[6]);
+    }
+    return by_config;
+}
+
+double FindNaturalFrequencyFromImpedance(const seastack::hydro::HydroData& hydro_data,
+                                         const std::string& impedance_h5,
+                                         double I_hinge,
+                                         double K_eff) {
+    auto residual = [&](double omega) {
+        const auto coeffs = vgoswec::GetPitchHydroCoefficientsAtOmega(
+            hydro_data, impedance_h5, /*flap_body_idx=*/0, omega, omega);
+        return omega * omega * (I_hinge + coeffs.A55) - K_eff;
+    };
+
+    constexpr double kOmegaMin = 0.5;
+    constexpr double kOmegaMax = 3.0;
+    constexpr int kScanSteps = 250;
+    double lo = kOmegaMin;
+    double f_lo = residual(lo);
+    bool bracketed = false;
+    double hi = lo;
+    double f_hi = f_lo;
+    for (int step = 1; step <= kScanSteps; ++step) {
+        hi = kOmegaMin + (kOmegaMax - kOmegaMin) * static_cast<double>(step) / kScanSteps;
+        f_hi = residual(hi);
+        if ((f_lo <= 0.0 && f_hi >= 0.0) || (f_lo >= 0.0 && f_hi <= 0.0)) {
+            bracketed = true;
+            break;
+        }
+        lo = hi;
+        f_lo = f_hi;
+    }
+
+    EXPECT_TRUE(bracketed) << "Failed to bracket natural frequency root in [" << kOmegaMin
+                           << ", " << kOmegaMax << "]";
+    if (!bracketed) {
+        return std::numeric_limits<double>::quiet_NaN();
+    }
+
+    for (int iter = 0; iter < 80; ++iter) {
+        const double mid = 0.5 * (lo + hi);
+        const double f_mid = residual(mid);
+        if ((f_lo <= 0.0 && f_mid >= 0.0) || (f_lo >= 0.0 && f_mid <= 0.0)) {
+            hi = mid;
+            f_hi = f_mid;
+        } else {
+            lo = mid;
+            f_lo = f_mid;
+        }
+    }
+    return 0.5 * (lo + hi);
 }
 
 }  // namespace
@@ -335,6 +432,61 @@ TEST(ConfigLoader, ImpedanceH5FileParsesWhenProvided) {
     std::filesystem::remove(cfg_path);
 }
 
+TEST(ConfigLoader, GravityBuoyancyStiffnessDefaultsZero) {
+    const auto cfg_path =
+        (std::filesystem::temp_directory_path() / "vgoswec_gravity_buoyancy_default.yaml").string();
+    std::ofstream cfg(cfg_path);
+    ASSERT_TRUE(cfg.is_open());
+    cfg << "hydro:\n"
+           "  h5_file: hydroData/test.h5\n";
+    cfg.close();
+
+    const auto loaded = vgoswec::LoadConfig(cfg_path);
+    EXPECT_DOUBLE_EQ(loaded.hinge_gravity_buoyancy_stiffness, 0.0);
+
+    std::filesystem::remove(cfg_path);
+}
+
+TEST(ConfigLoader, GravityBuoyancyStiffnessParsesWhenProvided) {
+    const auto cfg_path =
+        (std::filesystem::temp_directory_path() / "vgoswec_gravity_buoyancy_set.yaml").string();
+    std::ofstream cfg(cfg_path);
+    ASSERT_TRUE(cfg.is_open());
+    cfg << "hinge:\n"
+           "  gravity_buoyancy_stiffness: 0.867\n"
+           "hydro:\n"
+           "  h5_file: hydroData/test.h5\n";
+    cfg.close();
+
+    const auto loaded = vgoswec::LoadConfig(cfg_path);
+    EXPECT_DOUBLE_EQ(loaded.hinge_gravity_buoyancy_stiffness, 0.867);
+
+    std::filesystem::remove(cfg_path);
+}
+
+TEST(ConfigLoader, GainDerivedControllersRequireImpedanceH5File) {
+    const std::vector<std::filesystem::path> configs = {
+        "config/vgoswec_0_cc.yaml",
+        "config/vgoswec_10_cc.yaml",
+        "config/vgoswec_20_cc.yaml",
+        "config/vgoswec_45_cc.yaml",
+        "config/vgoswec_90_cc.yaml",
+        "config/vgoswec_0_opt_passive.yaml",
+        "config/vgoswec_10_opt_passive.yaml",
+        "config/vgoswec_20_opt_passive.yaml",
+        "config/vgoswec_45_opt_passive.yaml",
+        "config/vgoswec_90_opt_passive.yaml",
+    };
+
+    for (const auto& cfg_path : configs) {
+        ASSERT_TRUE(std::filesystem::exists(cfg_path)) << "Missing config " << cfg_path;
+        const auto loaded = vgoswec::LoadConfig(cfg_path.string());
+        EXPECT_FALSE(loaded.impedance_h5_file.empty())
+            << "Configs that derive controller gains from H5 must set impedance_h5_file: "
+            << cfg_path;
+    }
+}
+
 // ─── ComputeCCGains hinged-H5 integration test ────────────────────────────────
 // Guards: skips when the HDF5 files are absent (e.g., minimal CI checkouts).
 // When present, verifies that K_hs55 is read from the impedance H5 (= 0 for
@@ -370,6 +522,90 @@ TEST(ComputeCCGains, HingedH5ZeroKhs) {
     // Radiation damping must be positive (healthy BEM result)
     EXPECT_GT(gains.B_r, 0.0)
         << "B_r must be positive (radiation damping > 0); got " << gains.B_r;
+}
+
+TEST(Impedance, DenormalizesHydrostaticPitchStiffness) {
+    const std::filesystem::path cg_h5 = "hydroData/vgoswec_90.h5";
+    if (!std::filesystem::exists(cg_h5)) {
+        GTEST_SKIP() << "Skipping: H5 data file not found at " << cg_h5;
+    }
+
+    auto hydro_data = seastack::hydro_io::H5FileInfo(cg_h5.string(), 2).ReadH5Data();
+    const double raw_k_hs55 = ReadPitchLrsRaw(cg_h5);
+    const auto coeffs = vgoswec::GetPitchHydroCoefficientsAtOmega(
+        hydro_data, cg_h5.string(), /*flap_body_idx=*/0, /*omega0=*/2.094, /*rho_match_omega=*/2.094);
+
+    constexpr double kExpectedRho = 1000.0;
+    constexpr double kExpectedG = 9.80665;
+    EXPECT_NEAR(coeffs.h5_rho, kExpectedRho, 1e-9);
+    EXPECT_NEAR(coeffs.g, kExpectedG, 1e-9);
+    EXPECT_NEAR(coeffs.K_hs55, raw_k_hs55 * kExpectedRho * kExpectedG, 1e-6);
+}
+
+TEST(ComputeCCGains, IncludesExternalAndGravityBuoyancyStiffness) {
+    const std::string cg_h5 = "hydroData/vgoswec_90.h5";
+    if (!std::filesystem::exists(cg_h5)) {
+        GTEST_SKIP() << "Skipping: H5 data file not found at " << cg_h5;
+    }
+
+    auto hydro_data = seastack::hydro_io::H5FileInfo(cg_h5, 2).ReadH5Data();
+    constexpr double kOmega0 = 2.094;
+    constexpr double kIHinge = 0.6788221;
+    constexpr double kCext = 6.57;
+    constexpr double kKgb = 0.867;
+
+    const auto coeffs = vgoswec::GetPitchHydroCoefficientsAtOmega(
+        hydro_data, cg_h5, /*flap_body_idx=*/0, kOmega0, kOmega0);
+    const auto gains = vgoswec::ComputeCCGains(
+        hydro_data, cg_h5, /*flap_body_idx=*/0, kOmega0, kIHinge, kCext, kKgb);
+
+    const double expected_k_r =
+        kOmega0 * kOmega0 * (kIHinge + coeffs.A55) - (coeffs.K_hs55 + kCext + kKgb);
+    EXPECT_NEAR(gains.K_r, expected_k_r, 1e-9);
+    EXPECT_NEAR(gains.B_r, coeffs.B55, 1e-12);
+}
+
+TEST(Impedance, HingedNaturalFrequencyMatchesFreeDecayAcrossFlaps) {
+    const std::filesystem::path freedecay_csv = "docs/freedecay_validation.csv";
+    ASSERT_TRUE(std::filesystem::exists(freedecay_csv)) << "Missing " << freedecay_csv;
+    const auto target_w_n = ReadFreeDecayZeroCrossFrequencies(freedecay_csv);
+
+    struct Case {
+        std::string config_name;
+        std::string yaml_path;
+    };
+    const std::vector<Case> cases = {
+        {"VGM-0", "config/vgoswec_0_opt_passive.yaml"},
+        {"VGM-10", "config/vgoswec_10_opt_passive.yaml"},
+        {"VGM-20", "config/vgoswec_20_opt_passive.yaml"},
+        {"VGM-45", "config/vgoswec_45_opt_passive.yaml"},
+        {"VGM-90", "config/vgoswec_90_opt_passive.yaml"},
+    };
+
+    for (const auto& test_case : cases) {
+        ASSERT_TRUE(target_w_n.count(test_case.config_name))
+            << "Missing free-decay target for " << test_case.config_name;
+        ASSERT_TRUE(std::filesystem::exists(test_case.yaml_path))
+            << "Missing config " << test_case.yaml_path;
+
+        const auto cfg = vgoswec::LoadConfig(test_case.yaml_path);
+        ASSERT_FALSE(cfg.impedance_h5_file.empty()) << test_case.yaml_path;
+        ASSERT_TRUE(std::filesystem::exists(cfg.h5_file)) << "Missing " << cfg.h5_file;
+        ASSERT_TRUE(std::filesystem::exists(cfg.impedance_h5_file))
+            << "Missing " << cfg.impedance_h5_file;
+
+        auto hydro_data = seastack::hydro_io::H5FileInfo(cfg.h5_file, 2).ReadH5Data();
+        const double r_g = std::abs(cfg.flap.cog[2] - cfg.hinge_z);
+        const double i_hinge = cfg.flap.inertia_yy + cfg.flap.mass * r_g * r_g;
+        const double k_eff =
+            cfg.hinge_external_stiffness + cfg.hinge_gravity_buoyancy_stiffness;
+        const double predicted = FindNaturalFrequencyFromImpedance(
+            hydro_data, cfg.impedance_h5_file, i_hinge, k_eff);
+        const double expected = target_w_n.at(test_case.config_name);
+        EXPECT_NEAR(predicted, expected, expected * 0.03)
+            << test_case.config_name << ": predicted ω_n=" << predicted
+            << " rad/s, expected " << expected << " rad/s";
+    }
 }
 
 // ─── BEM omega-axis regression test ──────────────────────────────────────────
