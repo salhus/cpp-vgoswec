@@ -48,7 +48,7 @@ def _retabulate_rows(rows: list[dict[str, str]], h5_path: Path) -> list[dict[str
             p_capture_text = row.get("P_capture_W", "").strip()
             if p_capture_text:
                 p_capture = float(p_capture_text)
-                if np.isfinite(p_capture) and np.isfinite(p_opt[idx]):
+                if np.isfinite(p_capture) and np.isfinite(p_opt[idx]) and float(p_opt[idx]) > 0.0:
                     updated["eta"] = _format_float(p_capture / float(p_opt[idx]))
                 else:
                     updated["eta"] = ""
