@@ -13,6 +13,7 @@ import numpy as np
 from passive_vs_optpassive_sweep import FLAPS, popt_curve_from_h5
 
 TARGET_COLUMNS = ("B55_Nmsrad", "F_exc_Nm", "P_opt_W", "masked", "eta")
+REQUIRED_COLUMNS = ("T_s", "P_capture_W", *TARGET_COLUMNS)
 CSV_GROUPS = (("passive", "analysis/passive"), ("opt_passive", "analysis/opt_passive"))
 
 
@@ -75,7 +76,7 @@ def _masked_summary(before_rows: list[dict[str, str]], after_rows: list[dict[str
 
 def retabulate_csv(csv_path: Path, h5_path: Path, *, write: bool) -> tuple[int, int, int]:
     fieldnames, rows = _load_csv_exact(csv_path)
-    missing = [column for column in TARGET_COLUMNS if column not in fieldnames]
+    missing = [column for column in REQUIRED_COLUMNS if column not in fieldnames]
     if missing:
         raise RuntimeError(f"CSV missing required columns {missing}: {csv_path}")
 
