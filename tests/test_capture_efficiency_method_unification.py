@@ -185,6 +185,11 @@ class UnifiedSweepMethodTests(unittest.TestCase):
         self.assertTrue(cc_vs_ffpid_comparison._power_valid(row))
         self.assertTrue(three_regime_comparison._power_valid(row))
 
+        nan_row = {"P_capture_W": float("nan")}
+        self.assertFalse(cc_capture_efficiency_sweep._power_valid(nan_row))
+        self.assertFalse(cc_vs_ffpid_comparison._power_valid(nan_row))
+        self.assertFalse(three_regime_comparison._power_valid(nan_row))
+
     def test_three_regime_power_envelope_keeps_reactive_limited_cc_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             repo = Path(tmpdir)
