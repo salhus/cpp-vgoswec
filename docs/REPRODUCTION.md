@@ -76,6 +76,42 @@ python3 scripts/plot_freedecay_validation.py
 
 See also: [`docs/freedecay_validation.md`](freedecay_validation.md), [`docs/freedecay_wecsim_rawdata_validation.md`](freedecay_wecsim_rawdata_validation.md), [`docs/RESULTS_CAMPAIGN_2026-09-17.md`](RESULTS_CAMPAIGN_2026-09-17.md).
 
+### 1b. Spring-sweep impedance-basis audit
+
+**Purpose:** reproduce the 2026-09-19 basis check that separated the correct hinge-referenced impedance model from the incorrect CG-referenced one and extracted the measured gravity-buoyancy restoring couple `K_gb`.
+
+Canonical record: [`docs/IMPEDANCE_BASIS.md`](IMPEDANCE_BASIS.md).
+
+Workflow:
+
+1. Copy one of the free-decay configs (for example `config/vgoswec_90_freedecay.yaml`) to `/tmp`.
+2. Repeat the run with `hinge.external_stiffness` set to `0.0`, `3.0`, `6.57`, `10.0`, and `15.0`.
+3. For each run, extract `omega_n` from zero crossings after the initial transient.
+4. Regress `omega_n^2` against spring stiffness:
+   - slope `= 1 / (I + A55)`
+   - x-intercept `= -K_gb`
+
+Minimal reproduction sketch:
+
+```bash
+mkdir -p /tmp/vgoswec_springs
+for K in 0.0 3.0 6.57 10.0 15.0; do
+  python3 - <<'PY' \"$K\"
+from pathlib import Path
+import sys, yaml
+root = Path('/home/runner/work/cpp-vgoswec/cpp-vgoswec')
+cfg = yaml.safe_load((root / 'config/vgoswec_90_freedecay.yaml').read_text())
+cfg['hinge']['external_stiffness'] = float(sys.argv[1])
+out = Path('/tmp/vgoswec_springs') / f'vgm90_K{sys.argv[1].replace(\".\", \"p\")}.yaml'
+out.write_text(yaml.safe_dump(cfg, sort_keys=False))
+print(out)
+PY
+  ./build/demo_vgoswec --config \"/tmp/vgoswec_springs/vgm90_K${K//./p}.yaml\" --no-viz
+done
+```
+
+Then extract zero-cross frequencies from the produced CSVs exactly as documented in [`docs/IMPEDANCE_BASIS.md`](IMPEDANCE_BASIS.md).
+
 ## 2. CC capture-efficiency sweep
 
 ```bash

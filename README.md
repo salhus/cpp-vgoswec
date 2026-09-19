@@ -92,10 +92,10 @@ cpp-vgoswec/
 
 | Parameter | Value |
 |-----------|-------|
-| Flap mass | 7.60 kg (neutrally-buoyant assumption) |
-| Flap CoG | (0, 0, −0.2352) m |
-| Flap I_yy | 0.15 kg·m² *(TODO: bifilar pendulum or ID)* |
-| Hinge z | −0.7658 m |
+| Flap mass | 6.676 kg |
+| Flap CoG | (0, 0, −0.235) m |
+| Flap I_yy | 0.21 kg·m² (about CG) |
+| Hinge z | −0.5 m |
 | Wave tank | H=0.05 m, T=1.5 s (regular default) |
 | Sim duration | 60 s, dt=0.005 s |
 

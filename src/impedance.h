@@ -30,7 +30,7 @@
 //   pitch reactance ω·(I + A₅₅) − K_hs_eff/ω.  Because these are closed-form
 //   expressions with no kinematic constraint, the inertia term I MUST be the
 //   hinge-referenced pitch inertia:
-//     I_hinge = I_cg + m·r_g²  (= 0.652 kg·m² for the VGOSWEC paddle)
+//     I_hinge = I_cg + m·r_g²  (= 0.6788 kg·m² for the VGOSWEC paddle)
 //   There is no constraint to synthesise the parallel-axis term m·r_g² for them.
 //
 //   By contrast, the Chrono rigid-body dynamics (SetInertiaXX) MUST be given the
@@ -51,13 +51,14 @@
 //   (couple), its CG-referred value equals the hinge value exactly — no
 //   parallel-axis transformation is required.  The effective hinge-referenced
 //   hydrostatic + spring stiffness is therefore:
-//     K_hs,eff = K_hs55 + C_ext
+//     K_hs,eff = K_hs55 + C_ext + K_gb
 //   For the hinge-referenced impedance files (hinged_vgoswec_*.h5) the
 //   linear_restoring_stiffness dataset is empty (K_hs55 = 0), so
-//     K_hs,eff = 0 + 6.57 = 6.57 N·m/rad.
-//   PitchImpedanceMagnitude and ComputeCCGains both accept a C_ext_cg argument
-//   so they use K_hs,eff correctly.  K_hs55 is read from the impedance H5 file
-//   (not from the CG HydroData object) so the reference frame is consistent.
+//     K_hs,eff = 0 + 6.57 + 0.867 = 7.437 N·m/rad.
+//   PitchImpedanceMagnitude and ComputeCCGains both accept C_ext_cg and K_gb
+//   arguments so they use K_hs,eff correctly.  K_hs55 is read from the
+//   impedance H5 file (not from the CG HydroData object) so the reference frame
+//   is consistent.
 //   The physical spring is applied separately in the Chrono simulation via a
 //   dedicated RSDA link.
 // =============================================================================
@@ -110,32 +111,34 @@ std::pair<double,double> GetPitchRadCoeffsAtOmega(
 /// hinge spring C_ext_cg [N·m/rad] (CG-referred value, equals hinge value for
 /// a pure torsional spring):
 ///
-///   K_hs_eff = K_hs55 + C_ext_cg
+///   K_hs_eff = K_hs55 + C_ext_cg + K_gb
 ///   |Z(ω₀)| = sqrt( B_rad,55(ω₀)²  +  (ω₀·(I_flap + A₅₅(ω₀)) − K_hs_eff/ω₀)² )
 ///
 /// @param data           Loaded HydroData (from H5FileInfo::ReadH5Data)
 /// @param flap_body_idx  Body index of flap in HydroData (0)
 /// @param omega0         Design angular frequency [rad/s]
 /// @param I_flap_kgm2    Hinge-referenced dry pitch inertia of the flap [kg·m²]
-///                       I_hinge = I_cg + m·r_g²  (= 0.652 kg·m² for VGOSWEC paddle)
+///                       I_hinge = I_cg + m·r_g²  (= 0.6788 kg·m² for VGOSWEC paddle)
 /// @param C_ext_cg       CG-referred external spring stiffness [N·m/rad] (default 0)
+/// @param K_gb           Gravity-buoyancy restoring stiffness [N·m/rad] (default 0)
 /// @return               |Z(ω₀)| [N·m·s/rad]
 double PitchImpedanceMagnitude(const seastack::hydro::HydroData& data,
                                 const std::string& h5_file,
                                 int flap_body_idx,
                                 double omega0,
                                 double I_flap_kgm2,
-                                double C_ext_cg = 0.0);
+                                double C_ext_cg = 0.0,
+                                double K_gb = 0.0);
 
 /// Complex-conjugate reactive control gains at ω₀, accounting for the external
 /// hinge spring C_ext_cg [N·m/rad]:
 ///
-///   K_hs_eff = K_hs55 + C_ext_cg
+///   K_hs_eff = K_hs55 + C_ext_cg + K_gb
 ///   K_r =  ω₀² · (I_flap + A₅₅(ω₀)) − K_hs_eff   (intrinsic reactance to cancel)
 ///   B_r =  B_rad,55(ω₀)
 ///
 /// I_flap_kgm2 MUST be the hinge-referenced pitch inertia I_hinge = I_cg + m·r_g²
-/// (= 0.652 kg·m² for the VGOSWEC paddle).  The analytic formula has no kinematic
+/// (= 0.6788 kg·m² for the VGOSWEC paddle).  The analytic formula has no kinematic
 /// constraint to synthesise the parallel-axis term; passing the CG value would
 /// underestimate the reactive inertia and drive the gains off resonance.
 struct CCGains {
@@ -147,7 +150,8 @@ CCGains ComputeCCGains(const seastack::hydro::HydroData& data,
                         int flap_body_idx,
                         double omega0,
                         double I_flap_kgm2,
-                        double C_ext_cg = 0.0);
+                        double C_ext_cg = 0.0,
+                        double K_gb = 0.0);
 
 }  // namespace vgoswec
 

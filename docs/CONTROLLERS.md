@@ -43,10 +43,11 @@
 ### Gain derivation
 ```
 B_opt = |Z_intrinsic(ω₀)|
-Z_intrinsic = B_rad,55(ω₀) + i · [ω₀·(I_flap + A₅₅(ω₀)) − K_hs,55/ω₀]
+K_hs,eff = K_hs55 + C_ext + K_gb
+Z_intrinsic = B_rad,55(ω₀) + i · [ω₀·(I_hinge + A₅₅(ω₀)) − K_hs,eff/ω₀]
 ```
 
-Frequency-domain coefficients A(ω₀), B(ω₀) are computed from the stored RIRF via numerical Fourier cosine/sine transform (`impedance.cpp`). See `PitchImpedanceMagnitude()`.
+`I_hinge = I_cg + m·r_g²` is the hinge-referenced dry inertia used by the analytic formulas. Gain computation must use the hinge-referenced impedance H5 (`hydro.impedance_h5_file`, e.g. `hinged_vgoswec_*.h5`) so `A55`, `B55`, and `K_hs55` live in the same coordinate as the applied hinge torque. `K_gb` is the measured gravity-buoyancy restoring couple (`hinge.gravity_buoyancy_stiffness`, 0.867 N·m/rad in the committed VGM configs). See `PitchImpedanceMagnitude()` and [`IMPEDANCE_BASIS.md`](IMPEDANCE_BASIS.md).
 
 ### Parameters
 | Name | Symbol | Notes |
@@ -65,7 +66,8 @@ Frequency-domain coefficients A(ω₀), B(ω₀) are computed from the stored RI
 
 ### Gain derivation (from impedance.cpp)
 ```
-K_r =  ω₀² · (I_flap + A₅₅(ω₀)) − K_hs,55   (intrinsic pitch reactance to be cancelled)
+K_hs,eff = K_hs55 + C_ext + K_gb
+K_r =  ω₀² · (I_hinge + A₅₅(ω₀)) − K_hs,eff   (intrinsic pitch reactance to be cancelled)
 B_r =  B_rad,55(ω₀)
 ```
 
@@ -73,6 +75,11 @@ At ω₀, CC control achieves maximum power absorption for a single-frequency wa
 
 ### Parameters
 `K_r_override` and `B_r_override` (both zero = auto-compute from H5).
+
+### Config notes
+
+- The CC / `opt_passive` analytic-gain path is hinge-referenced. Any config that derives gains from hydrodynamic tables must therefore set `hydro.impedance_h5_file` explicitly.
+- The committed CC configs still carry **stale nominal `design_omega` defaults** for VGM-10/20/45/90 (`1.6396 rad/s` shared across all four). The sweep scripts override them per period, so committed CC CSVs are unaffected, but `scripts/cc_impedance_hinge_check.py` correctly flags those defaults against the hinge resonances (`1.353 / 1.443 / 1.683 / 1.928 rad/s`).
 
 ### Warning
 CC control requires bidirectional power flow. A physical PTO must support reactive operation (e.g., active motor/generator). Add conservative `clip_torque`.

@@ -5,7 +5,7 @@
 #
 # B_opt = |Z_intrinsic(ω₀)| where
 #   Z_intrinsic = B_rad(ω) + i·(ω·(I_flap + A₅₅(ω)) − K_hs_eff/ω)
-#   K_hs_eff = K_hs55 + C_ext  (external spring included)
+#   K_hs_eff = K_hs55 + C_ext + K_gb  (external spring + gravity-buoyancy restoring couple)
 #
 # τ_pto = -B_opt · θ̇
 #
@@ -23,7 +23,7 @@ body:
     mass: 6.676
     cog: [0.0, 0.0, -0.235]       # [m] hinge_z + r_g = -0.5 + 0.265
     inertia_xx: 0.32              # [kg·m²] CG roll inertia  (owner-provided, about CG)
-    inertia_yy: 0.21             # [kg·m²] CG pitch inertia (WEC-Sim validated). Hinge inertia = I_cg + m·r_g² = 0.21 + 6.676·0.265² (≈0.469) = 0.652
+    inertia_yy: 0.21             # [kg·m²] CG pitch inertia (WEC-Sim validated). Hinge inertia = I_cg + m·r_g² = 0.21 + 6.676·0.265² (≈0.4688) = 0.6788
     inertia_zz: 0.12              # [kg·m²] CG yaw inertia   (owner-provided, about CG)
   base:
     mesh: geometry/stl_files/center_beam_w_foundation_BEM.STL
@@ -33,9 +33,11 @@ body:
 hinge:
   position_z: -0.5      # [m] hinge/foundation reference (Table 1); foundation radius r_f = 0.05 m
   external_stiffness: 6.57  # [N·m/rad] experimental hinge spring (Table 1), applied at all times
+  gravity_buoyancy_stiffness: 0.867  # [N·m/rad] measured gravity-buoyancy restoring couple about the hinge
 
 hydro:
   h5_file: hydroData/vgoswec_10.h5
+  impedance_h5_file: hydroData/hinged_vgoswec_10.h5
   rho: 1025.0
 
 wave:

@@ -194,3 +194,13 @@ python3 scripts/cc_capture_efficiency_sweep.py --plot-only
 python3 scripts/capture_efficiency_sweep.py --plot-only
 python3 scripts/passive_vs_optpassive_sweep.py --plot-only
 ```
+
+## `opt_passive` anomaly note (2026-09-19 impedance audit)
+
+The conspicuous **VGM-90 `opt_passive` spike at `T = 2.50 s`** in the committed CSVs is now explained and should be treated as stale pending the owner re-run.
+
+- Before the impedance-basis fix, `opt_passive` gains were computed from the **CG-referenced** H5 while the physical torque was applied in the hinge DOF.
+- On that wrong basis, the spurious impedance resonance sits near **`T₀ = 2.61 s`**, and the shared sweep grid point at **`T = 2.50 s`** is the nearest sample, artificially minimizing `|Z|` and lightening the damper.
+- After the hinge-basis correction (`hydro.impedance_h5_file = hinged_*`, `K_hs_eff = K_hs55 + C_ext + K_gb`), expect the resonance hump to move back toward **`T ~ 3.0 s`** and cease to appear as an isolated anomaly.
+
+See [`IMPEDANCE_BASIS.md`](IMPEDANCE_BASIS.md) for the full defect record.
