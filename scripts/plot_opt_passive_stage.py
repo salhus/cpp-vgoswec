@@ -138,7 +138,7 @@ def plot_stage_gain(passive_map: dict[int, Path], opt_map: dict[int, Path], out_
 
     ax.axhline(1.0, linestyle="--", linewidth=1.2, color="0.2")
     ax.set_xlabel("Wave period $T$ [s]")
-    ax.set_ylabel(r"$P_{opt\_passive} / P_{passive}$ [-]")
+    ax.set_ylabel(r"$P_{\mathrm{opt\,passive}} / P_{\mathrm{passive}}$ [-]")
     ax.set_title("opt_passive stage gain over passive")
     ax.set_yscale("log")
     _style_axes(ax)
