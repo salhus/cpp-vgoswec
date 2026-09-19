@@ -55,11 +55,11 @@ MASK_NOTE = f"B55 <= {MASK_B55_THRESHOLD:.0e}"
 REACTIVE_NOTE = f"|P_capture| / P_converted < {REACTIVE_RESIDUAL_TOL:.0e}"
 
 FLAPS = {
-    0: {"label": "VGM-0", "config": "config/vgoswec_0_cc.yaml", "h5": "hydroData/vgoswec_0.h5"},
-    10: {"label": "VGM-10", "config": "config/vgoswec_10_cc.yaml", "h5": "hydroData/vgoswec_10.h5"},
-    20: {"label": "VGM-20", "config": "config/vgoswec_20_cc.yaml", "h5": "hydroData/vgoswec_20.h5"},
-    45: {"label": "VGM-45", "config": "config/vgoswec_45_cc.yaml", "h5": "hydroData/vgoswec_45.h5"},
-    90: {"label": "VGM-90", "config": "config/vgoswec_90_cc.yaml", "h5": "hydroData/vgoswec_90.h5"},
+    0: {"label": "VGM-0", "config": "config/vgoswec_0_cc.yaml", "h5": "hydroData/hinged_vgoswec_0.h5"},
+    10: {"label": "VGM-10", "config": "config/vgoswec_10_cc.yaml", "h5": "hydroData/hinged_vgoswec_10.h5"},
+    20: {"label": "VGM-20", "config": "config/vgoswec_20_cc.yaml", "h5": "hydroData/hinged_vgoswec_20.h5"},
+    45: {"label": "VGM-45", "config": "config/vgoswec_45_cc.yaml", "h5": "hydroData/hinged_vgoswec_45.h5"},
+    90: {"label": "VGM-90", "config": "config/vgoswec_90_cc.yaml", "h5": "hydroData/hinged_vgoswec_90.h5"},
 }
 
 JOURNAL_STYLE = {
@@ -199,7 +199,7 @@ def popt_curve_from_h5(h5_path: Path, periods_s: np.ndarray) -> tuple[np.ndarray
     omega_rads = omega_rads[order]
     b55_norm = b55_norm[order]
     fexc_norm = fexc_norm[order]
-    b55 = b55_norm * rho * omega_rads
+    b55 = np.maximum(0.0, b55_norm * rho * omega_rads)
     fexc = fexc_norm * rho * g * WAVE_AMPLITUDE_M
 
     omega_targets = (2.0 * math.pi) / periods_s

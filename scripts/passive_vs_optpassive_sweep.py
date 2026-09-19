@@ -83,35 +83,35 @@ FLAPS = {
         "label": "VGM-0",
         "passive_config": "config/vgoswec_0_passive.yaml",
         "opt_passive_config": "config/vgoswec_0_opt_passive.yaml",
-        "h5": "hydroData/vgoswec_0.h5",
+        "h5": "hydroData/hinged_vgoswec_0.h5",
         "omega0": 1.07,
     },
     10: {
         "label": "VGM-10",
         "passive_config": "config/vgoswec_10_passive.yaml",
         "opt_passive_config": "config/vgoswec_10_opt_passive.yaml",
-        "h5": "hydroData/vgoswec_10.h5",
+        "h5": "hydroData/hinged_vgoswec_10.h5",
         "omega0": 1.468,
     },
     20: {
         "label": "VGM-20",
         "passive_config": "config/vgoswec_20_passive.yaml",
         "opt_passive_config": "config/vgoswec_20_opt_passive.yaml",
-        "h5": "hydroData/vgoswec_20.h5",
+        "h5": "hydroData/hinged_vgoswec_20.h5",
         "omega0": 1.568,
     },
     45: {
         "label": "VGM-45",
         "passive_config": "config/vgoswec_45_passive.yaml",
         "opt_passive_config": "config/vgoswec_45_opt_passive.yaml",
-        "h5": "hydroData/vgoswec_45.h5",
+        "h5": "hydroData/hinged_vgoswec_45.h5",
         "omega0": 1.84,
     },
     90: {
         "label": "VGM-90",
         "passive_config": "config/vgoswec_90_passive.yaml",
         "opt_passive_config": "config/vgoswec_90_opt_passive.yaml",
-        "h5": "hydroData/vgoswec_90.h5",
+        "h5": "hydroData/hinged_vgoswec_90.h5",
         "omega0": 2.094,
     },
 }
@@ -264,7 +264,7 @@ def popt_curve_from_h5(
     b55_norm = b55_norm[order]
     fexc_norm = fexc_norm[order]
 
-    b55 = b55_norm * rho * w
+    b55 = np.maximum(0.0, b55_norm * rho * w)
     fexc = fexc_norm * rho * g * WAVE_AMPLITUDE_M
 
     omega_targets = (2.0 * math.pi) / periods_s

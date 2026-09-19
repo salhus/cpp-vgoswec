@@ -131,10 +131,16 @@ The owner should be able to `git pull` and immediately re-run the `opt_passive` 
 
 1. **Highest priority:** ff+PID guard-fire fraction was never measured. Instrument `ExcitationVelocityController::ComputeForce` to count `tau*vel > 0` events and run VGM-0 at `T = 4.50 s`. If the guard fires near 100% of the time, the long-period band is the passive-safety floor rather than feedforward control, and the claim *"ff+PID carries the long-period tail"* must be rewritten.
 2. The `2.44488972 W` headline is still unconfirmed as settled (`430 s` vs `760 s` check still needed).
-3. Sweep scripts still tabulate `F_exc_Nm` / `B55_Nmsrad` from **CG** H5 files while `P_capture` is measured in the hinge DOF. `P_opt = F^2/(8B)` is basis-invariant so `eta` is only mildly affected, but `masked` is not. Hinge-basis re-tabulation is still needed as post-processing.
+3. **Resolved in follow-up PR:** sweep post-processing now reads hinge-referenced
+   `hydroData/hinged_vgoswec_*.h5`, clamps de-normalized `B55 >= 0` in Python to
+   match `src/impedance.cpp`, and can re-tabulate existing `analysis/{passive,opt_passive}`
+   CSVs in place without re-running simulations (`scripts/retabulate_hydro_columns.py`).
 4. `analysis/FINDINGS_3REGIME.md` hand-written tables are still stale.
 5. There remains a uniform `~1.4%` residual between corrected analytic `omega_n` and free-decay (`single-DOF analytic model` vs `coupled plant`).
 6. `[impedance] INFO: legacy A55-match rho=...` still prints more often than intended and should become truly once-per-process.
+7. The isolated single-point `P_capture` dips near resonance (notably VGM-0 `T=6.00 s`,
+   VGM-45 `T=3.50 s`, VGM-90 `T=3.00 s`) remain an open question; no controller or
+   hydro post-processing change in this PR attempts to explain or alter them.
 
 ---
 

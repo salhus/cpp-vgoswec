@@ -57,10 +57,10 @@
 | `omega_rads` | Angular frequency [rad/s], `2π/T` |
 | `P_capture_W` | Steady-state mean absorbed power from tuned `exc_ff_pid` [W] |
 | `P_opt_W` | Theoretical optimum power [W], blank when masked |
-| `B55_Nmsrad` | De-normalized pitch radiation damping `B55` [N·m·s/rad] |
-| `F_exc_Nm` | De-normalized pitch excitation moment magnitude `|F_exc|` for `A=0.025 m` [N·m] |
+| `B55_Nmsrad` | Hinge-basis de-normalized pitch radiation damping `B55` [N·m·s/rad] from `hydroData/hinged_vgoswec_*.h5` |
+| `F_exc_Nm` | Hinge-basis de-normalized pitch excitation moment magnitude `|F_exc|` for `A=0.025 m` [N·m] from `hydroData/hinged_vgoswec_*.h5` |
 | `eta` | Capture efficiency `η = P_capture / P_opt`; only blank when `masked=true` (`B55 <= 1e-4`) |
-| `masked` | `true` where `B55 <= 1e-4` (reactive-limited / undefined `P_opt`, including non-positive `B55`) |
+| `masked` | `true` where hinge-basis `B55 <= 1e-4` (reactive-limited / undefined `P_opt`, including non-positive `B55`) |
 
 ## Capture-efficiency method (tuned `exc_ff_pid`)
 
@@ -75,7 +75,9 @@
   - Body: `body1` (flap), ignore `body2`.
   - Pitch term: `body1/hydro_coeffs/radiation_damping/components/5_5`.
   - Excitation: `body1/hydro_coeffs/excitation/mag` at DOF5 (index 4), direction 0.
-  - De-normalization: `B55 = B55_norm * rho * omega`, `|F_exc| = mag * rho * g * A`.
+  - Basis: hinge-referenced `hydroData/hinged_vgoswec_*.h5`, matching the hinge DOF used by `P_capture_W`.
+  - De-normalization: `B55 = max(0, B55_norm * rho * omega)`, `|F_exc| = mag * rho * g * A`.
+  - `rho` and `g` are read from each H5 file; the hinged files store `rho = 1025`.
   - Wave amplitude fixed to `A = 0.025 m` (`H = 0.05 m`) for both sim and `P_opt`.
 - Masking/flagging (essential):
   - `B55 <= 1e-4` => `P_opt` undefined (reactive-limited notch), so `η` is not reported/plotted (`masked=true`).
@@ -112,7 +114,10 @@ python3 scripts/plot_kpkd_surface.py
 python3 scripts/capture_efficiency_sweep.py
 
 # 4. Re-plot only, from committed capture-efficiency CSVs
+python3 scripts/retabulate_hydro_columns.py --dry-run
+python3 scripts/retabulate_hydro_columns.py
 python3 scripts/capture_efficiency_sweep.py --plot-only
 python3 scripts/cc_capture_efficiency_sweep.py --plot-only
 python3 scripts/cc_vs_ffpid_comparison.py --plot-only
+python3 scripts/plot_opt_passive_stage.py
 ```

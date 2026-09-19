@@ -65,27 +65,27 @@ FLAPS = {
     0: {
         "label": "VGM-0",
         "config": "config/vgoswec_0_exc_ff_pid.yaml",
-        "h5": "hydroData/vgoswec_0.h5",
+        "h5": "hydroData/hinged_vgoswec_0.h5",
     },
     10: {
         "label": "VGM-10",
         "config": "config/vgoswec_10_exc_ff_pid.yaml",
-        "h5": "hydroData/vgoswec_10.h5",
+        "h5": "hydroData/hinged_vgoswec_10.h5",
     },
     20: {
         "label": "VGM-20",
         "config": "config/vgoswec_20_exc_ff_pid.yaml",
-        "h5": "hydroData/vgoswec_20.h5",
+        "h5": "hydroData/hinged_vgoswec_20.h5",
     },
     45: {
         "label": "VGM-45",
         "config": "config/vgoswec_45_exc_ff_pid.yaml",
-        "h5": "hydroData/vgoswec_45.h5",
+        "h5": "hydroData/hinged_vgoswec_45.h5",
     },
     90: {
         "label": "VGM-90",
         "config": "config/vgoswec_90_exc_ff_pid.yaml",
-        "h5": "hydroData/vgoswec_90.h5",
+        "h5": "hydroData/hinged_vgoswec_90.h5",
     },
 }
 
@@ -208,7 +208,7 @@ def popt_curve_from_h5(h5_path: Path, periods_s: np.ndarray) -> tuple[np.ndarray
     b55_norm = b55_norm[order]
     fexc_norm = fexc_norm[order]
 
-    b55 = b55_norm * rho * w
+    b55 = np.maximum(0.0, b55_norm * rho * w)
     fexc = fexc_norm * rho * g * WAVE_AMPLITUDE_M
 
     omega_targets = (2.0 * math.pi) / periods_s
