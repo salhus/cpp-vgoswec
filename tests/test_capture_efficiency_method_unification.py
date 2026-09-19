@@ -15,6 +15,7 @@ if str(SCRIPTS_DIR) not in sys.path:
 
 import capture_efficiency_sweep  # noqa: E402
 import cc_capture_efficiency_sweep  # noqa: E402
+import cc_vs_ffpid_comparison  # noqa: E402
 import three_regime_comparison  # noqa: E402
 
 
@@ -173,7 +174,18 @@ class UnifiedSweepMethodTests(unittest.TestCase):
         self.assertFalse(cc_capture_efficiency_sweep._reactive_cancellation_limited(0.01, 1.0))
         self.assertFalse(cc_capture_efficiency_sweep._reactive_cancellation_limited(0.1, 0.0))
 
-    def test_three_regime_envelope_excludes_reactive_cancellation_limited_cc_rows(self) -> None:
+    def test_power_visibility_ignores_efficiency_reference_flags(self) -> None:
+        row = {
+            "P_capture_W": 0.48129077,
+            "masked": True,
+            "linear_popt_invalid": True,
+            "reactive_cancellation_limited": True,
+        }
+        self.assertTrue(cc_capture_efficiency_sweep._power_valid(row))
+        self.assertTrue(cc_vs_ffpid_comparison._power_valid(row))
+        self.assertTrue(three_regime_comparison._power_valid(row))
+
+    def test_three_regime_power_envelope_keeps_reactive_limited_cc_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             repo = Path(tmpdir)
             cc_dir = repo / "analysis" / "cc"
@@ -224,11 +236,64 @@ class UnifiedSweepMethodTests(unittest.TestCase):
 
         power_by_t = {row["T_s"]: row for row in hull}
         eff_by_t = {row["T_s"]: row for row in eff_hull}
-        self.assertEqual(power_by_t[1.0]["controller"], "opt_passive")
-        self.assertEqual(power_by_t[1.0]["P_max_W"], 2.0)
+        self.assertEqual(power_by_t[1.0]["controller"], "CC")
+        self.assertEqual(power_by_t[1.0]["P_max_W"], 5.0)
         self.assertEqual(eff_by_t[1.0]["controller"], "opt_passive")
         self.assertAlmostEqual(eff_by_t[1.0]["eta_max"], 0.5)
         self.assertEqual(power_by_t[1.25]["controller"], "CC")
+
+    def test_three_regime_power_envelope_keeps_masked_finite_ffpid_points(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            cc_dir = repo / "analysis" / "cc"
+            op_dir = repo / "analysis" / "opt_passive"
+            fp_dir = repo / "analysis" / "passive_guarded"
+            cc_dir.mkdir(parents=True)
+            op_dir.mkdir(parents=True)
+            fp_dir.mkdir(parents=True)
+
+            cc_csv = (
+                "T_s,P_capture_W,P_opt_W,eta,masked,linear_popt_invalid,reactive_cancellation_limited\n"
+                "4.50,0.30,1.0,0.3,false,false,false\n"
+            )
+            opt_csv = (
+                "T_s,P_capture_W,P_opt_W,B55_Nmsrad,eta,masked\n"
+                "4.50,0.35,1.0,1.0,0.35,false\n"
+            )
+            ff_csv = (
+                "T_s,P_capture_W,P_opt_W,eta,masked,linear_popt_invalid,reactive_cancellation_limited\n"
+                "4.50,0.48129077,,,true,true,false\n"
+            )
+
+            for angle in three_regime_comparison.FLAP_ANGLES:
+                (cc_dir / f"capture_efficiency_VGM{angle}.csv").write_text(cc_csv)
+                (op_dir / f"capture_efficiency_VGM{angle}.csv").write_text(opt_csv)
+                (fp_dir / f"capture_efficiency_VGM{angle}.csv").write_text(ff_csv)
+
+            cc_map = {
+                angle: cc_dir / f"capture_efficiency_VGM{angle}.csv"
+                for angle in three_regime_comparison.FLAP_ANGLES
+            }
+            op_map = {
+                angle: op_dir / f"capture_efficiency_VGM{angle}.csv"
+                for angle in three_regime_comparison.FLAP_ANGLES
+            }
+            fp_map = {
+                angle: fp_dir / f"capture_efficiency_VGM{angle}.csv"
+                for angle in three_regime_comparison.FLAP_ANGLES
+            }
+
+            hull = three_regime_comparison._build_envelope(cc_map, op_map, fp_map)
+            eff_hull = three_regime_comparison._build_efficiency_envelope(
+                cc_map, op_map, fp_map
+            )
+
+        power_row = {row["T_s"]: row for row in hull}[4.5]
+        eff_row = {row["T_s"]: row for row in eff_hull}[4.5]
+        self.assertEqual(power_row["controller"], "ff+PID")
+        self.assertEqual(power_row["flap_angle"], 0)
+        self.assertAlmostEqual(power_row["P_max_W"], 0.48129077)
+        self.assertEqual(eff_row["controller"], "opt_passive")
 
 
 if __name__ == "__main__":

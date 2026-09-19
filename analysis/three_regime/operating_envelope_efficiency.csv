@@ -1,5 +1,5 @@
 T_s,eta_max,controller,flap_angle,masked
-0.5,0.823195154,opt_passive,90,false
+0.5,0.854810919,opt_passive,90,false
 0.75,0.991436222,CC,45,false
 1.0,0.96226267,CC,45,false
 1.25,0.90213049,CC,10,false
@@ -7,11 +7,11 @@ T_s,eta_max,controller,flap_angle,masked
 1.75,0.635592214,CC,0,false
 2.0,0.357279306,CC,0,false
 2.25,0.200431279,CC,0,false
-2.5,0.119178887,opt_passive,90,false
+2.5,0.119000683,opt_passive,90,false
 2.75,0.121130865,ff+PID,90,false
 3.0,0.132745996,ff+PID,45,false
-3.25,0.155738531,opt_passive,20,false
-3.5,0.149381311,opt_passive,10,false
+3.25,0.155700541,opt_passive,20,false
+3.5,0.148017643,opt_passive,10,false
 3.75,0.121304997,ff+PID,10,false
 4.0,0.097417468,ff+PID,10,false
 4.25,0.0798163886,ff+PID,10,false

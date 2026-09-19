@@ -6,7 +6,8 @@ For each flap angle variant (VGM-0,10,20,45,90) across T=0.5..7.0 s:
     over the final N_AVG whole wave cycles => P_capture(T)
   - Compute P_opt(T) from body1 pitch hydrodynamics in H5
     (radiation_damping/components/5_5 + excitation/mag[dof=5,dir=0], de-normalized)
-  - Mask reactive-limited points where B55 <= 1e-4
+  - Flag reactive-limited points where B55 <= 1e-4 for η interpretation only;
+    finite raw capture power is still plotted
   - Write per-flap CSVs under analysis/passive_guarded/
   - Generate per-flap and cross-flap figures under analysis/passive_guarded/figures/
 
@@ -392,8 +393,8 @@ def plot_per_flap(rows: list[dict], flap_angle: int, out_png: Path, power_ceilin
 
     for ax in (ax0, ax1):
         _style_period_axis(ax)
-        _add_masked_spans(ax, T, masked)
         _style_common_axes(ax)
+    _add_masked_spans(ax1, T, masked)
     _style_power_axis(ax0)
     _style_efficiency_axis(ax1, major_step=10.0, minor_divisions=5)
     ax0.set_ylim(0.0, power_ceiling)
@@ -412,7 +413,7 @@ def plot_per_flap(rows: list[dict], flap_angle: int, out_png: Path, power_ceilin
     fig.text(
         0.01,
         0.01,
-        (f"Mask rule: {MASK_NOTE} N·m·s/rad (reactive-limited)."),
+        (f"Efficiency-panel mask rule: {MASK_NOTE} N·m·s/rad."),
         fontsize=7,
         color="0.35",
     )

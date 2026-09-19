@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Compute and plot capture efficiency for tuned VGOSWEC cc controllers.
 
-Uses the shared period-aware sweep method from sweep_method.py and flags
-reactive-cancellation-limited points where |P_capture| / P_converted is below
-the numerical-residual tolerance.
+Uses the shared period-aware sweep method from sweep_method.py. The
+`masked`/`linear_popt_invalid`/`reactive_cancellation_limited` flags annotate
+where the Budal-reference efficiency is not interpretable; they do not
+invalidate finite raw captured-power points.
 """
 
 from __future__ import annotations
@@ -237,12 +238,17 @@ def _reactive_cancellation_limited(p_capture: float, p_converted: float) -> bool
     return abs(p_capture) / p_converted < REACTIVE_RESIDUAL_TOL
 
 
-def _row_excluded(row: dict) -> bool:
+def _eta_excluded(row: dict) -> bool:
     return bool(
         row.get("masked", False)
         or row.get("linear_popt_invalid", False)
         or row.get("reactive_cancellation_limited", False)
     )
+
+
+def _power_valid(row: dict) -> bool:
+    """Return True when the raw captured-power point itself is finite."""
+    return np.isfinite(row.get("P_capture_W", float("nan")))
 
 
 def write_efficiency_csv(out_csv: Path, rows: list[dict]) -> None:
@@ -408,8 +414,8 @@ def _breakdown_power_ceiling(csv_map: dict[int, Path]) -> float:
     return _ceil_to_step(max(maxima) if maxima else float("nan"), 0.25)
 
 
-def _display_mask(rows: list[dict]) -> np.ndarray:
-    return np.array([_row_excluded(r) for r in rows], dtype=bool)
+def _eta_display_mask(rows: list[dict]) -> np.ndarray:
+    return np.array([_eta_excluded(r) for r in rows], dtype=bool)
 
 
 def plot_per_flap(rows: list[dict], flap_angle: int, out_png: Path, power_ceiling: float, efficiency_ceiling: float) -> None:
@@ -419,9 +425,9 @@ def plot_per_flap(rows: list[dict], flap_angle: int, out_png: Path, power_ceilin
     p_opt = np.array([r["P_opt_W"] for r in rows], dtype=float)
     eta = np.array([r["eta"] for r in rows], dtype=float) * 100.0
     masked = np.array([r["masked"] for r in rows], dtype=bool)
-    display_mask = _display_mask(rows)
+    display_mask = _eta_display_mask(rows)
     fig, (ax0, ax1) = plt.subplots(2, 1, figsize=(8.2, 6.0), sharex=True)
-    valid_cap = (~display_mask) & np.isfinite(p_cap)
+    valid_cap = np.array([_power_valid(r) for r in rows], dtype=bool)
     if np.any(valid_cap):
         ax0.plot(T[valid_cap], p_cap[valid_cap], marker="o", color="tab:blue", linewidth=1.8, label="captured", zorder=3)
     ax0.plot(T, p_opt, marker="s", color="k", linestyle="--", linewidth=1.4, label="$P_{opt}$", zorder=3)
@@ -430,8 +436,8 @@ def plot_per_flap(rows: list[dict], flap_angle: int, out_png: Path, power_ceilin
         ax1.plot(T[valid_eta], eta[valid_eta], marker="o", color="tab:green", linewidth=1.8, label="$\\eta$", zorder=3)
     for ax in (ax0, ax1):
         _style_period_axis(ax)
-        _add_masked_spans(ax, T, display_mask)
         _style_common_axes(ax)
+    _add_masked_spans(ax1, T, display_mask)
     _style_power_axis(ax0)
     _style_efficiency_axis(ax1)
     ax0.set_ylim(0.0, power_ceiling)
@@ -442,23 +448,10 @@ def plot_per_flap(rows: list[dict], flap_angle: int, out_png: Path, power_ceilin
     ax0.set_title(f"{meta['label']} capture efficiency (cc)")
     ax0.legend(loc="best", fontsize=8)
     ax1.legend(loc="best", fontsize=8)
-    spans = _masked_spans(T, display_mask)
-    if spans:
-        x0, x1 = spans[len(spans) // 2]
-        ax0.text(
-            (x0 + x1) / 2.0,
-            0.07,
-            "hatched: masked / cancellation-limited",
-            transform=ax0.get_xaxis_transform(),
-            ha="center",
-            va="bottom",
-            fontsize=7,
-            color="0.35",
-        )
     fig.text(
         0.01,
         0.01,
-        f"Hatched exclusions: {MASK_NOTE} or {REACTIVE_NOTE}.",
+        f"Efficiency-panel hatching: {MASK_NOTE} or {REACTIVE_NOTE}.",
         fontsize=7,
         color="0.35",
     )
@@ -476,10 +469,10 @@ def plot_summary(csv_map: dict[int, Path], out_png: Path, power_ceiling: float, 
         T = np.array([r["T_s"] for r in rows], dtype=float)
         p_cap = np.array([r["P_capture_W"] for r in rows], dtype=float)
         eta = np.array([r["eta"] for r in rows], dtype=float) * 100.0
-        display_mask = _display_mask(rows)
+        display_mask = _eta_display_mask(rows)
         label = FLAPS[angle]["label"]
         valid_eta = (~display_mask) & np.isfinite(eta)
-        valid_cap = (~display_mask) & np.isfinite(p_cap)
+        valid_cap = np.array([_power_valid(r) for r in rows], dtype=bool)
         ax0.plot(T[valid_cap], p_cap[valid_cap], marker="o", linewidth=1.8, color=color, label=label, zorder=3)
         ax1.plot(T[valid_eta], eta[valid_eta], marker="o", linewidth=1.8, color=color, label=label, zorder=3)
     ax0.set_ylabel("Power [W]")
@@ -505,17 +498,17 @@ def plot_summary(csv_map: dict[int, Path], out_png: Path, power_ceiling: float, 
 def plot_power_breakdown(rows: list[dict], flap_angle: int, out_png: Path, breakdown_ceiling: float) -> None:
     meta = FLAPS[flap_angle]
     T = np.array([r["T_s"] for r in rows], dtype=float)
-    display_mask = _display_mask(rows)
     converted = np.array([r["P_converted_W"] for r in rows], dtype=float)
     injected = np.array([r["P_injected_W"] for r in rows], dtype=float)
     captured = np.array([r["P_capture_W"] for r in rows], dtype=float)
 
     fig, ax = plt.subplots(figsize=(8.4, 4.8))
-    valid = ~display_mask
-    ax.plot(T[valid], injected[valid], marker="x", linestyle="--", linewidth=1.5, color="tab:orange", label="injected", zorder=3)
-    ax.plot(T[valid], converted[valid], marker="o", linewidth=1.8, color="tab:blue", label="converted", zorder=3)
-    ax.plot(T[valid], captured[valid], marker="s", linewidth=1.8, color="tab:green", label="captured", zorder=3)
-    _add_masked_spans(ax, T, display_mask)
+    valid_injected = np.isfinite(injected)
+    valid_converted = np.isfinite(converted)
+    valid_captured = np.isfinite(captured)
+    ax.plot(T[valid_injected], injected[valid_injected], marker="x", linestyle="--", linewidth=1.5, color="tab:orange", label="injected", zorder=3)
+    ax.plot(T[valid_converted], converted[valid_converted], marker="o", linewidth=1.8, color="tab:blue", label="converted", zorder=3)
+    ax.plot(T[valid_captured], captured[valid_captured], marker="s", linewidth=1.8, color="tab:green", label="captured", zorder=3)
     ax.set_xlabel("Wave period $T$ [s]")
     ax.set_ylabel("Power [W]")
     ax.set_title(f"{meta['label']} CC power breakdown")

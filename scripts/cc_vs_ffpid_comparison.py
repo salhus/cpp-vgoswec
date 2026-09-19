@@ -20,8 +20,9 @@ Matching efficiency figures are also generated:
 
 Use --plot-only to regenerate figures from committed CSVs without simulations.
 
-Rows flagged `reactive_cancellation_limited=true` in CC CSVs are excluded from
-the overlays and reactive-ratio plots.
+Efficiency/reference-limit flags (`masked`, `linear_popt_invalid`,
+`reactive_cancellation_limited`) are used only for η plots. Raw-power overlays
+keep any finite `P_capture_W` value.
 
 Two-regime result (VGM-0):
   CC wins short periods T≈0.5–1 s (low reactive burden).
@@ -132,12 +133,17 @@ def _eta_with_flag(row: dict) -> tuple[float, bool]:
     return eta, invalid
 
 
-def _row_excluded(row: dict) -> bool:
+def _eta_excluded(row: dict) -> bool:
     return bool(
         row.get("masked", False)
         or row.get("linear_popt_invalid", False)
         or row.get("reactive_cancellation_limited", False)
     )
+
+
+def _power_valid(row: dict) -> bool:
+    """Return True when the raw captured-power point itself is finite."""
+    return math.isfinite(row.get("P_capture_W", float("nan")))
 
 
 def _reactive_ratio(p_injected: float, p_converted: float) -> float:
@@ -240,7 +246,7 @@ def _compute_efficiency_ceiling(cc_csv_map: dict[int, Path], fp_csv_map: dict[in
             rows = loader(path)
             for r in rows:
                 eta, _ = _eta_with_flag(r)
-                if (not _row_excluded(r)) and math.isfinite(eta):
+                if (not _eta_excluded(r)) and math.isfinite(eta):
                     maxima.append(float(eta * 100.0))
     return _ceil_to_step(max(maxima) if maxima else float("nan"), 5.0)
 
@@ -293,49 +299,39 @@ def plot_per_flap_comparison(
     p_conv = np.array([r["P_converted_W"] for r in cc_rows], dtype=float)
     p_inj = np.array([r["P_injected_W"] for r in cc_rows], dtype=float)
     p_opt = np.array([r["P_opt_W"] for r in cc_rows], dtype=float)
-    masked_cc = np.array([_row_excluded(r) for r in cc_rows], dtype=bool)
-    p_cc = np.where(masked_cc, np.nan, p_cc)
+    valid_power_cc = np.array([_power_valid(r) for r in cc_rows], dtype=bool)
+    p_cc_cmp = np.where(valid_power_cc, p_cc, np.nan)
 
     T_fp = np.array([r["T_s"] for r in fp_rows], dtype=float)
     p_fp = np.array([r["P_capture_W"] for r in fp_rows], dtype=float)
-    masked_fp = np.array([_row_excluded(r) for r in fp_rows], dtype=bool)
-    p_fp = np.where(masked_fp, np.nan, p_fp)
+    valid_power_fp = np.array([_power_valid(r) for r in fp_rows], dtype=bool)
+    p_fp_cmp = np.where(valid_power_fp, p_fp, np.nan)
+    eta_excluded_cc = np.array([_eta_excluded(r) for r in cc_rows], dtype=bool)
 
-    # Reactive ratio per point (guard against divide-by-zero and masked rows)
+    # Reactive ratio per point (guard against divide-by-zero and efficiency-excluded rows)
     react_ratio = np.array([
-        float("nan") if masked_cc[i] else _reactive_ratio(p_inj[i], p_conv[i])
+        float("nan") if eta_excluded_cc[i] else _reactive_ratio(p_inj[i], p_conv[i])
         for i in range(len(T_cc))
     ], dtype=float)
 
-    crossover_T = _find_crossover(T_cc, p_cc, T_fp, p_fp)
+    crossover_T = _find_crossover(T_cc, p_cc_cmp, T_fp, p_fp_cmp)
 
     fig, (ax0, ax1) = plt.subplots(2, 1, figsize=(8.4, 7.0), sharex=True)
 
     # --- Top panel: P_capture comparison ---
-    ax0.plot(T_cc[~masked_cc], p_cc[~masked_cc], marker="o", color="tab:blue", linewidth=1.8,
+    ax0.plot(T_cc[valid_power_cc], p_cc[valid_power_cc], marker="o", color="tab:blue", linewidth=1.8,
              zorder=3,
              label="CC captured")
-    ax0.plot(T_fp[~masked_fp], p_fp[~masked_fp], marker="s", color="tab:orange", linewidth=1.8,
+    ax0.plot(T_fp[valid_power_fp], p_fp[valid_power_fp], marker="s", color="tab:orange", linewidth=1.8,
              zorder=3,
              label="ff+PID captured")
     finite_popt = np.isfinite(p_opt)
     if np.any(finite_popt):
         ax0.plot(T_cc[finite_popt], p_opt[finite_popt], marker="^", color="k", linestyle="--", linewidth=1.4, zorder=3, label="$P_{opt}$")
 
-    # Masked shading for both controllers
     all_T = np.union1d(T_cc, T_fp)
-    # Build combined masked array for display (mask where either set is masked)
-    T_cc_set = set(np.round(T_cc, 6))
-    T_fp_set = set(np.round(T_fp, 6))
-    cc_mask_map = {round(T_cc[i], 6): masked_cc[i] for i in range(len(T_cc))}
-    fp_mask_map = {round(T_fp[i], 6): masked_fp[i] for i in range(len(T_fp))}
-    combined_masked = np.array([
-        (cc_mask_map.get(round(t, 6), False) or fp_mask_map.get(round(t, 6), False))
-        for t in all_T
-    ], dtype=bool)
     for ax in (ax0, ax1):
         _style_period_axis(ax)
-        _add_masked_spans(ax, all_T, combined_masked)
         _style_common_axes(ax)
 
     if crossover_T is not None:
@@ -365,7 +361,8 @@ def plot_per_flap_comparison(
     ax0.set_ylim(0.0, power_ceiling)
 
     # --- Bottom panel: CC reactive ratio ---
-    ax1.plot(T_cc[~masked_cc], react_ratio[~masked_cc], marker="o", color="tab:red", linewidth=1.8,
+    valid_ratio = np.isfinite(react_ratio)
+    ax1.plot(T_cc[valid_ratio], react_ratio[valid_ratio], marker="o", color="tab:red", linewidth=1.8,
              zorder=3,
              label="CC reactive ratio $|P_{inj}|/P_{conv}$")
     ax1.axhline(REACTIVE_HEAVY_THRESHOLD, color="0.4", linestyle=":", linewidth=1.2)
@@ -418,16 +415,14 @@ def plot_summary_comparison(
             cc_rows = _load_cc_csv(cc_csv_map[angle])
             T_cc = np.array([r["T_s"] for r in cc_rows], dtype=float)
             p_cc = np.array([r["P_capture_W"] for r in cc_rows], dtype=float)
-            masked_cc = np.array([_row_excluded(r) for r in cc_rows], dtype=bool)
-            valid_cc = (~masked_cc) & np.isfinite(p_cc)
+            valid_cc = np.isfinite(p_cc)
             ax.plot(T_cc[valid_cc], p_cc[valid_cc], marker="o", linewidth=1.6, color=color,
                     linestyle="-", label=f"{lbl} CC", zorder=3)
         if angle in fp_csv_map and fp_csv_map[angle].exists():
             fp_rows = _load_ffpid_csv(fp_csv_map[angle])
             T_fp = np.array([r["T_s"] for r in fp_rows], dtype=float)
             p_fp = np.array([r["P_capture_W"] for r in fp_rows], dtype=float)
-            masked_fp = np.array([_row_excluded(r) for r in fp_rows], dtype=bool)
-            valid_fp = (~masked_fp) & np.isfinite(p_fp)
+            valid_fp = np.isfinite(p_fp)
             ax.plot(T_fp[valid_fp], p_fp[valid_fp], marker="s", linewidth=1.4, color=color,
                     linestyle="--", label=f"{lbl} ff+PID", alpha=0.85, zorder=3)
 
@@ -456,24 +451,24 @@ def plot_per_flap_efficiency_comparison(
 ) -> None:
     label = FLAP_LABELS[flap_angle]
     T_cc = np.array([r["T_s"] for r in cc_rows], dtype=float)
-    masked_cc = np.array([_row_excluded(r) for r in cc_rows], dtype=bool)
+    eta_excluded_cc = np.array([_eta_excluded(r) for r in cc_rows], dtype=bool)
     eta_cc_info = [_eta_with_flag(r) for r in cc_rows]
     eta_cc = np.array([v[0] for v in eta_cc_info], dtype=float) * 100.0
 
     T_fp = np.array([r["T_s"] for r in fp_rows], dtype=float)
-    masked_fp = np.array([_row_excluded(r) for r in fp_rows], dtype=bool)
+    eta_excluded_fp = np.array([_eta_excluded(r) for r in fp_rows], dtype=bool)
     eta_fp_info = [_eta_with_flag(r) for r in fp_rows]
     eta_fp = np.array([v[0] for v in eta_fp_info], dtype=float) * 100.0
 
     fig, ax = plt.subplots(figsize=(8.4, 4.8))
-    valid_cc = (~masked_cc) & np.isfinite(eta_cc)
-    valid_fp = (~masked_fp) & np.isfinite(eta_fp)
+    valid_cc = (~eta_excluded_cc) & np.isfinite(eta_cc)
+    valid_fp = (~eta_excluded_fp) & np.isfinite(eta_fp)
     ax.plot(T_cc[valid_cc], eta_cc[valid_cc], marker="o", color="tab:blue", linewidth=1.8, label="CC $\\eta$", zorder=3)
     ax.plot(T_fp[valid_fp], eta_fp[valid_fp], marker="s", color="tab:orange", linewidth=1.8, linestyle="--", label="ff+PID $\\eta$", zorder=3)
 
     all_T = np.union1d(T_cc, T_fp)
-    cc_mask_map = {round(T_cc[i], 6): masked_cc[i] for i in range(len(T_cc))}
-    fp_mask_map = {round(T_fp[i], 6): masked_fp[i] for i in range(len(T_fp))}
+    cc_mask_map = {round(T_cc[i], 6): eta_excluded_cc[i] for i in range(len(T_cc))}
+    fp_mask_map = {round(T_fp[i], 6): eta_excluded_fp[i] for i in range(len(T_fp))}
     combined_masked = np.array(
         [cc_mask_map.get(round(t, 6), False) or fp_mask_map.get(round(t, 6), False) for t in all_T],
         dtype=bool,
@@ -511,16 +506,16 @@ def plot_summary_efficiency_comparison(
             T_cc = np.array([r["T_s"] for r in cc_rows], dtype=float)
             eta_cc_info = [_eta_with_flag(r) for r in cc_rows]
             eta_cc = np.array([v[0] for v in eta_cc_info], dtype=float) * 100.0
-            masked_cc = np.array([_row_excluded(r) for r in cc_rows], dtype=bool)
-            valid_cc = (~masked_cc) & np.isfinite(eta_cc)
+            eta_excluded_cc = np.array([_eta_excluded(r) for r in cc_rows], dtype=bool)
+            valid_cc = (~eta_excluded_cc) & np.isfinite(eta_cc)
             ax.plot(T_cc[valid_cc], eta_cc[valid_cc], marker="o", linewidth=1.6, color=color, linestyle="-", label=f"{lbl} CC", zorder=3)
         if angle in fp_csv_map and fp_csv_map[angle].exists():
             fp_rows = _load_ffpid_csv(fp_csv_map[angle])
             T_fp = np.array([r["T_s"] for r in fp_rows], dtype=float)
             eta_fp_info = [_eta_with_flag(r) for r in fp_rows]
             eta_fp = np.array([v[0] for v in eta_fp_info], dtype=float) * 100.0
-            masked_fp = np.array([_row_excluded(r) for r in fp_rows], dtype=bool)
-            valid_fp = (~masked_fp) & np.isfinite(eta_fp)
+            eta_excluded_fp = np.array([_eta_excluded(r) for r in fp_rows], dtype=bool)
+            valid_fp = (~eta_excluded_fp) & np.isfinite(eta_fp)
             ax.plot(T_fp[valid_fp], eta_fp[valid_fp], marker="s", linewidth=1.4, color=color, linestyle="--", label=f"{lbl} ff+PID", alpha=0.85, zorder=3)
 
     ax.set_xlabel("Wave period $T$ [s]")
