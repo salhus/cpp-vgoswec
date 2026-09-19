@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+from collections.abc import Iterator
 from pathlib import Path
 
 import numpy as np
@@ -85,7 +86,8 @@ def retabulate_csv(csv_path: Path, h5_path: Path, *, write: bool) -> tuple[int, 
     return summary
 
 
-def iter_targets(repo: Path):
+def iter_targets(repo: Path) -> Iterator[tuple[str, int, Path, Path]]:
+    """Yield (label, flap angle, CSV path, hinge-H5 path) retabulation targets."""
     for angle, meta in sorted(FLAPS.items()):
         h5_path = repo / meta["h5"]
         for label, rel_dir in CSV_GROUPS:
