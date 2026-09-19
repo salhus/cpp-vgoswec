@@ -174,6 +174,10 @@ def main() -> int:
         return 2
 
     t_res = _load_resonance_periods(repo / "docs" / "freedecay_validation.csv")
+    missing_res = [angle for angle in FLAPS if angle not in t_res]
+    if missing_res:
+        print(f"ERROR: Missing resonance rows for flap angles: {missing_res}")
+        return 2
     out_dir = repo / "docs" / "img"
     plot_per_flap(passive_map, opt_map, t_res, out_dir / "opt_passive_stage_per_flap.png")
     plot_all_flaps(opt_map, t_res, out_dir / "opt_passive_stage_all_flaps.png")
