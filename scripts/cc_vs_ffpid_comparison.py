@@ -132,12 +132,42 @@ def _eta_with_flag(row: dict) -> tuple[float, bool]:
     return eta, invalid
 
 
-def _row_excluded(row: dict) -> bool:
+#
+# Exclusion semantics matter here:
+# - masked / linear_popt_invalid are statements about the denominator P_opt.
+#   They mean the efficiency bound is undefined or inapplicable, but they do
+#   not say anything about the measured numerator P_capture.
+# - reactive_cancellation_limited is a statement about the numerator: captured
+#   power is below its own noise floor relative to gross converted power.
+#
+# Therefore:
+# - power curves should only exclude numerator-noise rows
+# - efficiency curves should exclude denominator and numerator failures
+#
+# --show-all disables every exclusion so diagnostic plots can reveal the raw
+# data, including eta>1 and reactive-cancellation-limited rows.
+SHOW_ALL = False
+
+
+def _power_excluded(row: dict) -> bool:
+    """Exclude from power curves. Numerator-noise only."""
+    if SHOW_ALL:
+        return False
+    return bool(row.get("reactive_cancellation_limited", False))
+
+
+def _eta_excluded(row: dict) -> bool:
+    """Exclude from efficiency curves. Denominator + numerator."""
+    if SHOW_ALL:
+        return False
     return bool(
         row.get("masked", False)
         or row.get("linear_popt_invalid", False)
         or row.get("reactive_cancellation_limited", False)
     )
+
+
+_row_excluded = _eta_excluded
 
 
 def _reactive_ratio(p_injected: float, p_converted: float) -> float:
@@ -208,6 +238,14 @@ def _add_masked_spans(ax, periods: np.ndarray, masked: np.ndarray) -> None:
             linewidth=0.0,
             zorder=0.1,
         )
+
+
+def _show_all_limits(*arrays: np.ndarray, ceiling: float) -> tuple[float, float]:
+    finite_parts = [arr[np.isfinite(arr)] for arr in arrays if arr.size]
+    if not SHOW_ALL or not finite_parts:
+        return 0.0, ceiling
+    finite = np.concatenate(finite_parts)
+    return min(0.0, float(finite.min())), max(ceiling, float(finite.max()))
 
 
 def _ceil_to_step(value: float, step: float) -> float:
@@ -293,12 +331,12 @@ def plot_per_flap_comparison(
     p_conv = np.array([r["P_converted_W"] for r in cc_rows], dtype=float)
     p_inj = np.array([r["P_injected_W"] for r in cc_rows], dtype=float)
     p_opt = np.array([r["P_opt_W"] for r in cc_rows], dtype=float)
-    masked_cc = np.array([_row_excluded(r) for r in cc_rows], dtype=bool)
+    masked_cc = np.array([_power_excluded(r) for r in cc_rows], dtype=bool)
     p_cc = np.where(masked_cc, np.nan, p_cc)
 
     T_fp = np.array([r["T_s"] for r in fp_rows], dtype=float)
     p_fp = np.array([r["P_capture_W"] for r in fp_rows], dtype=float)
-    masked_fp = np.array([_row_excluded(r) for r in fp_rows], dtype=bool)
+    masked_fp = np.array([_power_excluded(r) for r in fp_rows], dtype=bool)
     p_fp = np.where(masked_fp, np.nan, p_fp)
 
     # Reactive ratio per point (guard against divide-by-zero and masked rows)
@@ -327,8 +365,8 @@ def plot_per_flap_comparison(
     # Build combined masked array for display (mask where either set is masked)
     T_cc_set = set(np.round(T_cc, 6))
     T_fp_set = set(np.round(T_fp, 6))
-    cc_mask_map = {round(T_cc[i], 6): masked_cc[i] for i in range(len(T_cc))}
-    fp_mask_map = {round(T_fp[i], 6): masked_fp[i] for i in range(len(T_fp))}
+    cc_mask_map = {round(T_cc[i], 6): _eta_excluded(cc_rows[i]) for i in range(len(T_cc))}
+    fp_mask_map = {round(T_fp[i], 6): _eta_excluded(fp_rows[i]) for i in range(len(T_fp))}
     combined_masked = np.array([
         (cc_mask_map.get(round(t, 6), False) or fp_mask_map.get(round(t, 6), False))
         for t in all_T
@@ -362,7 +400,7 @@ def plot_per_flap_comparison(
     ax0.set_title(f"{label} — CC vs ff+PID capture power on shared T axis")
     ax0.legend(loc="best", fontsize=8)
     _style_power_axis(ax0)
-    ax0.set_ylim(0.0, power_ceiling)
+    ax0.set_ylim(*_show_all_limits(p_cc, p_fp, p_opt, ceiling=power_ceiling))
 
     # --- Bottom panel: CC reactive ratio ---
     ax1.plot(T_cc[~masked_cc], react_ratio[~masked_cc], marker="o", color="tab:red", linewidth=1.8,
@@ -418,7 +456,7 @@ def plot_summary_comparison(
             cc_rows = _load_cc_csv(cc_csv_map[angle])
             T_cc = np.array([r["T_s"] for r in cc_rows], dtype=float)
             p_cc = np.array([r["P_capture_W"] for r in cc_rows], dtype=float)
-            masked_cc = np.array([_row_excluded(r) for r in cc_rows], dtype=bool)
+            masked_cc = np.array([_power_excluded(r) for r in cc_rows], dtype=bool)
             valid_cc = (~masked_cc) & np.isfinite(p_cc)
             ax.plot(T_cc[valid_cc], p_cc[valid_cc], marker="o", linewidth=1.6, color=color,
                     linestyle="-", label=f"{lbl} CC", zorder=3)
@@ -426,7 +464,7 @@ def plot_summary_comparison(
             fp_rows = _load_ffpid_csv(fp_csv_map[angle])
             T_fp = np.array([r["T_s"] for r in fp_rows], dtype=float)
             p_fp = np.array([r["P_capture_W"] for r in fp_rows], dtype=float)
-            masked_fp = np.array([_row_excluded(r) for r in fp_rows], dtype=bool)
+            masked_fp = np.array([_power_excluded(r) for r in fp_rows], dtype=bool)
             valid_fp = (~masked_fp) & np.isfinite(p_fp)
             ax.plot(T_fp[valid_fp], p_fp[valid_fp], marker="s", linewidth=1.4, color=color,
                     linestyle="--", label=f"{lbl} ff+PID", alpha=0.85, zorder=3)
@@ -437,7 +475,12 @@ def plot_summary_comparison(
     _style_period_axis(ax)
     _style_power_axis(ax)
     _style_common_axes(ax)
-    ax.set_ylim(0.0, 3.0)
+    power_series = []
+    for lines in ax.lines:
+        ydata = np.asarray(lines.get_ydata(), dtype=float)
+        if ydata.size:
+            power_series.append(ydata)
+    ax.set_ylim(*_show_all_limits(*power_series, ceiling=power_ceiling))
     ax.legend(loc="best", fontsize=7, ncol=2)
 
     fig.tight_layout()
@@ -459,6 +502,7 @@ def plot_per_flap_efficiency_comparison(
     masked_cc = np.array([_row_excluded(r) for r in cc_rows], dtype=bool)
     eta_cc_info = [_eta_with_flag(r) for r in cc_rows]
     eta_cc = np.array([v[0] for v in eta_cc_info], dtype=float) * 100.0
+    inv_cc = np.array([v[1] for v in eta_cc_info], dtype=bool)
 
     T_fp = np.array([r["T_s"] for r in fp_rows], dtype=float)
     masked_fp = np.array([_row_excluded(r) for r in fp_rows], dtype=bool)
@@ -468,12 +512,14 @@ def plot_per_flap_efficiency_comparison(
     fig, ax = plt.subplots(figsize=(8.4, 4.8))
     valid_cc = (~masked_cc) & np.isfinite(eta_cc)
     valid_fp = (~masked_fp) & np.isfinite(eta_fp)
+    if not SHOW_ALL:
+        valid_cc &= ~inv_cc
     ax.plot(T_cc[valid_cc], eta_cc[valid_cc], marker="o", color="tab:blue", linewidth=1.8, label="CC $\\eta$", zorder=3)
     ax.plot(T_fp[valid_fp], eta_fp[valid_fp], marker="s", color="tab:orange", linewidth=1.8, linestyle="--", label="ff+PID $\\eta$", zorder=3)
 
     all_T = np.union1d(T_cc, T_fp)
-    cc_mask_map = {round(T_cc[i], 6): masked_cc[i] for i in range(len(T_cc))}
-    fp_mask_map = {round(T_fp[i], 6): masked_fp[i] for i in range(len(T_fp))}
+    cc_mask_map = {round(T_cc[i], 6): _eta_excluded(cc_rows[i]) for i in range(len(T_cc))}
+    fp_mask_map = {round(T_fp[i], 6): _eta_excluded(fp_rows[i]) for i in range(len(T_fp))}
     combined_masked = np.array(
         [cc_mask_map.get(round(t, 6), False) or fp_mask_map.get(round(t, 6), False) for t in all_T],
         dtype=bool,
@@ -486,7 +532,7 @@ def plot_per_flap_efficiency_comparison(
     ax.set_xlabel("Wave period $T$ [s]")
     ax.set_ylabel("Efficiency [%]")
     ax.set_title(f"{label} — CC vs ff+PID efficiency on shared T axis")
-    ax.set_ylim(0.0, efficiency_ceiling)
+    ax.set_ylim(*_show_all_limits(eta_cc, eta_fp, ceiling=efficiency_ceiling))
     ax.legend(loc="best", fontsize=8)
 
     fig.tight_layout()
@@ -511,8 +557,11 @@ def plot_summary_efficiency_comparison(
             T_cc = np.array([r["T_s"] for r in cc_rows], dtype=float)
             eta_cc_info = [_eta_with_flag(r) for r in cc_rows]
             eta_cc = np.array([v[0] for v in eta_cc_info], dtype=float) * 100.0
+            inv_cc = np.array([v[1] for v in eta_cc_info], dtype=bool)
             masked_cc = np.array([_row_excluded(r) for r in cc_rows], dtype=bool)
             valid_cc = (~masked_cc) & np.isfinite(eta_cc)
+            if not SHOW_ALL:
+                valid_cc &= ~inv_cc
             ax.plot(T_cc[valid_cc], eta_cc[valid_cc], marker="o", linewidth=1.6, color=color, linestyle="-", label=f"{lbl} CC", zorder=3)
         if angle in fp_csv_map and fp_csv_map[angle].exists():
             fp_rows = _load_ffpid_csv(fp_csv_map[angle])
@@ -529,6 +578,12 @@ def plot_summary_efficiency_comparison(
     _style_period_axis(ax)
     _style_efficiency_axis(ax)
     _style_common_axes(ax)
+    eta_series = []
+    for lines in ax.lines:
+        ydata = np.asarray(lines.get_ydata(), dtype=float)
+        if ydata.size:
+            eta_series.append(ydata)
+    ax.set_ylim(*_show_all_limits(*eta_series, ceiling=_compute_efficiency_ceiling(cc_csv_map, fp_csv_map)))
     ax.legend(loc="best", fontsize=7, ncol=2)
 
     fig.tight_layout()
@@ -554,11 +609,23 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Regenerate figures from committed CSVs without running simulations",
     )
+    p.add_argument(
+        "--show-all",
+        action="store_true",
+        help="Diagnostic: disable ALL masking/guard exclusions and plot every point, "
+             "including reactive-cancellation-limited and eta>1 rows. Figures produced "
+             "this way are NOT publication-safe.",
+    )
     return p.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+    global SHOW_ALL
+    SHOW_ALL = args.show_all
+    suffix = "_showall" if SHOW_ALL else ""
+    if SHOW_ALL:
+        print("[warn] --show-all: every exclusion disabled; figures are diagnostic only")
     plt.rcParams.update(JOURNAL_STYLE)
 
     repo = Path(args.repo).resolve()
@@ -599,15 +666,15 @@ def main() -> int:
         cc_rows = _load_cc_csv(cc_path)
         fp_rows = _load_ffpid_csv(fp_path)
 
-        out_png = out_dir / f"cc_vs_ffpid_VGM{angle}.png"
+        out_png = out_dir / f"cc_vs_ffpid_VGM{angle}{suffix}.png"
         plot_per_flap_comparison(cc_rows, fp_rows, angle, out_png, power_ceiling)
-        out_eta_png = out_dir / f"cc_vs_ffpid_efficiency_VGM{angle}.png"
+        out_eta_png = out_dir / f"cc_vs_ffpid_efficiency_VGM{angle}{suffix}.png"
         plot_per_flap_efficiency_comparison(cc_rows, fp_rows, angle, out_eta_png, efficiency_ceiling)
 
     # Cross-flap summary
-    summary_png = out_dir / "cc_vs_ffpid_summary.png"
+    summary_png = out_dir / f"cc_vs_ffpid_summary{suffix}.png"
     plot_summary_comparison(cc_present, fp_present, summary_png, power_ceiling)
-    summary_eta_png = out_dir / "cc_vs_ffpid_efficiency_summary.png"
+    summary_eta_png = out_dir / f"cc_vs_ffpid_efficiency_summary{suffix}.png"
     plot_summary_efficiency_comparison(cc_present, fp_present, summary_eta_png)
 
     return 0

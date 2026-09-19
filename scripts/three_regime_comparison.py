@@ -173,12 +173,43 @@ def _eta_valid(row: dict, is_cc: bool = False) -> tuple[float, bool]:
     return eta, invalid
 
 
-def _row_excluded(row: dict) -> bool:
+#
+# Exclusion semantics matter here:
+# - masked / linear_popt_invalid are statements about the denominator P_opt.
+#   They mean the efficiency bound is undefined or inapplicable, but they do
+#   not say anything about the measured numerator P_capture.
+# - reactive_cancellation_limited is a statement about the numerator: captured
+#   power is below its own noise floor relative to gross converted power.
+#
+# Therefore:
+# - power curves / power hull should only exclude numerator-noise rows
+# - efficiency curves / efficiency hull should exclude denominator and
+#   numerator failures
+#
+# --show-all disables every exclusion so diagnostic plots can reveal the raw
+# data, including eta>1 and reactive-cancellation-limited rows.
+SHOW_ALL = False
+
+
+def _power_excluded(row: dict) -> bool:
+    """Exclude from power curves / power hull. Numerator-noise only."""
+    if SHOW_ALL:
+        return False
+    return bool(row.get("reactive_cancellation_limited", False))
+
+
+def _eta_excluded(row: dict) -> bool:
+    """Exclude from efficiency curves / efficiency hull. Denominator + numerator."""
+    if SHOW_ALL:
+        return False
     return bool(
         row.get("masked", False)
         or row.get("linear_popt_invalid", False)
         or row.get("reactive_cancellation_limited", False)
     )
+
+
+_row_excluded = _eta_excluded
 
 
 def _masked_spans(periods: np.ndarray, masked: np.ndarray) -> list[tuple[float, float]]:
@@ -214,6 +245,14 @@ def _add_masked_spans(ax, periods: np.ndarray, masked: np.ndarray, label: str = 
             label=label if (first and label) else None,
         )
         first = False
+
+
+def _show_all_limits(*arrays: np.ndarray, ceiling: float) -> tuple[float, float]:
+    finite_parts = [arr[np.isfinite(arr)] for arr in arrays if arr.size]
+    if not SHOW_ALL or not finite_parts:
+        return 0.0, ceiling
+    finite = np.concatenate(finite_parts)
+    return min(0.0, float(finite.min())), max(ceiling, float(finite.max()))
 
 
 def _style_period_axis(ax) -> None:
@@ -335,16 +374,16 @@ def plot_per_flap_power(
     label = FLAP_LABELS[flap_angle]
 
     T_cc = np.array([r["T_s"] for r in cc_rows], dtype=float)
-    masked_cc = np.array([_row_excluded(r) for r in cc_rows], dtype=bool)
+    masked_cc = np.array([_power_excluded(r) for r in cc_rows], dtype=bool)
     p_cc = np.where(masked_cc, np.nan, np.array([r["P_capture_W"] for r in cc_rows], dtype=float))
 
     T_op = np.array([r["T_s"] for r in op_rows], dtype=float)
     p_op = np.array([r["P_capture_W"] for r in op_rows], dtype=float)
-    masked_op = np.array([_row_excluded(r) for r in op_rows], dtype=bool)
+    masked_op = np.array([_power_excluded(r) for r in op_rows], dtype=bool)
 
     T_fp = np.array([r["T_s"] for r in fp_rows], dtype=float)
     p_fp = np.array([r["P_capture_W"] for r in fp_rows], dtype=float)
-    masked_fp = np.array([_row_excluded(r) for r in fp_rows], dtype=bool)
+    masked_fp = np.array([_power_excluded(r) for r in fp_rows], dtype=bool)
 
     # Crossover points
     cc_xover = _find_crossover(T_cc, p_cc, T_op, p_op)
@@ -356,9 +395,9 @@ def plot_per_flap_power(
     T_min, T_max = float(T_all.min()), float(T_all.max())
 
     # Combined masked array
-    cc_mask_map = {round(T_cc[i], 6): masked_cc[i] for i in range(len(T_cc))}
-    op_mask_map = {round(T_op[i], 6): masked_op[i] for i in range(len(T_op))}
-    fp_mask_map = {round(T_fp[i], 6): masked_fp[i] for i in range(len(T_fp))}
+    cc_mask_map = {round(T_cc[i], 6): _eta_excluded(cc_rows[i]) for i in range(len(T_cc))}
+    op_mask_map = {round(T_op[i], 6): _eta_excluded(op_rows[i]) for i in range(len(T_op))}
+    fp_mask_map = {round(T_fp[i], 6): _eta_excluded(fp_rows[i]) for i in range(len(T_fp))}
     combined_masked = np.array([
         (cc_mask_map.get(round(t, 6), False)
          or op_mask_map.get(round(t, 6), False)
@@ -371,7 +410,7 @@ def plot_per_flap_power(
     _shade_regime_bands(ax, cc_xover, fp_xover, T_min, T_max, power_ceiling)
 
     # Masked shading (B55 notch / low-power region)
-    _add_masked_spans(ax, T_all, combined_masked, label="masked / low-power region")
+    _add_masked_spans(ax, T_all, combined_masked, label="$P_{opt}$ undefined / low-power region")
 
     # Plot curves
     ax.plot(T_cc[~masked_cc], p_cc[~masked_cc], marker="o", color="tab:blue", linewidth=1.8,
@@ -414,7 +453,7 @@ def plot_per_flap_power(
     _style_power_axis(ax)
     _style_common(ax)
     ax.set_xlim(T_min - 0.1, T_max + 0.1)
-    ax.set_ylim(0.0, power_ceiling)
+    ax.set_ylim(*_show_all_limits(p_cc, p_op, p_fp, ceiling=power_ceiling))
     ax.legend(loc="upper right", fontsize=7, ncol=2)
 
     fig.tight_layout()
@@ -472,9 +511,11 @@ def plot_per_flap_efficiency(
 
     _add_masked_spans(ax, T_all, combined_masked, label="masked / low-power region")
 
-    valid_cc = (~masked_cc) & (~inv_cc) & np.isfinite(eta_cc)
+    valid_cc = (~masked_cc) & np.isfinite(eta_cc)
     valid_op = (~masked_op) & np.isfinite(eta_op)
     valid_fp = (~masked_fp) & np.isfinite(eta_fp)
+    if not SHOW_ALL:
+        valid_cc &= ~inv_cc
 
     ax.plot(T_cc[valid_cc], eta_cc[valid_cc], marker="o", color="tab:blue",
             linewidth=1.8, zorder=3, label="CC $\\eta$")
@@ -489,7 +530,7 @@ def plot_per_flap_efficiency(
     _style_period_axis(ax)
     _style_efficiency_axis(ax)
     _style_common(ax)
-    ax.set_ylim(0.0, efficiency_ceiling)
+    ax.set_ylim(*_show_all_limits(eta_cc, eta_op, eta_fp, ceiling=efficiency_ceiling))
     ax.legend(loc="upper right", fontsize=8)
 
     fig.tight_layout()
@@ -518,7 +559,7 @@ def plot_summary_power(
         if angle in cc_map and cc_map[angle].exists():
             rows = _load_cc_csv(cc_map[angle])
             T = np.array([r["T_s"] for r in rows], dtype=float)
-            masked = np.array([_row_excluded(r) for r in rows], dtype=bool)
+            masked = np.array([_power_excluded(r) for r in rows], dtype=bool)
             p = np.array([r["P_capture_W"] for r in rows], dtype=float)
             valid = (~masked) & np.isfinite(p)
             ax.plot(T[valid], p[valid], marker="o", linewidth=1.5, color=color, linestyle="-",
@@ -526,7 +567,7 @@ def plot_summary_power(
         if angle in op_map and op_map[angle].exists():
             rows = _load_opt_passive_csv(op_map[angle])
             T = np.array([r["T_s"] for r in rows], dtype=float)
-            masked = np.array([_row_excluded(r) for r in rows], dtype=bool)
+            masked = np.array([_power_excluded(r) for r in rows], dtype=bool)
             p = np.array([r["P_capture_W"] for r in rows], dtype=float)
             valid = (~masked) & np.isfinite(p)
             ax.plot(T[valid], p[valid], marker="s", linewidth=1.3, color=color, linestyle="--",
@@ -534,7 +575,7 @@ def plot_summary_power(
         if angle in fp_map and fp_map[angle].exists():
             rows = _load_ffpid_csv(fp_map[angle])
             T = np.array([r["T_s"] for r in rows], dtype=float)
-            masked = np.array([_row_excluded(r) for r in rows], dtype=bool)
+            masked = np.array([_power_excluded(r) for r in rows], dtype=bool)
             p = np.array([r["P_capture_W"] for r in rows], dtype=float)
             valid = (~masked) & np.isfinite(p)
             ax.plot(T[valid], p[valid], marker="^", linewidth=1.3, color=color, linestyle=":",
@@ -546,7 +587,12 @@ def plot_summary_power(
     _style_period_axis(ax)
     _style_power_axis(ax)
     _style_common(ax)
-    ax.set_ylim(0.0, power_ceiling)
+    power_series = []
+    for lines in ax.lines:
+        ydata = np.asarray(lines.get_ydata(), dtype=float)
+        if ydata.size:
+            power_series.append(ydata)
+    ax.set_ylim(*_show_all_limits(*power_series, ceiling=power_ceiling))
     ax.legend(loc="upper right", fontsize=6, ncol=3)
 
     fig.tight_layout()
@@ -574,7 +620,9 @@ def plot_summary_efficiency(
             masked = np.array([_row_excluded(r) for r in rows], dtype=bool)
             inv = np.array([_eta_valid(r, True)[1] for r in rows], dtype=bool)
             eta = np.array([_eta_valid(r, True)[0] for r in rows], dtype=float) * 100.0
-            valid = (~masked) & (~inv) & np.isfinite(eta)
+            valid = (~masked) & np.isfinite(eta)
+            if not SHOW_ALL:
+                valid &= ~inv
             ax.plot(T[valid], eta[valid], marker="o", linewidth=1.5, color=color,
                     linestyle="-", label=f"{lbl} CC", zorder=3)
         if angle in op_map and op_map[angle].exists():
@@ -600,7 +648,12 @@ def plot_summary_efficiency(
     _style_period_axis(ax)
     _style_efficiency_axis(ax)
     _style_common(ax)
-    ax.set_ylim(0.0, efficiency_ceiling)
+    eta_series = []
+    for lines in ax.lines:
+        ydata = np.asarray(lines.get_ydata(), dtype=float)
+        if ydata.size:
+            eta_series.append(ydata)
+    ax.set_ylim(*_show_all_limits(*eta_series, ceiling=efficiency_ceiling))
     ax.legend(loc="upper right", fontsize=6, ncol=3)
 
     fig.tight_layout()
@@ -659,7 +712,7 @@ def _build_envelope(
                 for r in rows:
                     if abs(r["T_s"] - T) < 1e-6:
                         p = r.get("P_capture_W", float("nan"))
-                        if _row_excluded(r):
+                        if _power_excluded(r):
                             break
                         if math.isfinite(p) and p > best_p:
                             best_p = p
@@ -756,7 +809,7 @@ def plot_operating_envelope(
     _style_power_axis(ax)
     _style_common(ax)
     ax.set_xlim(T_min - 0.1, T_max + 0.1)
-    ax.set_ylim(0.0, power_ceiling)
+    ax.set_ylim(*_show_all_limits(P_env, ceiling=power_ceiling))
     ax.legend(loc="upper right", fontsize=8)
 
     fig.tight_layout()
@@ -830,7 +883,7 @@ def _build_efficiency_envelope(
                         if _row_excluded(r):
                             break
                         eta, invalid = _eta_valid(r, is_cc)
-                        if invalid or not math.isfinite(eta):
+                        if ((not SHOW_ALL) and invalid) or not math.isfinite(eta):
                             break
                         any_valid = True
                         if eta > best_eta:
@@ -948,7 +1001,7 @@ def plot_operating_envelope_efficiency(
     _style_efficiency_axis(ax)
     _style_common(ax)
     ax.set_xlim(float(all_T.min()) - 0.1, float(all_T.max()) + 0.1)
-    ax.set_ylim(0.0, efficiency_ceiling)
+    ax.set_ylim(*_show_all_limits(eta_valid_arr, ceiling=efficiency_ceiling))
     ax.legend(loc="upper right", fontsize=8)
 
     fig.tight_layout()
@@ -974,11 +1027,23 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Regenerate figures from committed CSVs without running simulations",
     )
+    p.add_argument(
+        "--show-all",
+        action="store_true",
+        help="Diagnostic: disable ALL masking/guard exclusions and plot every point, "
+             "including reactive-cancellation-limited and eta>1 rows. Figures produced "
+             "this way are NOT publication-safe.",
+    )
     return p.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+    global SHOW_ALL
+    SHOW_ALL = args.show_all
+    suffix = "_showall" if SHOW_ALL else ""
+    if SHOW_ALL:
+        print("[warn] --show-all: every exclusion disabled; figures are diagnostic only")
     plt.rcParams.update(JOURNAL_STYLE)
 
     repo = Path(args.repo).resolve()
@@ -1027,35 +1092,35 @@ def main() -> int:
 
         plot_per_flap_power(
             cc_rows, op_rows, fp_rows, angle,
-            out_dir / f"three_regime_VGM{angle}.png",
+            out_dir / f"three_regime_VGM{angle}{suffix}.png",
             power_ceiling,
         )
         plot_per_flap_efficiency(
             cc_rows, op_rows, fp_rows, angle,
-            out_dir / f"three_regime_efficiency_VGM{angle}.png",
+            out_dir / f"three_regime_efficiency_VGM{angle}{suffix}.png",
             efficiency_ceiling,
         )
 
     # Cross-flap summary figures
     plot_summary_power(cc_present, op_present, fp_present,
-                       out_dir / "three_regime_summary.png", power_ceiling)
+                       out_dir / f"three_regime_summary{suffix}.png", power_ceiling)
     plot_summary_efficiency(cc_present, op_present, fp_present,
-                            out_dir / "three_regime_efficiency_summary.png", efficiency_ceiling)
+                            out_dir / f"three_regime_efficiency_summary{suffix}.png", efficiency_ceiling)
 
     # Master operating envelope — power hull (Task 4)
     hull = _build_envelope(cc_present, op_present, fp_present)
     if hull:
-        hull_csv = repo / "analysis" / "three_regime" / "operating_envelope.csv"
+        hull_csv = repo / "analysis" / "three_regime" / f"operating_envelope{suffix}.csv"
         _write_envelope_csv(hull, hull_csv)
-        plot_operating_envelope(hull, out_dir / "operating_envelope.png", power_ceiling)
+        plot_operating_envelope(hull, out_dir / f"operating_envelope{suffix}.png", power_ceiling)
 
     # Master operating envelope — efficiency hull (companion)
     eff_hull = _build_efficiency_envelope(cc_present, op_present, fp_present)
     if eff_hull:
-        eff_hull_csv = repo / "analysis" / "three_regime" / "operating_envelope_efficiency.csv"
+        eff_hull_csv = repo / "analysis" / "three_regime" / f"operating_envelope_efficiency{suffix}.csv"
         _write_efficiency_envelope_csv(eff_hull, eff_hull_csv)
         plot_operating_envelope_efficiency(
-            eff_hull, out_dir / "operating_envelope_efficiency.png", efficiency_ceiling
+            eff_hull, out_dir / f"operating_envelope_efficiency{suffix}.png", efficiency_ceiling
         )
 
     return 0
