@@ -1,6 +1,40 @@
 # End-of-day summary — 2026-09-19
 
-**Session outcome:** the impedance-basis audit is now landed in code, tests, configs, and docs. The time-domain plant remains untouched. The one campaign invalidated by the audit is **`opt_passive`**, which must be re-run by the owner after merge.
+> **Superseded handoff:** use [`docs/STATUS.md`](STATUS.md) for the current repository
+> state. This file is retained as the historical 2026-09-19 EOD record plus a short
+> closure addendum.
+
+## 0. 2026-09-20 closure addendum
+
+Former open items from this EOD are now closed as follows:
+
+1. **ff+PID `impedance_h5_file` omission in `config/vgoswec_*_exc_ff_pid.yaml`**
+   - **Closed.**
+   - This is **intentional and correct** for the excitation-force-based feedback controller.
+   - The controller should continue using the CG-basis `h5_file`; do **not** add
+     `impedance_h5_file` there.
+2. **14 CC rows with `eta > 1`**
+   - **Closed.**
+   - Accepted as a real consequence of applying a passive reference (`P_opt`) to a
+     reactive controller.
+3. **`2.44488972 W` settling check (`430 s` vs `760 s`)**
+   - **Closed.**
+   - Accepted as not materially different.
+4. **`~1.4%` residual between analytic `omega_n` and free-decay**
+   - **Closed.**
+   - Accepted as too small to matter.
+5. **`analysis/FINDINGS_3REGIME.md` hand-written tables**
+   - **Closed.**
+   - The current tables match the committed envelope CSVs; the earlier "still stale"
+     note is itself stale.
+6. **Primary handoff location**
+   - **Closed.**
+   - `docs/STATUS.md` is now the handoff entry point for a fresh session.
+
+**Historical session outcome (2026-09-19 EOD):** the impedance-basis audit landed in code,
+tests, configs, and docs. The time-domain plant remained untouched. Use the closure
+addendum above plus [`docs/STATUS.md`](STATUS.md) instead of treating this paragraph as the
+current repository state.
 
 ---
 
@@ -140,7 +174,8 @@ The owner should be able to `git pull` and immediately re-run the `opt_passive` 
    now resolved; the power hull is unchanged, while the efficiency hull updates on
    the common hinge basis. CC still retains 14 `eta > 1 + 1e-6` rows after that
    correction, which are reported rather than silently masked.
-4. `analysis/FINDINGS_3REGIME.md` hand-written tables are still stale.
+4. `analysis/FINDINGS_3REGIME.md` hand-written tables were stale at EOD time but now
+   match the committed envelope CSVs and should not be reopened as a defect.
 5. There remains a uniform `~1.4%` residual between corrected analytic `omega_n` and free-decay (`single-DOF analytic model` vs `coupled plant`).
 6. `[impedance] INFO: legacy A55-match rho=...` still prints more often than intended and should become truly once-per-process.
 7. The isolated single-point `P_capture` dips near resonance (notably VGM-0 `T=6.00 s`,
