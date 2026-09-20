@@ -199,6 +199,22 @@ class UnifiedSweepMethodTests(unittest.TestCase):
         finally:
             module.SHOW_ALL = original
 
+    def test_cc_vs_ffpid_eta_exclusion_still_treats_linear_popt_invalid_as_excluded(self) -> None:
+        module = cc_vs_ffpid_comparison
+        original = module.SHOW_ALL
+        try:
+            module.SHOW_ALL = False
+            self.assertFalse(module._power_excluded({"linear_popt_invalid": True}))
+            self.assertTrue(
+                module._eta_excluded({"linear_popt_invalid": True, "eta": 0.5, "P_opt_W": 2.0})
+            )
+            module.SHOW_ALL = True
+            self.assertFalse(
+                module._eta_excluded({"linear_popt_invalid": True, "eta": 0.5, "P_opt_W": 2.0})
+            )
+        finally:
+            module.SHOW_ALL = original
+
     def test_three_regime_envelope_excludes_reactive_cancellation_limited_cc_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             repo = Path(tmpdir)

@@ -56,8 +56,12 @@ def _ensure_linear_popt_column(
 ) -> tuple[list[str], list[dict[str, str]]]:
     if "linear_popt_invalid" in fieldnames or not _is_cc_schema(fieldnames):
         return fieldnames, rows
-    insert_at = fieldnames.index("reactive_cancellation_limited")
     updated_fieldnames = list(fieldnames)
+    insert_at = (
+        fieldnames.index("reactive_cancellation_limited")
+        if "reactive_cancellation_limited" in fieldnames
+        else len(updated_fieldnames)
+    )
     updated_fieldnames.insert(insert_at, "linear_popt_invalid")
     updated_rows = [dict(row, linear_popt_invalid="false") for row in rows]
     return updated_fieldnames, updated_rows
