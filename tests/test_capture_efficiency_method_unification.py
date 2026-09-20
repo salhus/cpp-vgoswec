@@ -175,30 +175,45 @@ class UnifiedSweepMethodTests(unittest.TestCase):
         self.assertFalse(cc_capture_efficiency_sweep._reactive_cancellation_limited(0.1, 0.0))
 
     def test_power_and_eta_exclusion_predicates_split_denominator_and_numerator(self) -> None:
-        modules = (three_regime_comparison, cc_vs_ffpid_comparison)
+        module = three_regime_comparison
         cases = (
-            ({}, False, False),
-            ({"masked": True}, False, True),
-            ({"linear_popt_invalid": True}, False, True),
-            ({"reactive_cancellation_limited": True}, True, True),
+            ({"eta": 0.5, "P_opt_W": 2.0}, False, False),
+            ({"masked": True, "eta": 0.5, "P_opt_W": 2.0}, False, True),
+            ({"linear_popt_invalid": True, "eta": 0.5, "P_opt_W": 2.0}, False, False),
+            ({"reactive_cancellation_limited": True, "eta": 0.5, "P_opt_W": 2.0}, True, True),
         )
 
-        for module in modules:
-            original = module.SHOW_ALL
-            try:
-                module.SHOW_ALL = False
-                for row, expect_power, expect_eta in cases:
-                    with self.subTest(module=module.__name__, row=row):
-                        self.assertEqual(module._power_excluded(row), expect_power)
-                        self.assertEqual(module._eta_excluded(row), expect_eta)
+        original = module.SHOW_ALL
+        try:
+            module.SHOW_ALL = False
+            for row, expect_power, expect_eta in cases:
+                with self.subTest(module=module.__name__, row=row):
+                    self.assertEqual(module._power_excluded(row), expect_power)
+                    self.assertEqual(module._eta_excluded(row), expect_eta)
 
-                module.SHOW_ALL = True
-                for row, _, _ in cases:
-                    with self.subTest(module=module.__name__, row=row, show_all=True):
-                        self.assertFalse(module._power_excluded(row))
-                        self.assertFalse(module._eta_excluded(row))
-            finally:
-                module.SHOW_ALL = original
+            module.SHOW_ALL = True
+            for row, _, _ in cases:
+                with self.subTest(module=module.__name__, row=row, show_all=True):
+                    self.assertFalse(module._power_excluded(row))
+                    self.assertFalse(module._eta_excluded(row))
+        finally:
+            module.SHOW_ALL = original
+
+    def test_cc_vs_ffpid_eta_exclusion_still_treats_linear_popt_invalid_as_excluded(self) -> None:
+        module = cc_vs_ffpid_comparison
+        original = module.SHOW_ALL
+        try:
+            module.SHOW_ALL = False
+            self.assertFalse(module._power_excluded({"linear_popt_invalid": True}))
+            self.assertTrue(
+                module._eta_excluded({"linear_popt_invalid": True, "eta": 0.5, "P_opt_W": 2.0})
+            )
+            module.SHOW_ALL = True
+            self.assertFalse(
+                module._eta_excluded({"linear_popt_invalid": True, "eta": 0.5, "P_opt_W": 2.0})
+            )
+        finally:
+            module.SHOW_ALL = original
 
     def test_three_regime_envelope_excludes_reactive_cancellation_limited_cc_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -313,6 +328,97 @@ class UnifiedSweepMethodTests(unittest.TestCase):
         self.assertAlmostEqual(power_by_t[1.0]["P_max_W"], 3.0)
         self.assertEqual(eff_by_t[1.0]["controller"], "opt_passive")
         self.assertAlmostEqual(eff_by_t[1.0]["eta_max"], 0.5)
+        self.assertTrue(eff_by_t[1.0]["eta_gt1_excluded"])
+
+    def test_three_regime_stale_linear_popt_invalid_flag_no_longer_excludes_finite_eta(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            cc_dir = repo / "analysis" / "cc"
+            op_dir = repo / "analysis" / "opt_passive"
+            fp_dir = repo / "analysis" / "passive_guarded"
+            cc_dir.mkdir(parents=True)
+            op_dir.mkdir(parents=True)
+            fp_dir.mkdir(parents=True)
+
+            cc_csv = (
+                "T_s,P_capture_W,P_opt_W,eta,masked,linear_popt_invalid,reactive_cancellation_limited\n"
+                "1.00,3.0,5.0,0.6,false,true,false\n"
+            )
+            opt_csv = (
+                "T_s,P_capture_W,P_opt_W,B55_Nmsrad,eta,masked\n"
+                "1.00,2.0,4.0,1.0,0.5,false\n"
+            )
+            ff_csv = (
+                "T_s,P_capture_W,P_opt_W,eta,masked\n"
+                "1.00,1.5,3.0,0.4,false\n"
+            )
+
+            for angle in three_regime_comparison.FLAP_ANGLES:
+                (cc_dir / f"capture_efficiency_VGM{angle}.csv").write_text(cc_csv)
+                (op_dir / f"capture_efficiency_VGM{angle}.csv").write_text(opt_csv)
+                (fp_dir / f"capture_efficiency_VGM{angle}.csv").write_text(ff_csv)
+
+            cc_map = {
+                angle: cc_dir / f"capture_efficiency_VGM{angle}.csv"
+                for angle in three_regime_comparison.FLAP_ANGLES
+            }
+            op_map = {
+                angle: op_dir / f"capture_efficiency_VGM{angle}.csv"
+                for angle in three_regime_comparison.FLAP_ANGLES
+            }
+            fp_map = {
+                angle: fp_dir / f"capture_efficiency_VGM{angle}.csv"
+                for angle in three_regime_comparison.FLAP_ANGLES
+            }
+
+            eff_hull = three_regime_comparison._build_efficiency_envelope(
+                cc_map, op_map, fp_map
+            )
+
+        row = {item["T_s"]: item for item in eff_hull}[1.0]
+        self.assertEqual(row["controller"], "CC")
+        self.assertAlmostEqual(row["eta_max"], 0.6)
+        self.assertFalse(row["eta_gt1_excluded"])
+
+    def test_three_regime_envelope_rejects_duplicate_period_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            cc_dir = repo / "analysis" / "cc"
+            op_dir = repo / "analysis" / "opt_passive"
+            fp_dir = repo / "analysis" / "passive_guarded"
+            cc_dir.mkdir(parents=True)
+            op_dir.mkdir(parents=True)
+            fp_dir.mkdir(parents=True)
+
+            cc_csv = (
+                "T_s,P_capture_W,P_opt_W,eta,masked,linear_popt_invalid,reactive_cancellation_limited\n"
+                "1.00,1.0,2.0,0.5,false,false,false\n"
+                "1.00,1.5,2.0,0.75,false,false,false\n"
+            )
+            opt_csv = "T_s,P_capture_W,P_opt_W,B55_Nmsrad,eta,masked\n1.00,2.0,4.0,1.0,0.5,false\n"
+            ff_csv = "T_s,P_capture_W,P_opt_W,eta,masked\n1.00,1.5,3.0,0.5,false\n"
+
+            for angle in three_regime_comparison.FLAP_ANGLES:
+                (cc_dir / f"capture_efficiency_VGM{angle}.csv").write_text(cc_csv)
+                (op_dir / f"capture_efficiency_VGM{angle}.csv").write_text(opt_csv)
+                (fp_dir / f"capture_efficiency_VGM{angle}.csv").write_text(ff_csv)
+
+            cc_map = {
+                angle: cc_dir / f"capture_efficiency_VGM{angle}.csv"
+                for angle in three_regime_comparison.FLAP_ANGLES
+            }
+            op_map = {
+                angle: op_dir / f"capture_efficiency_VGM{angle}.csv"
+                for angle in three_regime_comparison.FLAP_ANGLES
+            }
+            fp_map = {
+                angle: fp_dir / f"capture_efficiency_VGM{angle}.csv"
+                for angle in three_regime_comparison.FLAP_ANGLES
+            }
+
+            with self.assertRaisesRegex(ValueError, "duplicate T_s=1.000000 rows"):
+                three_regime_comparison._build_envelope(cc_map, op_map, fp_map)
+
 
 
 if __name__ == "__main__":
