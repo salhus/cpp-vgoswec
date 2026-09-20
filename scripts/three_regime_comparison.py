@@ -691,6 +691,7 @@ def plot_summary_efficiency(
 ) -> None:
     fig, ax = plt.subplots(figsize=(9.0, 5.5))
     cmap = plt.cm.viridis(np.linspace(0.15, 0.9, len(FLAP_ANGLES)))
+    any_exceeds = False
 
     for color, angle in zip(cmap, FLAP_ANGLES):
         lbl = FLAP_LABELS[angle]
@@ -700,7 +701,7 @@ def plot_summary_efficiency(
             masked = np.array([_row_excluded(r) for r in rows], dtype=bool)
             eta = np.array([_eta_valid(r, True)[0] for r in rows], dtype=float) * 100.0
             valid = (~masked) & np.isfinite(eta)
-            _plot_efficiency_series(
+            any_exceeds |= _plot_efficiency_series(
                 ax,
                 T,
                 eta,
@@ -716,7 +717,7 @@ def plot_summary_efficiency(
             masked = np.array([_row_excluded(r) for r in rows], dtype=bool)
             eta = np.array([_eta_valid(r)[0] for r in rows], dtype=float) * 100.0
             valid = (~masked) & np.isfinite(eta)
-            _plot_efficiency_series(
+            any_exceeds |= _plot_efficiency_series(
                 ax,
                 T,
                 eta,
@@ -733,7 +734,7 @@ def plot_summary_efficiency(
             masked = np.array([_row_excluded(r) for r in rows], dtype=bool)
             eta = np.array([_eta_valid(r)[0] for r in rows], dtype=float) * 100.0
             valid = (~masked) & np.isfinite(eta)
-            _plot_efficiency_series(
+            any_exceeds |= _plot_efficiency_series(
                 ax,
                 T,
                 eta,
@@ -758,16 +759,17 @@ def plot_summary_efficiency(
         if ydata.size:
             eta_series.append(ydata)
     ax.set_ylim(*_show_all_limits(*eta_series, ceiling=efficiency_ceiling))
-    ax.plot(
-        [],
-        [],
-        color="0.35",
-        linestyle="--",
-        marker="o",
-        markerfacecolor="none",
-        markeredgewidth=1.2,
-        label=r"$\eta > 1$ (exceeds linear passive bound)",
-    )
+    if any_exceeds:
+        ax.plot(
+            [],
+            [],
+            color="0.35",
+            linestyle="--",
+            marker="o",
+            markerfacecolor="none",
+            markeredgewidth=1.2,
+            label=r"$\eta > 1$ (exceeds linear passive bound)",
+        )
     ax.legend(loc="upper right", fontsize=6, ncol=3)
 
     _add_efficiency_note(fig)
@@ -1002,7 +1004,9 @@ def _build_efficiency_envelope(
                         if not math.isfinite(eta):
                             break
                         if (not SHOW_ALL) and invalid:
-                            eta_gt1_excluded = True
+                            eta_gt1_excluded = eta_gt1_excluded or (
+                                math.isfinite(eta) and eta > (1.0 + ETA_GT1_TOL)
+                            )
                             break
                         any_valid = True
                         if eta > best_eta:
