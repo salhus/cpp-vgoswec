@@ -163,6 +163,45 @@ class HydroRetabulationTests(unittest.TestCase):
             ["line 2 column 'P_converted_W' changed: '7.0' -> '8.0'"],
         )
 
+    def test_retabulation_adds_linear_popt_invalid_to_legacy_cc_schema(self) -> None:
+        fieldnames = [
+            "T_s",
+            "P_capture_W",
+            "P_opt_W",
+            "B55_Nmsrad",
+            "F_exc_Nm",
+            "P_converted_W",
+            "P_injected_W",
+            "eta",
+            "masked",
+            "reactive_cancellation_limited",
+        ]
+        rows = [
+            {
+                "T_s": "0.50",
+                "P_capture_W": "1.2",
+                "P_opt_W": "1.0",
+                "B55_Nmsrad": "1.0",
+                "F_exc_Nm": "1.0",
+                "P_converted_W": "1.5",
+                "P_injected_W": "0.3",
+                "eta": "1.2",
+                "masked": "false",
+                "reactive_cancellation_limited": "false",
+            }
+        ]
+
+        updated_fieldnames, updated_rows = retabulate_hydro_columns._ensure_linear_popt_column(
+            fieldnames, rows
+        )
+
+        self.assertIn("linear_popt_invalid", updated_fieldnames)
+        self.assertEqual(
+            updated_fieldnames.index("linear_popt_invalid"),
+            updated_fieldnames.index("reactive_cancellation_limited") - 1,
+        )
+        self.assertEqual(updated_rows[0]["linear_popt_invalid"], "false")
+
     def test_verify_targets_eta_findings_are_nonfatal_unless_strict(self) -> None:
         targets = [
             {

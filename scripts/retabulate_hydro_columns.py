@@ -50,6 +50,18 @@ def _load_csv_exact(csv_path: Path) -> tuple[list[str], list[dict[str, str]]]:
     return _load_csv_from_text(csv_path.read_text(), str(csv_path))
 
 
+def _ensure_linear_popt_column(
+    fieldnames: list[str], rows: list[dict[str, str]]
+) -> tuple[list[str], list[dict[str, str]]]:
+    if "linear_popt_invalid" in fieldnames or "reactive_cancellation_limited" not in fieldnames:
+        return fieldnames, rows
+    insert_at = fieldnames.index("reactive_cancellation_limited")
+    updated_fieldnames = list(fieldnames)
+    updated_fieldnames.insert(insert_at, "linear_popt_invalid")
+    updated_rows = [dict(row, linear_popt_invalid="false") for row in rows]
+    return updated_fieldnames, updated_rows
+
+
 def _retabulate_rows(rows: list[dict[str, str]], h5_path: Path) -> list[dict[str, str]]:
     periods_s = np.array([float(row["T_s"]) for row in rows], dtype=float)
     _, b55, fexc, p_opt, masked = popt_curve_from_h5(h5_path, periods_s)
@@ -198,6 +210,7 @@ def _retabulate_csv_contents(
     csv_path: Path, h5_path: Path
 ) -> tuple[list[str], list[dict[str, str]], list[dict[str, str]]]:
     fieldnames, rows = _load_csv_exact(csv_path)
+    fieldnames, rows = _ensure_linear_popt_column(fieldnames, rows)
     missing = [column for column in REQUIRED_COLUMNS if column not in fieldnames]
     if missing:
         raise RuntimeError(f"CSV missing required columns {missing}: {csv_path}")
