@@ -54,13 +54,17 @@ def _load_csv_exact(csv_path: Path) -> tuple[list[str], list[dict[str, str]]]:
 def _ensure_linear_popt_column(
     fieldnames: list[str], rows: list[dict[str, str]]
 ) -> tuple[list[str], list[dict[str, str]]]:
-    if "linear_popt_invalid" in fieldnames or "reactive_cancellation_limited" not in fieldnames:
+    if "linear_popt_invalid" in fieldnames or not _is_cc_schema(fieldnames):
         return fieldnames, rows
     insert_at = fieldnames.index("reactive_cancellation_limited")
     updated_fieldnames = list(fieldnames)
     updated_fieldnames.insert(insert_at, "linear_popt_invalid")
     updated_rows = [dict(row, linear_popt_invalid="false") for row in rows]
     return updated_fieldnames, updated_rows
+
+
+def _is_cc_schema(fieldnames: list[str]) -> bool:
+    return "P_converted_W" in fieldnames and "P_injected_W" in fieldnames
 
 
 def _retabulate_rows(rows: list[dict[str, str]], h5_path: Path) -> list[dict[str, str]]:
@@ -213,7 +217,7 @@ def _retabulate_csv_contents(
     fieldnames, rows = _load_csv_exact(csv_path)
     fieldnames, rows = _ensure_linear_popt_column(fieldnames, rows)
     required_columns = REQUIRED_COLUMNS
-    if "reactive_cancellation_limited" in fieldnames:
+    if _is_cc_schema(fieldnames):
         required_columns = (*required_columns, *CC_REQUIRED_COLUMNS)
     missing = [column for column in required_columns if column not in fieldnames]
     if missing:

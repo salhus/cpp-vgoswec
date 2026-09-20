@@ -234,6 +234,19 @@ def _add_efficiency_note(fig) -> None:
     fig.text(0.5, 0.01, ETA_REFERENCE_NOTE, ha="center", fontsize=7, color="0.35")
 
 
+def _add_eta_gt1_legend_entry(ax) -> None:
+    ax.plot(
+        [],
+        [],
+        color="0.35",
+        linestyle="--",
+        marker="o",
+        markerfacecolor="none",
+        markeredgewidth=1.2,
+        label=r"$\eta > 1$ (exceeds linear passive bound)",
+    )
+
+
 def _plot_efficiency_series(
     ax,
     periods: np.ndarray,
@@ -592,16 +605,7 @@ def plot_per_flap_efficiency(
         ax, T_fp, eta_fp, valid_fp, color="tab:orange", marker="^", linestyle="--", label="ff+PID $\\eta$"
     )
     if any_exceeds:
-        ax.plot(
-            [],
-            [],
-            color="0.35",
-            linestyle="--",
-            marker="o",
-            markerfacecolor="none",
-            markeredgewidth=1.2,
-            label=r"$\eta > 1$ (exceeds linear passive bound)",
-        )
+        _add_eta_gt1_legend_entry(ax)
 
     ax.set_xlabel("Wave period $T$ [s]")
     ax.set_ylabel("Efficiency [%]")
@@ -760,16 +764,7 @@ def plot_summary_efficiency(
             eta_series.append(ydata)
     ax.set_ylim(*_show_all_limits(*eta_series, ceiling=efficiency_ceiling))
     if any_exceeds:
-        ax.plot(
-            [],
-            [],
-            color="0.35",
-            linestyle="--",
-            marker="o",
-            markerfacecolor="none",
-            markeredgewidth=1.2,
-            label=r"$\eta > 1$ (exceeds linear passive bound)",
-        )
+        _add_eta_gt1_legend_entry(ax)
     ax.legend(loc="upper right", fontsize=6, ncol=3)
 
     _add_efficiency_note(fig)
