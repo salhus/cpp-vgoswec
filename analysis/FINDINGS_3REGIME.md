@@ -10,6 +10,14 @@ Controller co-design study across VGOSWEC flap variants (VGM-0/10/20/45/90) over
 All results are reproducible from committed CSVs under
 `analysis/{cc,opt_passive,passive_guarded}/` via `--plot-only`. No solver runs required.
 
+> **Basis-correction note (2026-09-19 follow-up):** all three controller trees now
+> carry hinge-referenced hydro-derived columns (`B55_Nmsrad`, `F_exc_Nm`, `P_opt_W`,
+> `eta`, `masked`) via `scripts/retabulate_hydro_columns.py --verify`. This removes
+> the mixed CG-vs-hinge efficiency comparison that previously distorted the
+> three-regime efficiency hull. The power hull, which depends only on `P_capture_W`,
+> is unchanged when comparing pre- and post-retabulated input CSVs; the efficiency
+> hull is the quantity that materially changes.
+
 > **Method-unification status note (important):** the committed **CC** and
 > **ff+PID** numbers in this file predate the shared sweep-method unification.
 > Code and docs now target the common method documented in
@@ -26,70 +34,70 @@ All results are reproducible from committed CSVs under
 
 ---
 
-## 1. Three-regime relay (headline result)
+## 1. Regenerated hull schedule (updated headline result)
 
-The period axis splits cleanly into three controller regimes, with the crossover periods
-**sliding along the period axis with flap angle** (because the resonance period T₀ shifts):
+With every efficiency number on the same hinge-referenced basis, the repository-wide
+headline is no longer a clean **CC → opt_passive → ff+PID** relay. The regenerated
+operating envelopes now read:
 
-| Regime | Period band | Winner | Notes |
+| Period band | Power-hull winner | Efficiency-hull winner | Notes |
 |--------|-------------|--------|-------|
-| **CC** | T ≲ 2 s | **CC** | Near Budal bound; CC peak up to 2.34 W at T=1.5 s (VGM-0) |
-| **opt_passive** | ~resonance band | **opt_passive** / tie | Matches tuned ff+PID at resonance with a single tuning-free coefficient |
-| **ff+PID** | T ≳ resonance | **ff+PID** | Carries the long tail past resonance with no reactive penalty |
+| **0.50 s** | **CC / VGM-0** | **opt_passive / VGM-90** | CC maximises raw power; opt_passive has the best normalized η |
+| **0.75 s** | **CC / VGM-90** | **opt_passive / VGM-0** | Same low-period normalization split |
+| **1.00–1.25 s** | **CC** | **CC** | Efficiency prefers a different CC flap than raw power |
+| **1.50–2.50 s** | **CC / VGM-0** | **CC / VGM-0** | CC owns both hulls through the short-period band |
+| **2.75–4.50 s** | **ff+PID** | **ff+PID** | ff+PID owns the mid-band hull after the basis fix |
+| **4.75–5.25 s** | **opt_passive / VGM-0** | **opt_passive / VGM-0** | Narrow VGM-0 window where tuned passive retakes both hulls |
+| **5.50–6.75 s** | **ff+PID / VGM-0** | **ff+PID / VGM-0** | ff+PID carries most of the long tail |
+| **7.00 s** | **opt_passive / VGM-0** | **opt_passive / VGM-0** | Final single-point opt_passive re-entry |
 
-**Crossover periods per flap:**
-
-| Flap | T₀ (resonance) | CC/opt_p xover | opt_p/ff+PID xover |
-|------|---------------|----------------|-------------------|
-| VGM-90 | ≈2.50 s | ≈1.5–2.0 s | ≈2.5–3.0 s |
-| VGM-45 | ≈3.00 s | ≈1.5–2.0 s | ≈3.0–3.5 s |
-| VGM-20 | ≈3.25 s | ≈1.5–2.0 s | ≈3.5–4.0 s |
-| VGM-10 | ≈3.50 s | ≈1.5–2.0 s | ≈3.5–4.5 s |
-| VGM-0  | ≈4.75 s | ≈1.5–2.0 s | ≈4.5–5.5 s |
-
-The flap-angle co-design knob shifts the resonance peak — and therefore the
-opt_passive vs ff+PID handoff — across the entire T = 2.5–5 s band. This is the
-**controller×geometry co-design operating map**: no single controller or fixed flap
-achieves the upper hull; the adaptive (controller, flap-angle) schedule does.
+The co-design point remains: no single controller or single flap reaches the full
+upper hull. What changed is **which controller owns the shared efficiency hull once
+all three arms are compared on a common basis**.
 
 ---
 
-## 2. opt_passive resonance hump marches with flap angle
+## 2. Resonance-band comparison after the basis correction
 
-| Flap | opt_passive peak P_capture | peak T | ff+PID peak (passive_guarded) | winner at resonance |
-|------|---------------------------|--------|-------------------------------|---------------------|
-| VGM-90 | 0.509 W | 2.50 s | ~0.55 W | ff+PID edges |
-| VGM-45 | 0.479 W | 3.00 s | ~0.63 W | ff+PID edges |
-| VGM-20 | 0.755 W | 3.25 s | ~0.73 W | opt_passive edges |
-| VGM-10 | 0.772 W | 3.50 s | ~0.75 W | opt_passive edges |
-| VGM-0  | 0.681 W | 4.75 s | ~0.68 W | tie |
+At each flap’s intrinsic resonance period T₀, the current committed campaigns give:
+
+| Flap | T₀ | opt_passive P_capture | ff+PID P_capture | opt_passive η | ff+PID η | winner at resonance |
+|------|--------|------------------|------------------|---------------|-----------|---------------------|
+| VGM-90 | 2.50 s | 0.200 W | 0.447 W | 0.046 | 0.104 | ff+PID |
+| VGM-45 | 3.00 s | 0.363 W | 0.625 W | 0.076 | 0.131 | ff+PID |
+| VGM-20 | 3.25 s | 0.276 W | 0.708 W | 0.056 | 0.144 | ff+PID |
+| VGM-10 | 3.50 s | 0.325 W | 0.741 W | 0.064 | 0.147 | ff+PID |
+| VGM-0  | 4.75 s | 0.607 W | 0.474 W | 0.110 | 0.086 | opt_passive |
 
 The resonance hump monotonically shifts from T ≈ 2.5 s (VGM-90, flap fully open)
 to T ≈ 4.75 s (VGM-0, flap closed). This confirms that the intrinsic resonance
 T₀ = 2π/ω₀ indeed marches as the flap geometry changes — the hydrodynamic coupling
 (radiation damping B55, added inertia A55) all shift together with the flap angle.
 
-### Honest opt_passive vs ff+PID framing
+### Revised opt_passive vs ff+PID framing
 
-**opt_passive matches a tuned feedforward controller at resonance with a single
-tuning-free damping coefficient, and beats CC by 10–30× in the long tail.**
+The basis-corrected envelopes do **not** support the older claim that opt_passive
+generally ties or beats ff+PID at resonance. In the current committed campaigns:
 
-Specifically:
-- At the resonance peak: opt_passive **ties-to-slightly-beats** ff+PID on low-angle
-  flaps (VGM-0/10/20) and ff+PID **edges** opt_passive on high-angle flaps (VGM-45/90).
-- The claim is NOT "opt_passive universally wins" — it is that opt_passive achieves
-  comparable resonance-band performance to a carefully tuned feedforward controller,
-  with zero per-flap tuning overhead (just one B55-derived coefficient).
-- At long periods (T > T₀): ff+PID holds the long tail gracefully; opt_passive drops
-  off as the off-resonance impedance mismatch grows.
+- **ff+PID wins the resonance-period comparison for VGM-90/45/20/10**, on both raw
+  captured power and normalized efficiency.
+- **opt_passive wins the VGM-0 resonance point** (`T = 4.75 s`) and also the adjacent
+  `T = 5.00–5.25 s` envelope points.
+- Beyond that narrow VGM-0 window, **ff+PID carries most of the long tail** on both
+  the power and efficiency hulls.
 
 ---
 
 ## 3. CC validates the Budal bound (short periods)
 
-CC captured power tracks the analytic optimum **P_opt** almost exactly up to
-T ≈ 1.5 s. For VGM-0 the CC peak is **2.34 W at T = 1.5 s** with η ≈ 94–108%.
-This validates the CC implementation against the Budal/optimal-absorption limit.
+CC still anchors the short-period band. Both regenerated hulls are CC-led from
+**T = 1.0 s through T = 2.5 s**, and the power peak is **2.44488972 W at T = 1.5 s**
+for VGM-0.
+
+After the hinge-basis retabulation, the CC CSVs still contain **14 rows with
+η > 1 + 1e-6**. Those rows are now treated honestly as reported findings — not
+silently masked away — and they continue to be excluded from the efficiency hull by
+the existing `eta > 1 + ε` validity rule.
 
 At long periods (T ≳ 2 s), CC becomes reactive-heavy
 (`|P_injected|/P_converted` → ~0.9). These reactive-heavy "wins" are impractical at
@@ -109,42 +117,42 @@ See `analysis/three_regime/figures/operating_envelope.png` and
 `analysis/three_regime/operating_envelope.csv` (hull reproduced from committed CSVs).
 
 **Annotated winner per band:**
-- **Short T (≲2 s):** CC + VGM-0 (closed flap, Budal-bound tracking, up to 2.34 W)
-- **Resonance band (≈2.5–5 s):** opt_passive or ff+PID + the flap whose T₀ matches
-  the wave period (90° at T≈2.5 s, marching down to 0° at T≈4.75 s)
-- **Long tail (T ≥ 4.5 s):** opt_passive + VGM-0 (large raw excitation force even in the pitch-radiation notch where P_opt is undefined)
+- **Short T (1.0–2.5 s):** CC, mostly VGM-0 after the first two points
+- **Mid-band (2.75–4.5 s):** ff+PID, with the winning flap marching 90° → 45° → 10° → 0°
+- **VGM-0 shoulder (4.75–5.25 s):** opt_passive + VGM-0
+- **Long tail (5.5–6.75 s):** ff+PID + VGM-0, before a final opt_passive/0 re-entry at 7.0 s
 
 No single controller or flap reaches this envelope alone.
 
 | T_s | P_max_W | controller | flap_angle |
 |-----|---------|-----------|-----------|
-| 0.50 | 0.2958 | CC | 90 |
-| 0.75 | 0.5708 | CC | 90 |
-| 1.00 | 1.4970 | CC | 0 |
-| 1.25 | 1.9298 | CC | 0 |
-| 1.50 | 2.3427 | CC | 0 |
-| 1.75 | 1.9575 | CC | 0 |
-| 2.00 | 1.2889 | CC | 0 |
-| 2.25 | 0.8149 | CC | 0 |
-| 2.50 | 0.5238 | CC | 0 |
+| 0.50 | 0.3169 | CC | 0 |
+| 0.75 | 0.5837 | CC | 90 |
+| 1.00 | 1.5284 | CC | 10 |
+| 1.25 | 1.9995 | CC | 0 |
+| 1.50 | 2.4449 | CC | 0 |
+| 1.75 | 2.1683 | CC | 0 |
+| 2.00 | 1.4413 | CC | 0 |
+| 2.25 | 0.9138 | CC | 0 |
+| 2.50 | 0.5886 | CC | 0 |
 | 2.75 | 0.5467 | ff+PID | 90 |
 | 3.00 | 0.6316 | ff+PID | 45 |
-| 3.25 | 0.7547 | opt_passive | 20 |
-| 3.50 | 0.7721 | opt_passive | 10 |
+| 3.25 | 0.7221 | ff+PID | 10 |
+| 3.50 | 0.7413 | ff+PID | 10 |
 | 3.75 | 0.6291 | ff+PID | 10 |
 | 4.00 | 0.5114 | ff+PID | 10 |
-| 4.25 | 0.4394 | ff+PID | 0 |
-| 4.50 | 0.6534 | opt_passive | 0 |
-| 4.75 | 0.6814 | opt_passive | 0 |
-| 5.00 | 0.5927 | opt_passive | 0 |
-| 5.25 | 0.4977 | opt_passive | 0 |
-| 5.50 | 0.4194 | opt_passive | 0 |
-| 5.75 | 0.3479 | opt_passive | 0 |
-| 6.00 | 0.2897 | opt_passive | 0 |
-| 6.25 | 0.2460 | opt_passive | 0 |
-| 6.50 | 0.2064 | opt_passive | 0 |
-| 6.75 | 0.1757 | opt_passive | 0 |
-| 7.00 | 0.1478 | opt_passive | 0 |
+| 4.25 | 0.4418 | ff+PID | 0 |
+| 4.50 | 0.4813 | ff+PID | 0 |
+| 4.75 | 0.6074 | opt_passive | 0 |
+| 5.00 | 0.6850 | opt_passive | 0 |
+| 5.25 | 0.4755 | opt_passive | 0 |
+| 5.50 | 0.3135 | ff+PID | 0 |
+| 5.75 | 0.2613 | ff+PID | 0 |
+| 6.00 | 0.2172 | ff+PID | 0 |
+| 6.25 | 0.1809 | ff+PID | 0 |
+| 6.50 | 0.1521 | ff+PID | 0 |
+| 6.75 | 0.1288 | ff+PID | 0 |
+| 7.00 | 0.1250 | opt_passive | 0 |
 
 ### 4b. Efficiency operating hull
 
@@ -159,72 +167,55 @@ See `analysis/three_regime/figures/operating_envelope_efficiency.png` and
 
 | T_s | eta_max | controller | flap_angle |
 |-----|---------|-----------|-----------|
-| 0.50 | 0.823 | opt_passive | 90 |
-| 0.75 | 0.991 | CC | 45 |
-| 1.00 | 0.962 | CC | 45 |
-| 1.25 | 0.902 | CC | 10 |
-| 1.50 | 0.940 | CC | 0 |
-| 1.75 | 0.636 | CC | 0 |
-| 2.00 | 0.357 | CC | 0 |
-| 2.25 | 0.200 | CC | 0 |
-| 2.50 | 0.119 | opt_passive | 90 |
-| 2.75 | 0.121 | ff+PID | 90 |
-| 3.00 | 0.133 | ff+PID | 45 |
-| 3.25 | 0.156 | opt_passive | 20 |
-| 3.50 | 0.149 | opt_passive | 10 |
-| 3.75 | 0.121 | ff+PID | 10 |
+| 0.50 | 0.813 | opt_passive | 90 |
+| 0.75 | 0.862 | opt_passive | 0 |
+| 1.00 | 0.945 | CC | 90 |
+| 1.25 | 0.941 | CC | 10 |
+| 1.50 | 0.965 | CC | 0 |
+| 1.75 | 0.697 | CC | 0 |
+| 2.00 | 0.399 | CC | 0 |
+| 2.25 | 0.227 | CC | 0 |
+| 2.50 | 0.135 | CC | 0 |
+| 2.75 | 0.118 | ff+PID | 90 |
+| 3.00 | 0.131 | ff+PID | 45 |
+| 3.25 | 0.147 | ff+PID | 10 |
+| 3.50 | 0.147 | ff+PID | 10 |
+| 3.75 | 0.122 | ff+PID | 10 |
 | 4.00 | 0.097 | ff+PID | 10 |
-| 4.25 | 0.080 | ff+PID | 10 |
-| 4.50 | 0.065 | ff+PID | 10 |
-| 4.75 | 0.054 | ff+PID | 10 |
-| 5.00 | 0.046 | ff+PID | 10 |
-| 5.25 | 0.032 | ff+PID | 20 |
-| 5.50 | 0.017 | ff+PID | 45 |
-| 5.75 | 0.015 | ff+PID | 45 |
-| 6.00 | 0.013 | ff+PID | 45 |
-| 6.25 | 0.012 | ff+PID | 45 |
-| 6.50 | 0.007 | ff+PID | 90 |
-| 6.75 | 0.007 | ff+PID | 90 |
-| 7.00 | 0.006 | ff+PID | 90 |
+| 4.25 | 0.082 | ff+PID | 0 |
+| 4.50 | 0.088 | ff+PID | 0 |
+| 4.75 | 0.110 | opt_passive | 0 |
+| 5.00 | 0.123 | opt_passive | 0 |
+| 5.25 | 0.085 | opt_passive | 0 |
+| 5.50 | 0.055 | ff+PID | 0 |
+| 5.75 | 0.046 | ff+PID | 0 |
+| 6.00 | 0.038 | ff+PID | 0 |
+| 6.25 | 0.032 | ff+PID | 0 |
+| 6.50 | 0.026 | ff+PID | 0 |
+| 6.75 | 0.022 | ff+PID | 0 |
+| 7.00 | 0.022 | opt_passive | 0 |
 
 ### 4c. Power vs efficiency co-design schedules diverge
 
-The two hulls select **different (controller, flap-angle) winners** at 17 of the 27
-period points. The divergence has two structural causes:
+The two hulls now select different `(controller, flap-angle)` winners at only **4 of
+the 27** period points: **T = 0.50, 0.75, 1.00, 1.25 s**.
 
-**1. Short-period flap selection (T ≤ 1.25 s, T = 2.5 s):**
-At T ≤ 1.25 s the power hull picks CC + VGM-0 because the closed-flap geometry
-produces the largest excitation torque (and thus highest raw P_capture). The
-efficiency hull, however, picks CC + VGM-45 or VGM-10 — those flaps achieve a larger
-fraction of their own P_opt because their hydrodynamic coupling is better matched at
-short periods. At T = 0.5 s the efficiency hull switches entirely to opt_passive/90:
-here the CC `linear_popt_invalid` flag makes all CC η values undefined, and opt_passive
-on the wide-open flap captures the highest valid η.
+That divergence is now entirely a **short-period normalization effect**:
 
-**2. Long-period VGM-0 notch (T ≥ 4.25 s):**
-The most dramatic divergence. The power hull selects opt_passive + VGM-0 at
-T = 4.5–7.0 s because VGM-0 still produces measurable P_capture (0.15–0.68 W) in
-this band — even though P_opt is undefined (the pitch-radiation B55 → 0 notch makes
-the theoretical optimum diverge). The efficiency hull **must exclude** all VGM-0
-T ≥ 3.0 s data (`masked = true`, P_opt empty) and instead finds the best well-defined
-η among the higher-angle flaps, landing on ff+PID + VGM-{10,20,45,90} depending on
-which flap's resonance tail overlaps that period.
+- At **0.50 s** and **0.75 s**, CC still maximises raw captured power, but
+  opt_passive has the larger well-defined `η = P_capture / P_opt`.
+- At **1.00 s** and **1.25 s**, both hulls stay within CC, but the efficiency hull
+  prefers a different flap angle than the power hull.
 
-**Divergence summary table:**
+Every period from **1.50 s onward** now has the **same controller winner** on both the
+power and efficiency hulls.
 
 | T_s | Power hull | Efficiency hull | Reason |
 |-----|-----------|-----------------|--------|
-| 0.50 | CC/90 | opt_passive/90 | CC η undefined (linear_popt_invalid); opt_passive/90 best valid η |
-| 0.75 | CC/90 | CC/45 | CC/90 maximises P; CC/45 maximises P/P_opt |
-| 1.00 | CC/0 | CC/45 | CC/0 maximises P; CC/45 maximises P/P_opt |
-| 1.25 | CC/0 | CC/10 | CC/0 maximises P; CC/10 maximises P/P_opt |
-| 2.50 | CC/0 | opt_passive/90 | CC/0 still highest P; opt_passive/90 best η at this period |
-| 4.25 | ff+PID/0 | ff+PID/10 | VGM-0 data masked; ff+PID/10 best valid η |
-| 4.50–7.00 | opt_passive/0 | ff+PID/{10,20,45,90} | VGM-0 masked (P_opt undefined); efficiency hull excludes notch |
-
-Periods T = 1.5–2.25 s and T = 2.75–4.0 s agree on the winning (controller, flap)
-combination — at resonance the same configuration maximises both raw power and
-efficiency fraction simultaneously.
+| 0.50 | CC/0 | opt_passive/90 | CC maximises raw power; opt_passive/90 has the best valid η |
+| 0.75 | CC/90 | opt_passive/0 | CC maximises raw power; opt_passive/0 has the best valid η |
+| 1.00 | CC/10 | CC/90 | Same controller, different flap for P vs P/P_opt |
+| 1.25 | CC/0 | CC/10 | Same controller, different flap for P vs P/P_opt |
 
 ---
 

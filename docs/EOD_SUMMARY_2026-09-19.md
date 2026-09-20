@@ -133,8 +133,13 @@ The owner should be able to `git pull` and immediately re-run the `opt_passive` 
 2. The `2.44488972 W` headline is still unconfirmed as settled (`430 s` vs `760 s` check still needed).
 3. **Resolved in follow-up PR:** sweep post-processing now reads hinge-referenced
    `hydroData/hinged_vgoswec_*.h5`, clamps de-normalized `B55 >= 0` in Python to
-   match `src/impedance.cpp`, and can re-tabulate existing `analysis/{passive,opt_passive}`
-   CSVs in place without re-running simulations (`scripts/retabulate_hydro_columns.py`).
+   match `src/impedance.cpp`, and can re-tabulate existing
+   `analysis/{passive,opt_passive,cc,passive_guarded}` CSVs in place without
+   re-running simulations (`scripts/retabulate_hydro_columns.py`). The lingering
+   `cc` / `passive_guarded` basis mismatch in the three-regime post-processing is
+   now resolved; the power hull is unchanged, while the efficiency hull updates on
+   the common hinge basis. CC still retains 14 `eta > 1 + 1e-6` rows after that
+   correction, which are reported rather than silently masked.
 4. `analysis/FINDINGS_3REGIME.md` hand-written tables are still stale.
 5. There remains a uniform `~1.4%` residual between corrected analytic `omega_n` and free-decay (`single-DOF analytic model` vs `coupled plant`).
 6. `[impedance] INFO: legacy A55-match rho=...` still prints more often than intended and should become truly once-per-process.
