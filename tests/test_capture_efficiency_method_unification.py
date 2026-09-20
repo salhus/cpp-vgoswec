@@ -380,6 +380,46 @@ class UnifiedSweepMethodTests(unittest.TestCase):
         self.assertAlmostEqual(row["eta_max"], 0.6)
         self.assertFalse(row["eta_gt1_excluded"])
 
+    def test_three_regime_envelope_rejects_duplicate_period_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            cc_dir = repo / "analysis" / "cc"
+            op_dir = repo / "analysis" / "opt_passive"
+            fp_dir = repo / "analysis" / "passive_guarded"
+            cc_dir.mkdir(parents=True)
+            op_dir.mkdir(parents=True)
+            fp_dir.mkdir(parents=True)
+
+            cc_csv = (
+                "T_s,P_capture_W,P_opt_W,eta,masked,linear_popt_invalid,reactive_cancellation_limited\n"
+                "1.00,1.0,2.0,0.5,false,false,false\n"
+                "1.00,1.5,2.0,0.75,false,false,false\n"
+            )
+            opt_csv = "T_s,P_capture_W,P_opt_W,B55_Nmsrad,eta,masked\n1.00,2.0,4.0,1.0,0.5,false\n"
+            ff_csv = "T_s,P_capture_W,P_opt_W,eta,masked\n1.00,1.5,3.0,0.5,false\n"
+
+            for angle in three_regime_comparison.FLAP_ANGLES:
+                (cc_dir / f"capture_efficiency_VGM{angle}.csv").write_text(cc_csv)
+                (op_dir / f"capture_efficiency_VGM{angle}.csv").write_text(opt_csv)
+                (fp_dir / f"capture_efficiency_VGM{angle}.csv").write_text(ff_csv)
+
+            cc_map = {
+                angle: cc_dir / f"capture_efficiency_VGM{angle}.csv"
+                for angle in three_regime_comparison.FLAP_ANGLES
+            }
+            op_map = {
+                angle: op_dir / f"capture_efficiency_VGM{angle}.csv"
+                for angle in three_regime_comparison.FLAP_ANGLES
+            }
+            fp_map = {
+                angle: fp_dir / f"capture_efficiency_VGM{angle}.csv"
+                for angle in three_regime_comparison.FLAP_ANGLES
+            }
+
+            with self.assertRaisesRegex(ValueError, "duplicate T_s=1.000000 rows"):
+                three_regime_comparison._build_envelope(cc_map, op_map, fp_map)
+
+
 
 if __name__ == "__main__":
     unittest.main()

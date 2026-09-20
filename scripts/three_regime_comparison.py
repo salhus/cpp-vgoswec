@@ -390,6 +390,13 @@ def _find_crossover(T_a: np.ndarray, p_a: np.ndarray,
     return float(t0 - d0 * (t1 - t0) / (d1 - d0))
 
 
+def _unique_row_for_period(rows: list[dict], period_s: float) -> dict | None:
+    matches = [row for row in rows if abs(row["T_s"] - period_s) < 1e-6]
+    if len(matches) > 1:
+        raise ValueError(f"duplicate T_s={period_s:.6f} rows encountered in comparison input")
+    return matches[0] if matches else None
+
+
 # ---------------------------------------------------------------------------
 # Power / efficiency ceiling (shared across all per-flap figures)
 # ---------------------------------------------------------------------------
@@ -825,16 +832,16 @@ def _build_envelope(
                 if path is None or not path.exists():
                     continue
                 rows = loader(path)
-                for r in rows:
-                    if abs(r["T_s"] - T) < 1e-6:
-                        p = r.get("P_capture_W", float("nan"))
-                        if _power_excluded(r):
-                            break
-                        if math.isfinite(p) and p > best_p:
-                            best_p = p
-                            best_ctrl = ctrl_name
-                            best_flap = angle
-                        break
+                r = _unique_row_for_period(rows, float(T))
+                if r is None:
+                    continue
+                p = r.get("P_capture_W", float("nan"))
+                if _power_excluded(r):
+                    continue
+                if math.isfinite(p) and p > best_p:
+                    best_p = p
+                    best_ctrl = ctrl_name
+                    best_flap = angle
 
         if best_flap >= 0:
             hull.append({
@@ -992,25 +999,22 @@ def _build_efficiency_envelope(
                 if path is None or not path.exists():
                     continue
                 rows = loader(path)
-                for r in rows:
-                    if abs(r["T_s"] - T) < 1e-6:
-                        # Found the unique row for this T (rows are sorted; at most
-                        # one row matches per T). break exits the row loop; the outer
-                        # (angle, ctrl) loops continue to the next candidate.
-                        if _row_excluded(r):
-                            break
-                        eta, invalid = _eta_valid(r, is_cc)
-                        if not math.isfinite(eta):
-                            break
-                        if (not SHOW_ALL) and invalid:
-                            eta_gt1_excluded = eta_gt1_excluded or _eta_gt1_hull_excluded(r, eta)
-                            break
-                        any_valid = True
-                        if eta > best_eta:
-                            best_eta = eta
-                            best_ctrl = ctrl_name
-                            best_flap = angle
-                        break
+                r = _unique_row_for_period(rows, float(T))
+                if r is None:
+                    continue
+                if _row_excluded(r):
+                    continue
+                eta, invalid = _eta_valid(r, is_cc)
+                if not math.isfinite(eta):
+                    continue
+                if (not SHOW_ALL) and invalid:
+                    eta_gt1_excluded = eta_gt1_excluded or _eta_gt1_hull_excluded(r, eta)
+                    continue
+                any_valid = True
+                if eta > best_eta:
+                    best_eta = eta
+                    best_ctrl = ctrl_name
+                    best_flap = angle
 
         if any_valid and best_flap >= 0:
             hull.append({
