@@ -225,6 +225,10 @@ def _eta_gt1_mask(eta_percent: np.ndarray) -> np.ndarray:
     return np.isfinite(eta_percent) & (eta_percent > ((1.0 + ETA_GT1_TOL) * 100.0))
 
 
+def _eta_gt1_hull_excluded(row: dict, eta: float) -> bool:
+    return (not _row_excluded(row)) and math.isfinite(eta) and eta > (1.0 + ETA_GT1_TOL)
+
+
 def _add_efficiency_reference(ax) -> None:
     ax.axhline(100.0, color="0.35", linestyle=":", linewidth=1.0, zorder=1.5,
                label=r"$\eta = 100\%$ passive reference")
@@ -999,9 +1003,7 @@ def _build_efficiency_envelope(
                         if not math.isfinite(eta):
                             break
                         if (not SHOW_ALL) and invalid:
-                            eta_gt1_excluded = eta_gt1_excluded or (
-                                math.isfinite(eta) and eta > (1.0 + ETA_GT1_TOL)
-                            )
+                            eta_gt1_excluded = eta_gt1_excluded or _eta_gt1_hull_excluded(r, eta)
                             break
                         any_valid = True
                         if eta > best_eta:
