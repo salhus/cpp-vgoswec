@@ -23,6 +23,7 @@ from passive_vs_optpassive_sweep import FLAPS, popt_curve_from_h5
 
 TARGET_COLUMNS = ("B55_Nmsrad", "F_exc_Nm", "P_opt_W", "masked", "eta", "linear_popt_invalid")
 REQUIRED_COLUMNS = ("T_s", "P_capture_W", "B55_Nmsrad", "F_exc_Nm", "P_opt_W", "masked", "eta")
+CC_REQUIRED_COLUMNS = ("linear_popt_invalid",)
 CSV_GROUPS = (
     ("passive", "analysis/passive"),
     ("opt_passive", "analysis/opt_passive"),
@@ -211,7 +212,10 @@ def _retabulate_csv_contents(
 ) -> tuple[list[str], list[dict[str, str]], list[dict[str, str]]]:
     fieldnames, rows = _load_csv_exact(csv_path)
     fieldnames, rows = _ensure_linear_popt_column(fieldnames, rows)
-    missing = [column for column in REQUIRED_COLUMNS if column not in fieldnames]
+    required_columns = REQUIRED_COLUMNS
+    if "reactive_cancellation_limited" in fieldnames:
+        required_columns = (*required_columns, *CC_REQUIRED_COLUMNS)
+    missing = [column for column in required_columns if column not in fieldnames]
     if missing:
         raise RuntimeError(f"CSV missing required columns {missing}: {csv_path}")
     updated_rows = _retabulate_rows(rows, h5_path)
