@@ -21,8 +21,8 @@ import numpy as np
 
 from passive_vs_optpassive_sweep import FLAPS, popt_curve_from_h5
 
-TARGET_COLUMNS = ("B55_Nmsrad", "F_exc_Nm", "P_opt_W", "masked", "eta")
-REQUIRED_COLUMNS = ("T_s", "P_capture_W", *TARGET_COLUMNS)
+TARGET_COLUMNS = ("B55_Nmsrad", "F_exc_Nm", "P_opt_W", "masked", "eta", "linear_popt_invalid")
+REQUIRED_COLUMNS = ("T_s", "P_capture_W", "B55_Nmsrad", "F_exc_Nm", "P_opt_W", "masked", "eta")
 CSV_GROUPS = (
     ("passive", "analysis/passive"),
     ("opt_passive", "analysis/opt_passive"),
@@ -60,6 +60,7 @@ def _retabulate_rows(rows: list[dict[str, str]], h5_path: Path) -> list[dict[str
         updated["B55_Nmsrad"] = _format_float(float(b55[idx]))
         updated["F_exc_Nm"] = _format_float(float(fexc[idx]))
         updated["masked"] = "true" if bool(masked[idx]) else "false"
+        linear_popt_invalid = False
         if bool(masked[idx]):
             updated["P_opt_W"] = ""
             updated["eta"] = ""
@@ -69,11 +70,19 @@ def _retabulate_rows(rows: list[dict[str, str]], h5_path: Path) -> list[dict[str
             if p_capture_text:
                 p_capture = float(p_capture_text)
                 if np.isfinite(p_capture) and np.isfinite(p_opt[idx]) and float(p_opt[idx]) > 0.0:
-                    updated["eta"] = _format_float(p_capture / float(p_opt[idx]))
+                    eta = p_capture / float(p_opt[idx])
+                    updated["eta"] = _format_float(eta)
+                    reactive_cancellation_limited = (
+                        str(row.get("reactive_cancellation_limited", "false")).strip().lower() == "true"
+                    )
+                    if not reactive_cancellation_limited and eta > (1.0 + ETA_GT1_TOL):
+                        linear_popt_invalid = True
                 else:
                     updated["eta"] = ""
             else:
                 updated["eta"] = ""
+        if "linear_popt_invalid" in updated:
+            updated["linear_popt_invalid"] = "true" if linear_popt_invalid else "false"
         updated_rows.append(updated)
     return updated_rows
 
@@ -138,7 +147,7 @@ def _non_target_digest(fieldnames: list[str], rows: list[dict[str, str]]) -> str
     return digest.hexdigest()
 
 
-def verify_targets(targets: list[dict[str, object]]) -> int:
+def verify_targets(targets: list[dict[str, object]], *, strict_eta: bool = False) -> int:
     eta_counts = {label: 0 for label, _ in CSV_GROUPS}
     verify_failed = False
 
@@ -178,8 +187,11 @@ def verify_targets(targets: list[dict[str, object]]) -> int:
 
     eta_findings = any(count > 0 for count in eta_counts.values())
     if eta_findings:
-        print("[verify] FAIL: at least one tree still contains eta > 1 + tolerance findings")
-    return 1 if (verify_failed or eta_findings) else 0
+        if strict_eta:
+            print("[verify] FAIL: at least one tree still contains eta > 1 + tolerance findings")
+        else:
+            print("[verify] note: eta > 1 findings are reported but do not fail verification by default")
+    return 1 if (verify_failed or (strict_eta and eta_findings)) else 0
 
 
 def _retabulate_csv_contents(
@@ -228,6 +240,11 @@ def parse_args() -> argparse.Namespace:
         help="After processing, report eta>1 counts by tree and confirm non-target columns "
         "match HEAD for every touched CSV",
     )
+    parser.add_argument(
+        "--strict-eta",
+        action="store_true",
+        help="With --verify, return a non-zero exit code if any eta > 1 + tolerance findings remain",
+    )
     return parser.parse_args()
 
 
@@ -268,7 +285,7 @@ def main() -> int:
         print("ERROR: No target CSV/H5 pairs found")
         return 2
     if args.verify:
-        return verify_targets(processed_targets)
+        return verify_targets(processed_targets, strict_eta=args.strict_eta)
     return 0
 
 

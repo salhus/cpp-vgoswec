@@ -95,6 +95,35 @@ class HydroRetabulationTests(unittest.TestCase):
             [],
         )
 
+    def test_retabulation_recomputes_cc_linear_popt_invalid_from_hinge_basis(self) -> None:
+        source_csv = REPO_ROOT / "analysis" / "cc" / "capture_efficiency_VGM0.csv"
+        h5_path = REPO_ROOT / passive_vs_optpassive_sweep.FLAPS[0]["h5"]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            csv_copy = Path(tmpdir) / source_csv.name
+            csv_copy.write_text(source_csv.read_text())
+
+            retabulate_hydro_columns.retabulate_csv(csv_copy, h5_path, write=True)
+            _, rows = retabulate_hydro_columns._load_csv_exact(csv_copy)
+
+        for row in rows:
+            with self.subTest(T_s=row["T_s"]):
+                masked = str(row.get("masked", "false")).strip().lower() == "true"
+                reactive = (
+                    str(row.get("reactive_cancellation_limited", "false")).strip().lower() == "true"
+                )
+                p_capture = row.get("P_capture_W", "").strip()
+                p_opt = row.get("P_opt_W", "").strip()
+                expected = False
+                if (not masked) and (not reactive) and p_capture and p_opt:
+                    expected = (
+                        float(p_capture) / float(p_opt)
+                    ) > (1.0 + retabulate_hydro_columns.ETA_GT1_TOL)
+                self.assertEqual(
+                    str(row.get("linear_popt_invalid", "false")).strip().lower() == "true",
+                    expected,
+                )
+
     def test_non_target_differences_ignore_target_columns_only(self) -> None:
         fieldnames = [
             "T_s",
@@ -133,6 +162,20 @@ class HydroRetabulationTests(unittest.TestCase):
             ),
             ["line 2 column 'P_converted_W' changed: '7.0' -> '8.0'"],
         )
+
+    def test_verify_targets_eta_findings_are_nonfatal_unless_strict(self) -> None:
+        targets = [
+            {
+                "label": "cc",
+                "angle": 0,
+                "fieldnames": ["T_s", "eta"],
+                "before_rows": [{"T_s": "0.50", "eta": "1.20"}],
+                "after_rows": [{"T_s": "0.50", "eta": "1.20"}],
+            }
+        ]
+
+        self.assertEqual(retabulate_hydro_columns.verify_targets(targets), 0)
+        self.assertEqual(retabulate_hydro_columns.verify_targets(targets, strict_eta=True), 1)
 
 
 if __name__ == "__main__":

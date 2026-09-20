@@ -28,10 +28,9 @@ Master operating-envelope figure:
   operating_envelope.png  — upper hull (best controller × best flap) at every period.
   operating_envelope.csv  — per-period hull table for reproducibility.
 
-Per-flap peak table (opt_passive resonance humps march with flap angle):
-  VGM-90: 0.509 W at T=2.50 s  → VGM-45: 0.479 W at T=3.00 s →
-  VGM-20: 0.755 W at T=3.25 s  → VGM-10: 0.772 W at T=3.50 s →
-  VGM-0:  0.681 W at T=4.75 s
+Per-flap peak schedule:
+  See analysis/three_regime/operating_envelope.csv for the committed hull table
+  reproduced from the current analysis CSVs.
 
 Three-regime key result:
   The regenerated hulls no longer support a repository-wide CC → opt_passive → ff+PID
@@ -41,6 +40,8 @@ Three-regime key result:
 
 Rows flagged `reactive_cancellation_limited=true` in CC CSVs are excluded from
 overlays and from both operating envelopes.
+Finite rows with `eta > 1 + ETA_GT1_TOL` are shown in the efficiency overlays
+with open markers but remain excluded from the efficiency-envelope max().
 
 Run in --plot-only mode (default) to regenerate all figures from committed CSVs:
   python3 scripts/three_regime_comparison.py --plot-only
@@ -73,6 +74,10 @@ RESONANCE_PEAK_T = {0: 4.75, 10: 3.50, 20: 3.25, 45: 3.00, 90: 2.50}
 CC_PRACTICAL_LIMIT_T = 2.0
 
 ETA_GT1_TOL = 1e-6
+ETA_REFERENCE_NOTE = (
+    r"$P_{opt}=F_{exc}^{2}/(8B_{55})$ is the optimal passive absorption reference; "
+    r"reactive CC can exceed 100% of this benchmark."
+)
 
 # y-position (axis-transform fraction) for regime-band annotation labels
 REGIME_LABEL_Y = 0.95
@@ -158,7 +163,7 @@ def _load_ffpid_csv(csv_path: Path) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def _eta_valid(row: dict, is_cc: bool = False) -> tuple[float, bool]:
-    """Return (eta_fraction, is_invalid).  is_invalid means eta>1+tol or undefined."""
+    """Return (eta_fraction, excluded_from_hull)."""
     eta = row.get("eta", float("nan"))
     if not math.isfinite(eta):
         # Try to compute from P_capture / P_opt
@@ -171,7 +176,6 @@ def _eta_valid(row: dict, is_cc: bool = False) -> tuple[float, bool]:
     invalid = bool(
         row.get("masked", False)
         or row.get("reactive_cancellation_limited", False)
-        or row.get("linear_popt_invalid", False)
         or (math.isfinite(eta) and eta > (1.0 + ETA_GT1_TOL))
     )
     return eta, invalid
@@ -203,17 +207,75 @@ def _power_excluded(row: dict) -> bool:
 
 
 def _eta_excluded(row: dict) -> bool:
-    """Exclude from efficiency curves / efficiency hull. Denominator + numerator."""
+    """Exclude from efficiency overlays. Keep finite eta>1 points visible."""
     if SHOW_ALL:
         return False
+    eta, _ = _eta_valid(row)
     return bool(
         row.get("masked", False)
-        or row.get("linear_popt_invalid", False)
         or row.get("reactive_cancellation_limited", False)
+        or not math.isfinite(eta)
     )
 
 
 _row_excluded = _eta_excluded
+
+
+def _eta_gt1_mask(eta_percent: np.ndarray) -> np.ndarray:
+    return np.isfinite(eta_percent) & (eta_percent > ((1.0 + ETA_GT1_TOL) * 100.0))
+
+
+def _add_efficiency_reference(ax) -> None:
+    ax.axhline(100.0, color="0.35", linestyle=":", linewidth=1.0, zorder=1.5,
+               label=r"$\eta = 100\%$ passive reference")
+
+
+def _add_efficiency_note(fig) -> None:
+    fig.text(0.5, 0.01, ETA_REFERENCE_NOTE, ha="center", fontsize=7, color="0.35")
+
+
+def _plot_efficiency_series(
+    ax,
+    periods: np.ndarray,
+    eta_percent: np.ndarray,
+    valid_mask: np.ndarray,
+    *,
+    color: str,
+    marker: str,
+    linestyle: str,
+    label: str,
+    alpha: float = 1.0,
+) -> bool:
+    eta_gt1 = _eta_gt1_mask(eta_percent)
+    base_mask = valid_mask & ~eta_gt1
+    exceed_mask = valid_mask & eta_gt1
+    has_exceed = bool(np.any(exceed_mask))
+
+    ax.plot(
+        periods[base_mask],
+        eta_percent[base_mask],
+        marker=marker,
+        color=color,
+        linewidth=1.8 if linestyle == "-" else 1.6,
+        linestyle=linestyle,
+        alpha=alpha,
+        zorder=3,
+        label=label,
+    )
+    if has_exceed:
+        ax.plot(
+            periods[exceed_mask],
+            eta_percent[exceed_mask],
+            marker=marker,
+            color=color,
+            linewidth=1.5,
+            linestyle="--",
+            alpha=min(alpha, 0.9),
+            markerfacecolor="none",
+            markeredgewidth=1.4,
+            zorder=3.2,
+        )
+    return has_exceed
 
 
 def _masked_spans(periods: np.ndarray, masked: np.ndarray) -> list[tuple[float, float]]:
@@ -336,8 +398,8 @@ def _compute_ceilings(
                 if math.isfinite(p):
                     p_maxima.append(float(p))
                 if not _row_excluded(r):
-                    eta, inv = _eta_valid(r, is_cc)
-                    if math.isfinite(eta) and not inv:
+                    eta, _ = _eta_valid(r, is_cc)
+                    if math.isfinite(eta):
                         e_maxima.append(float(eta * 100.0))
 
     power_ceil = _ceil_to_step(max(p_maxima) if p_maxima else float("nan"), 0.5)
@@ -486,7 +548,6 @@ def plot_per_flap_efficiency(
     eta_cc = np.array([
         _eta_valid(r, is_cc=True)[0] for r in cc_rows
     ], dtype=float) * 100.0
-    inv_cc = np.array([_eta_valid(r, is_cc=True)[1] for r in cc_rows], dtype=bool)
 
     T_op = np.array([r["T_s"] for r in op_rows], dtype=float)
     masked_op = np.array([_row_excluded(r) for r in op_rows], dtype=bool)
@@ -514,19 +575,33 @@ def plot_per_flap_efficiency(
     fig, ax = plt.subplots(figsize=(8.4, 4.8))
 
     _add_masked_spans(ax, T_all, combined_masked, label="masked / low-power region")
+    _add_efficiency_reference(ax)
 
     valid_cc = (~masked_cc) & np.isfinite(eta_cc)
     valid_op = (~masked_op) & np.isfinite(eta_op)
     valid_fp = (~masked_fp) & np.isfinite(eta_fp)
-    if not SHOW_ALL:
-        valid_cc &= ~inv_cc
 
-    ax.plot(T_cc[valid_cc], eta_cc[valid_cc], marker="o", color="tab:blue",
-            linewidth=1.8, zorder=3, label="CC $\\eta$")
-    ax.plot(T_op[valid_op], eta_op[valid_op], marker="s", color="tab:green",
-            linewidth=1.8, linestyle="--", zorder=3, label="opt_passive $\\eta$")
-    ax.plot(T_fp[valid_fp], eta_fp[valid_fp], marker="^", color="tab:orange",
-            linewidth=1.8, linestyle="--", zorder=3, label="ff+PID $\\eta$")
+    any_exceeds = False
+    any_exceeds |= _plot_efficiency_series(
+        ax, T_cc, eta_cc, valid_cc, color="tab:blue", marker="o", linestyle="-", label="CC $\\eta$"
+    )
+    any_exceeds |= _plot_efficiency_series(
+        ax, T_op, eta_op, valid_op, color="tab:green", marker="s", linestyle="--", label="opt_passive $\\eta$"
+    )
+    any_exceeds |= _plot_efficiency_series(
+        ax, T_fp, eta_fp, valid_fp, color="tab:orange", marker="^", linestyle="--", label="ff+PID $\\eta$"
+    )
+    if any_exceeds:
+        ax.plot(
+            [],
+            [],
+            color="0.35",
+            linestyle="--",
+            marker="o",
+            markerfacecolor="none",
+            markeredgewidth=1.2,
+            label=r"$\eta > 1$ (exceeds linear passive bound)",
+        )
 
     ax.set_xlabel("Wave period $T$ [s]")
     ax.set_ylabel("Efficiency [%]")
@@ -537,7 +612,8 @@ def plot_per_flap_efficiency(
     ax.set_ylim(*_show_all_limits(eta_cc, eta_op, eta_fp, ceiling=efficiency_ceiling))
     ax.legend(loc="upper right", fontsize=8)
 
-    fig.tight_layout()
+    _add_efficiency_note(fig)
+    fig.tight_layout(rect=(0.0, 0.05, 1.0, 1.0))
     out_png.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_png)
     plt.close(fig)
@@ -622,30 +698,54 @@ def plot_summary_efficiency(
             rows = _load_cc_csv(cc_map[angle])
             T = np.array([r["T_s"] for r in rows], dtype=float)
             masked = np.array([_row_excluded(r) for r in rows], dtype=bool)
-            inv = np.array([_eta_valid(r, True)[1] for r in rows], dtype=bool)
             eta = np.array([_eta_valid(r, True)[0] for r in rows], dtype=float) * 100.0
             valid = (~masked) & np.isfinite(eta)
-            if not SHOW_ALL:
-                valid &= ~inv
-            ax.plot(T[valid], eta[valid], marker="o", linewidth=1.5, color=color,
-                    linestyle="-", label=f"{lbl} CC", zorder=3)
+            _plot_efficiency_series(
+                ax,
+                T,
+                eta,
+                valid,
+                color=color,
+                marker="o",
+                linestyle="-",
+                label=f"{lbl} CC",
+            )
         if angle in op_map and op_map[angle].exists():
             rows = _load_opt_passive_csv(op_map[angle])
             T = np.array([r["T_s"] for r in rows], dtype=float)
             masked = np.array([_row_excluded(r) for r in rows], dtype=bool)
             eta = np.array([_eta_valid(r)[0] for r in rows], dtype=float) * 100.0
             valid = (~masked) & np.isfinite(eta)
-            ax.plot(T[valid], eta[valid], marker="s", linewidth=1.3, color=color,
-                    linestyle="--", alpha=0.85, label=f"{lbl} opt_p", zorder=3)
+            _plot_efficiency_series(
+                ax,
+                T,
+                eta,
+                valid,
+                color=color,
+                marker="s",
+                linestyle="--",
+                label=f"{lbl} opt_p",
+                alpha=0.85,
+            )
         if angle in fp_map and fp_map[angle].exists():
             rows = _load_ffpid_csv(fp_map[angle])
             T = np.array([r["T_s"] for r in rows], dtype=float)
             masked = np.array([_row_excluded(r) for r in rows], dtype=bool)
             eta = np.array([_eta_valid(r)[0] for r in rows], dtype=float) * 100.0
             valid = (~masked) & np.isfinite(eta)
-            ax.plot(T[valid], eta[valid], marker="^", linewidth=1.3, color=color,
-                    linestyle=":", alpha=0.80, label=f"{lbl} ff+PID", zorder=3)
+            _plot_efficiency_series(
+                ax,
+                T,
+                eta,
+                valid,
+                color=color,
+                marker="^",
+                linestyle=":",
+                label=f"{lbl} ff+PID",
+                alpha=0.80,
+            )
 
+    _add_efficiency_reference(ax)
     ax.set_xlabel("Wave period $T$ [s]")
     ax.set_ylabel("Efficiency [%]")
     ax.set_title("Three-regime efficiency — all flap variants (CC / opt_passive / ff+PID)")
@@ -658,9 +758,20 @@ def plot_summary_efficiency(
         if ydata.size:
             eta_series.append(ydata)
     ax.set_ylim(*_show_all_limits(*eta_series, ceiling=efficiency_ceiling))
+    ax.plot(
+        [],
+        [],
+        color="0.35",
+        linestyle="--",
+        marker="o",
+        markerfacecolor="none",
+        markeredgewidth=1.2,
+        label=r"$\eta > 1$ (exceeds linear passive bound)",
+    )
     ax.legend(loc="upper right", fontsize=6, ncol=3)
 
-    fig.tight_layout()
+    _add_efficiency_note(fig)
+    fig.tight_layout(rect=(0.0, 0.05, 1.0, 1.0))
     out_png.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_png)
     plt.close(fig)
@@ -837,14 +948,14 @@ def _build_efficiency_envelope(
     Rules (CRITICAL — mask-respecting):
     - Skip any (flap, controller, T) where:
         * masked == True
-        * linear_popt_invalid == True (if column exists)
+        * reactive_cancellation_limited == True
         * eta is NaN / empty
-        * eta > 1 + ETA_GT1_TOL  (inflated-efficiency / P_opt-undefined spike)
-    - If ALL candidates at a given T are masked/invalid, emit a row with
+        * eta > 1 + ETA_GT1_TOL  (reported separately as a passive-bound exceedance)
+    - If ALL candidates at a given T are masked/invalid/excluded, emit a row with
       eta_max=NaN, controller="", flap_angle=-1, masked=True.
 
     Returns list of dicts:
-      T_s, eta_max, controller, flap_angle, masked
+      T_s, eta_max, controller, flap_angle, masked, eta_gt1_excluded
     """
     # Collect T grid from all available CSVs
     all_T_sets: list[np.ndarray] = []
@@ -868,6 +979,7 @@ def _build_efficiency_envelope(
         best_ctrl = ""
         best_flap = -1
         any_valid = False
+        eta_gt1_excluded = False
 
         for angle in FLAP_ANGLES:
             for ctrl_name, cmap, loader, is_cc in [
@@ -887,7 +999,10 @@ def _build_efficiency_envelope(
                         if _row_excluded(r):
                             break
                         eta, invalid = _eta_valid(r, is_cc)
-                        if ((not SHOW_ALL) and invalid) or not math.isfinite(eta):
+                        if not math.isfinite(eta):
+                            break
+                        if (not SHOW_ALL) and invalid:
+                            eta_gt1_excluded = True
                             break
                         any_valid = True
                         if eta > best_eta:
@@ -903,6 +1018,7 @@ def _build_efficiency_envelope(
                 "controller": best_ctrl,
                 "flap_angle": best_flap,
                 "masked": False,
+                "eta_gt1_excluded": eta_gt1_excluded,
             })
         else:
             # All candidates masked/invalid at this T
@@ -912,6 +1028,7 @@ def _build_efficiency_envelope(
                 "controller": "",
                 "flap_angle": -1,
                 "masked": True,
+                "eta_gt1_excluded": eta_gt1_excluded,
             })
 
     hull.sort(key=lambda d: d["T_s"])
@@ -922,7 +1039,8 @@ def _write_efficiency_envelope_csv(hull: list[dict], csv_path: Path) -> None:
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     with csv_path.open("w", newline="") as fh:
         writer = csv.DictWriter(
-            fh, fieldnames=["T_s", "eta_max", "controller", "flap_angle", "masked"]
+            fh,
+            fieldnames=["T_s", "eta_max", "controller", "flap_angle", "masked", "eta_gt1_excluded"],
         )
         writer.writeheader()
         for row in hull:
@@ -932,6 +1050,7 @@ def _write_efficiency_envelope_csv(hull: list[dict], csv_path: Path) -> None:
                 "controller": row["controller"],
                 "flap_angle": row["flap_angle"] if row["flap_angle"] >= 0 else "",
                 "masked": str(row["masked"]).lower(),
+                "eta_gt1_excluded": str(row["eta_gt1_excluded"]).lower(),
             })
     print(f"[ok] wrote {csv_path}")
 

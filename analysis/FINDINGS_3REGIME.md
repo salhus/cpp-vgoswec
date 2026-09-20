@@ -14,9 +14,10 @@ All results are reproducible from committed CSVs under
 > carry hinge-referenced hydro-derived columns (`B55_Nmsrad`, `F_exc_Nm`, `P_opt_W`,
 > `eta`, `masked`) via `scripts/retabulate_hydro_columns.py --verify`. This removes
 > the mixed CG-vs-hinge efficiency comparison that previously distorted the
-> three-regime efficiency hull. The power hull, which depends only on `P_capture_W`,
-> is unchanged when comparing pre- and post-retabulated input CSVs; the efficiency
-> hull is the quantity that materially changes.
+> three-regime efficiency hull. In retabulation *alone*, the power hull is invariant
+> because it depends only on `P_capture_W`; the committed `operating_envelope.csv`
+> still changed in the same update because the preceding passive/opt_passive sweep
+> rerun refreshed `P_capture_W` before the hull was regenerated.
 
 > **Method-unification status note (important):** the committed **CC** and
 > **ff+PID** numbers in this file predate the shared sweep-method unification.
@@ -44,7 +45,7 @@ operating envelopes now read:
 |--------|-------------|--------|-------|
 | **0.50 s** | **CC / VGM-0** | **opt_passive / VGM-90** | CC maximises raw power; opt_passive has the best normalized η |
 | **0.75 s** | **CC / VGM-90** | **opt_passive / VGM-0** | Same low-period normalization split |
-| **1.00–1.25 s** | **CC** | **CC** | Efficiency prefers a different CC flap than raw power |
+| **1.00–1.25 s** | **CC** | **CC** | Efficiency prefers a different CC flap than raw power; the 1.00 s flap winner changes after stale-flag cleanup |
 | **1.50–2.50 s** | **CC / VGM-0** | **CC / VGM-0** | CC owns both hulls through the short-period band |
 | **2.75–4.50 s** | **ff+PID** | **ff+PID** | ff+PID owns the mid-band hull after the basis fix |
 | **4.75–5.25 s** | **opt_passive / VGM-0** | **opt_passive / VGM-0** | Narrow VGM-0 window where tuned passive retakes both hulls |
@@ -95,9 +96,12 @@ CC still anchors the short-period band. Both regenerated hulls are CC-led from
 for VGM-0.
 
 After the hinge-basis retabulation, the CC CSVs still contain **14 rows with
-η > 1 + 1e-6**. Those rows are now treated honestly as reported findings — not
-silently masked away — and they continue to be excluded from the efficiency hull by
-the existing `eta > 1 + ε` validity rule.
+η > 1 + 1e-6**. Those rows are now rendered explicitly in the efficiency overlays
+with open markers and a 100%-reference note explaining that
+`P_opt = F_exc^2 / (8 B55)` is an optimal **passive** absorption benchmark rather
+than a hard upper bound for reactive CC. They remain excluded from the efficiency
+hull max() and are now audited in `operating_envelope_efficiency.csv` via the
+`eta_gt1_excluded` column instead of being silently hidden.
 
 At long periods (T ≳ 2 s), CC becomes reactive-heavy
 (`|P_injected|/P_converted` → ~0.9). These reactive-heavy "wins" are impractical at
@@ -157,10 +161,12 @@ No single controller or flap reaches this envelope alone.
 ### 4b. Efficiency operating hull
 
 For each period T, the **efficiency upper hull = max(η)** over all controllers AND flap
-variants, where η = P_capture / P_opt. **Only unmasked, well-defined points are
-included**: rows where `masked == true`, `linear_popt_invalid == true`, η is NaN, or
-η > 1 + ε are skipped (the VGM-0 pitch-radiation notch at T ≥ 3.0 s and the
-short-period `linear_popt_invalid` region make P_opt undefined there).
+variants, where η = P_capture / P_opt. **Only unmasked, well-defined points at or below
+the passive bound are included**: rows where `masked == true`,
+`reactive_cancellation_limited == true`, η is NaN, or η > 1 + ε are skipped from the
+hull max(). When a higher-η CC candidate exists but is excluded for exceeding the
+linear passive reference, `operating_envelope_efficiency.csv` records that with
+`eta_gt1_excluded = true`.
 
 See `analysis/three_regime/figures/operating_envelope_efficiency.png` and
 `analysis/three_regime/operating_envelope_efficiency.csv`.
@@ -169,7 +175,7 @@ See `analysis/three_regime/figures/operating_envelope_efficiency.png` and
 |-----|---------|-----------|-----------|
 | 0.50 | 0.813 | opt_passive | 90 |
 | 0.75 | 0.862 | opt_passive | 0 |
-| 1.00 | 0.945 | CC | 90 |
+| 1.00 | 0.999 | CC | 45 |
 | 1.25 | 0.941 | CC | 10 |
 | 1.50 | 0.965 | CC | 0 |
 | 1.75 | 0.697 | CC | 0 |
@@ -200,12 +206,14 @@ See `analysis/three_regime/figures/operating_envelope_efficiency.png` and
 The two hulls now select different `(controller, flap-angle)` winners at only **4 of
 the 27** period points: **T = 0.50, 0.75, 1.00, 1.25 s**.
 
-That divergence is now entirely a **short-period normalization effect**:
+That divergence is now a **short-period normalization/reference effect**:
 
-- At **0.50 s** and **0.75 s**, CC still maximises raw captured power, but
-  opt_passive has the larger well-defined `η = P_capture / P_opt`.
+- At **0.50 s** and **0.75 s**, CC still maximises raw captured power and also has
+  visible η > 1 points, but the efficiency hull deliberately excludes those passive-
+  bound exceedances and therefore selects opt_passive's best sub-unity `η`.
 - At **1.00 s** and **1.25 s**, both hulls stay within CC, but the efficiency hull
-  prefers a different flap angle than the power hull.
+  prefers a different flap angle than the power hull; at **1.00 s** the stale
+  `linear_popt_invalid` cleanup changes the winning CC flap from VGM-90 to VGM-45.
 
 Every period from **1.50 s onward** now has the **same controller winner** on both the
 power and efficiency hulls.
@@ -214,7 +222,7 @@ power and efficiency hulls.
 |-----|-----------|-----------------|--------|
 | 0.50 | CC/0 | opt_passive/90 | CC maximises raw power; opt_passive/90 has the best valid η |
 | 0.75 | CC/90 | opt_passive/0 | CC maximises raw power; opt_passive/0 has the best valid η |
-| 1.00 | CC/10 | CC/90 | Same controller, different flap for P vs P/P_opt |
+| 1.00 | CC/10 | CC/45 | Same controller, different flap for P vs P/P_opt |
 | 1.25 | CC/0 | CC/10 | Same controller, different flap for P vs P/P_opt |
 
 ---
