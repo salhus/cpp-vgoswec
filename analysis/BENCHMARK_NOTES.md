@@ -33,6 +33,8 @@ single source of truth; the sweep script and the per-flap configs must agree.
   `F_exc_Nm` / `B55_Nmsrad` from the **hinge-referenced** H5 files
   (`hydroData/hinged_vgoswec_{0,10,20,45,90}.h5`), matching the hinge DOF used by
   the controller and `P_capture`.
+- **Current handoff note:** use [`../docs/STATUS.md`](../docs/STATUS.md) for the latest
+  repository-wide status; this file is a frozen benchmark note, not the primary handoff.
 - **Implication:** `P_opt = |F_exc|^2 / (8 * B55)` remains basis-invariant in exact
   referral, and the `masked` rule is now applied on the same hinge basis as the
   time-domain capture curves.

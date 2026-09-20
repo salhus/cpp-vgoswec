@@ -9,6 +9,7 @@ Controller co-design study across VGOSWEC flap variants (VGM-0/10/20/45/90) over
 
 All results are reproducible from committed CSVs under
 `analysis/{cc,opt_passive,passive_guarded}/` via `--plot-only`. No solver runs required.
+For the current repository handoff, start with [`../docs/STATUS.md`](../docs/STATUS.md).
 
 > **Basis-correction note (2026-09-19 follow-up):** all three controller trees now
 > carry hinge-referenced hydro-derived columns (`B55_Nmsrad`, `F_exc_Nm`, `P_opt_W`,
@@ -18,14 +19,6 @@ All results are reproducible from committed CSVs under
 > because it depends only on `P_capture_W`; the committed `operating_envelope.csv`
 > still changed in the same update because the preceding passive/opt_passive sweep
 > rerun refreshed `P_capture_W` before the hull was regenerated.
-
-> **Method-unification status note (important):** the committed **CC** and
-> **ff+PID** numbers in this file predate the shared sweep-method unification.
-> Code and docs now target the common method documented in
-> [`../docs/SWEEP_METHOD.md`](../docs/SWEEP_METHOD.md), but the owner still needs
-> to re-run those two campaigns. Until that rerun lands, treat CC / ff+PID
-> numerical values here as the pre-unification record rather than silently fresh
-> campaign output.
 
 > **Validated-plant foundation:** The controller/flap co-design results below
 > rest on the free-decay WEC-Sim plant validation in
@@ -45,7 +38,7 @@ operating envelopes now read:
 |--------|-------------|--------|-------|
 | **0.50 s** | **CC / VGM-0** | **opt_passive / VGM-90** | CC maximises raw power; opt_passive has the best normalized η |
 | **0.75 s** | **CC / VGM-90** | **opt_passive / VGM-0** | Same low-period normalization split |
-| **1.00–1.25 s** | **CC** | **CC** | Efficiency prefers a different CC flap than raw power; the 1.00 s flap winner changes after stale-flag cleanup |
+| **1.00–1.25 s** | **CC** | **CC** | Efficiency prefers a different CC flap than raw power because the hull excludes `eta > 1` candidates |
 | **1.50–2.50 s** | **CC / VGM-0** | **CC / VGM-0** | CC owns both hulls through the short-period band |
 | **2.75–4.50 s** | **ff+PID** | **ff+PID** | ff+PID owns the mid-band hull after the basis fix |
 | **4.75–5.25 s** | **opt_passive / VGM-0** | **opt_passive / VGM-0** | Narrow VGM-0 window where tuned passive retakes both hulls |
@@ -212,8 +205,9 @@ That divergence is now a **short-period normalization/reference effect**:
   visible η > 1 points, but the efficiency hull deliberately excludes those passive-
   bound exceedances and therefore selects opt_passive's best sub-unity `η`.
 - At **1.00 s** and **1.25 s**, both hulls stay within CC, but the efficiency hull
-  prefers a different flap angle than the power hull; at **1.00 s** the stale
-  `linear_popt_invalid` cleanup changes the winning CC flap from VGM-90 to VGM-45.
+  prefers a different flap angle than the power hull because the higher-`eta`
+  CC candidates above the passive reference are recorded and excluded rather than
+  silently taking the hull.
 
 Every period from **1.50 s onward** now has the **same controller winner** on both the
 power and efficiency hulls.

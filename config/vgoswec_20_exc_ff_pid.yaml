@@ -46,6 +46,8 @@ hinge:
   gravity_buoyancy_stiffness: 0.867  # [N·m/rad] measured gravity-buoyancy restoring couple about the hinge
 
 hydro:
+  # Intentional: exc_ff_pid uses the CG-basis excitation-force model from h5_file.
+  # Do not add impedance_h5_file here unless the controller design itself changes.
   h5_file: hydroData/vgoswec_20.h5
   rho: 1025.0
 

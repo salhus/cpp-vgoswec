@@ -13,28 +13,36 @@ Project Chrono for multi-body dynamics.
 - **Wave default**: Regular waves, H = 0.05 m, T = 1.5 s
 - **Four pluggable PTO controllers**: passive (placeholder — tune with tank data), optimal-passive, complex-conjugate, excitation-FF+PID
 
-## Controller / flap-config co-design — three-regime relay
+## Current status / handoff
 
-Across the full VGOSWEC flap-vent sweep (VGM-0 = vents closed → VGM-90 = vents fully
-open), three controllers occupy complementary period bands in a clean relay:
+**Start with [`docs/STATUS.md`](docs/STATUS.md).** It is the primary self-contained
+handoff document for the current repository state.
 
-- **CC (complex-conjugate)** dominates short periods (T ≲ 2 s), tracking the Budal
-  theoretical optimum with up to 2.34 W at T = 1.5 s.
-- **opt_passive** (optimal resistive damping) matches a tuned feedforward controller at
-  each flap's resonance peak with a single tuning-free coefficient. The resonance hump
-  marches across T = 2.5–4.75 s as the flap angle changes.
-- **ff+PID** (excitation-feedforward + PID) carries the long-period tail past resonance
-  with no reactive-power penalty.
+For the **three-regime controller-comparison campaign**, the **simulation and
+data-generation phase is complete**. What remains is post-processing interpretation,
+documentation, and follow-on analysis.
 
-The flap angle acts as a co-design knob that shifts the resonance period — and thus the
-crossover between regimes — across the full T = 2.5–5 s band.
+Current committed hull summary:
+
+- **CC** owns the short-period band through **T = 2.5 s**, peaking at
+  **2.44488972 W** at **T = 1.5 s** (`VGM-0`).
+- **ff+PID** owns most of the mid-band (**T = 2.75–4.5 s**) and most of the long tail
+  (**T = 5.5–6.75 s**).
+- **opt_passive** holds a narrow **VGM-0** window at **T = 4.75–5.25 s**, plus
+  **T = 7.0 s**, and wins the efficiency hull at **T = 0.50/0.75 s**.
+
+Use the committed envelope CSVs as the source of truth:
+
+- [`analysis/three_regime/operating_envelope.csv`](analysis/three_regime/operating_envelope.csv)
+- [`analysis/three_regime/operating_envelope_efficiency.csv`](analysis/three_regime/operating_envelope_efficiency.csv)
 
 ![Three-regime operating envelope](analysis/three_regime/figures/operating_envelope.png)
 
-*Master operating envelope: upper hull of captured power over all (controller, flap-angle)
-combinations at every wave period. CC + VGM-0 dominates short T; opt_passive and ff+PID
-with the T₀-matched flap dominate resonance; ff+PID + VGM-0 dominates the long tail.
-See [`analysis/FINDINGS_3REGIME.md`](analysis/FINDINGS_3REGIME.md) for the full findings.*
+*Master operating envelope: upper hull of captured power over all
+(`controller`, `flap-angle`) combinations at every wave period. See
+[`docs/STATUS.md`](docs/STATUS.md) and
+[`analysis/FINDINGS_3REGIME.md`](analysis/FINDINGS_3REGIME.md) for the current
+interpretation.*
 
 Reproduce all figures from committed CSVs (no solver needed):
 ```bash
