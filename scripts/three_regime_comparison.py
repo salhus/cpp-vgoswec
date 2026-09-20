@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """Three-controller regime comparison for VGOSWEC flap variants.
 
-Three-regime relay: CC (short periods) → opt_passive (resonance band) → ff+PID (long periods).
+Committed, hinge-basis envelopes currently show:
+  - CC owns the short-period hull through T = 2.5 s.
+  - ff+PID owns most mid-band points on both power and efficiency hulls
+    (T = 2.75–4.5 s and 5.5–6.75 s).
+  - opt_passive re-enters on VGM-0 at T = 4.75–5.25 s and T = 7.0 s, and is the
+    only efficiency-hull winner at T = 0.5 s and 0.75 s.
 
 Loads per-flap CSVs from:
   analysis/cc/               — complex-conjugate controller
@@ -29,11 +34,10 @@ Per-flap peak table (opt_passive resonance humps march with flap angle):
   VGM-0:  0.681 W at T=4.75 s
 
 Three-regime key result:
-  CC wins T ≲ 2 s (near Budal bound, up to 2.34 W).
-  opt_passive ties/beats ff+PID at the resonance peak for low-angle flaps (VGM-0/10/20);
-  ff+PID edges it for high-angle flaps (VGM-45/90). opt_passive matches a tuned
-  feedforward controller at resonance with a single tuning-free damping coefficient.
-  ff+PID carries the long tail past resonance.
+  The regenerated hulls no longer support a repository-wide CC → opt_passive → ff+PID
+  relay headline. CC still dominates the short-period band, ff+PID dominates most of
+  the resonance and long-tail hull points, and opt_passive wins a narrower VGM-0 window
+  around T = 4.75–5.25 s (plus T = 7.0 s).
 
 Rows flagged `reactive_cancellation_limited=true` in CC CSVs are excluded from
 overlays and from both operating envelopes.
